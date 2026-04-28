@@ -1,0 +1,16 @@
+# ARQUITETURA: COGNIÇÃO DE BAIXA INTENSIDADE
+# FOCO: TREINO LOCAL, SERVIDÃO E HARDWARE ANTIGO
+# ===============================================
+    
+  # --- ESTADOS BIO-INSPIRADOS E DETERMINÍSTICOS ---
+        self._state_x = -70.0 # Destino Determinístico (mV)
+        self._A, self._B = 0.98, 0.02
+        self._th = {'ajuda': 0.6, 'paz': 0.8, 'triste': -0.5, 'mal': -0.6, 'burra': -0.1}
+
+    # --- MATEMÁTICA PURA (SINAPSES) ---
+    def _dot(self, v1, v2): return sum(x * y for x, y in zip(v1, v2))
+    def _norm(self, v): return math.sqrt(sum(x*x for x in v)) + 1e-9
+    def _sim(self, v1, v2): return self._dot(v1, v2) / (self._norm(v1) * self._norm(v2)) 
+
+
+                    M*d/e = 0°a0 
