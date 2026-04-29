@@ -2,7 +2,7 @@
 Transformer deterministo - Dlm class 1-2
 Quintikus Proton-Flow TDLM v117.0 [MIT]
 
-<img src="https://github.com/beta-test-Ronan/QuintikusOpen/blob/main/model-Dlm.png?raw=true" alt="Descrição da imagem">
+<img src="https://github.com/beta-test-Ronan/QuintikusOpen/blob/main/model-Dlm-f.png?raw=true" alt="Descrição da imagem">
 <br>
 
 Visão Geral
