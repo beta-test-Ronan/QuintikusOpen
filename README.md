@@ -1,4 +1,4 @@
-# 🤖 QuintikusOpen
+#  QuintikusOpen
 
 **Transformer deterministo – Dlm class 1‑2**  
 **Quintikus Proton-Flow TDLM v117.0 [MIT]**
@@ -110,12 +110,12 @@ Implementa um **estado interno de temperatura emocional** (três variáveis), um
 | `mm.txt`                      | Arquétipos de personalidade *"mm"*.                        |
 | `blockchain_machado.cache`    | Cache da blockchain (gerado automaticamente).              |
 
----
+
 
 ## ✍️ Formato dos Arquétipos (`mc.txt`, `mm.txt`)
 Os ficheiros devem conter marcadores como os seguintes:
 
-```text
+
 <intro>
 Frase de introdução 1
 Frase de introdução 2
@@ -124,14 +124,12 @@ Frase de introdução 2
 <concl>
 ...
 
-text
 
 
----
 
 ## 💬 Exemplo de Uso
 
-```bash
+
 📄 PARÁGRAFO GERADO (mesmo texto para as duas IAs):
 
 Saída típica durante a interação:
@@ -147,7 +145,8 @@ LAYER-2 (MASSA): O fluxo galvânico inicializa o sistema sem base externa.
 [DLM-FLOW: 45.23μs | D:8/10 | T:0.2 | DLM-ACTIVE | SIGN: 25e0bb26]
 No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso, ... Aguardando nexo.
 
-📝 Notas Técnicas
+
+## 📝 Notas Técnicas
 
     A IA analítica utiliza hash e entropia para associar perguntas a factos.
 
@@ -156,6 +155,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
     O estado térmico (self._st) influencia a escolha de frases e o tom da resposta.
 
     Todo o conhecimento da Camada 2 é compactado num parágrafo normalizado que alimenta a AGI, garantindo consistência total entre os dois núcleos.
+
 
 Versão: Quintikus Proton-Flow TDLM v117.0
 Autor: Ronan Basto
