@@ -21,18 +21,16 @@ uma responde de forma **lógica** e a outra de forma **emotiva**.
 
 ## 📦 Dependências
 
-| Biblioteca      | Utilização no código atual                            |
-|-----------------|-------------------------------------------------------|
-| `numpy`         |                                                       |
-| `hashlib`       | Geração de hashes de integridade e identificadores    |
-| `time`          | Simulação de processamento e métricas                 |
-| `pickle`        | Serialização da blockchain                            |
-| `os`            | Manipulação de arquivos                               |
-| `re`            | Processamento de texto (expressões regulares)         |
-| `random`        | Escolha aleatória de frases dos arquétipos            |
-|                                                                         |
-
----
+| Biblioteca     
+|---------------------|-------------------------------------------------------|
+| `numpy`             | Processamento linear                                  |
+| `hashlib`           | Geração de hashes de integridade e identificadores    |
+| `time`              | Simulação de processamento e métricas                 |
+| `pickle`            | Serialização da blockchain                            |
+| `os`                | Manipulação de arquivos                               |
+| `re`                | Processamento de texto (expressões regulares)         |
+| `random`            | Escolha aleatória de frases dos arquétipos            |
+| `sys`,`unicodedata` | Config system                                         |
 
 ## ⚙️ Estrutura de Classes
 
