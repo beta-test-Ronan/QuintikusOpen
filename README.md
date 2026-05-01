@@ -156,7 +156,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 
 ## Model
 
-   Agi = precessamento bruto e busca
+   Agi = precessamento bruto e busca<br>
    Fast = velocidade de busca grande contexto 
 
 Versão: Quintikus Proton-Flow TDLM v117.0
