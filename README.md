@@ -21,7 +21,7 @@ uma responde de forma **lógica** e a outra de forma **emotiva**.
 
 ## 📦 Dependências
 
-| Biblioteca     
+| Biblioteca          | Utilização no código atual                            |
 |---------------------|-------------------------------------------------------|
 | `numpy`             | Processamento linear                                  |
 | `hashlib`           | Geração de hashes de integridade e identificadores    |
