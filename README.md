@@ -119,24 +119,19 @@ Frase de introdução 2
 Exemplo de Uso
 bash
 
-$ python quintikus.py
-📄 PARÁGRAFO GERADO (mesmo texto para as duas IAs):
-...
-👤 RONAN: Qual o sentido do fluxo galvânico?
 
-Saída típica:
-text
-
-💡 [CARDUS MASTER FLOW | 0.15 μs | Quality: 100%]
-==============================================================================================================
-LAYER-1 (VISÃO): Analisei que Localizado nexo no ponteiro 12345678.
-LAYER-2 (MASSA): O fluxo galvânico inicializa o sistema sem base externa.
- | Pulse | [FLUXO] <-> [GALVÂNICO] | Densidade: 0.9234
--> fim. (Selo: Cardus-100)
-==============================================================================================================
-
-[DLM-FLOW: 45.23μs | D:8/10 | T:0.2 | DLM-ACTIVE | SIGN: 25e0bb26]
-No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso, ... Aguardando nexo.
+    📄 PARÁGRAFO GERADO (mesmo texto para as duas IAs):
+    Saída típica:
+    text
+    👤 RONAN: Qual o sentido do fluxo galvânico?
+    
+    💡 [CARDUS MASTER FLOW | 0.15 μs | Quality: 100%]
+    LAYER-1 (VISÃO): Analisei que Localizado nexo no ponteiro 12345678.
+    LAYER-2 (MASSA): O fluxo galvânico inicializa o sistema sem base externa.
+     | Pulse | [FLUXO] <-> [GALVÂNICO] | Densidade: 0.9234
+    -> fim. (Selo: Cardus-100)
+    [DLM-FLOW: 45.23μs | D:8/10 | T:0.2 | DLM-ACTIVE | SIGN: 25e0bb26]
+    No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso, ... Aguardando nexo.
 
 Notas Técnicas
 
