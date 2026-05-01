@@ -154,6 +154,10 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 
     Todo o conhecimento da Camada 2 é compactado num parágrafo normalizado que alimenta a AGI, garantindo consistência total entre os dois núcleos.
 
+## Model
+
+   Agi = precessamento bruto e busca
+   Fast = velocidade de busca grande contexto 
 
 Versão: Quintikus Proton-Flow TDLM v117.0
 Autor: Ronan Basto
