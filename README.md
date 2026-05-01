@@ -143,6 +143,6 @@ Notas Técnicas
 
     Todo o conhecimento da camada 2 é compactado em um parágrafo normalizado para alimentar a AGI, garantindo consistência.
 
-Versão: Quintikus Proton-Flow TDLM v117.0
+Versão: Quintikus Proton-Flow TDLM v117.0<br>
 Autor: Ronan Basto
 Licença: Livre para estudo e experimentação.
