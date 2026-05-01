@@ -49,15 +49,25 @@ Armazena o conhecimento em três camadas:
 
     word_rarity: raridade de palavras baseada na frequência.
 
-Arquétipos de personalidade (mc.txt e mm.txt) fornecem frases de introdução, ponte e conclusão para dois modos de fala.
-Principais Métodos
-Método	Descrição
-amadurecer_nexo(raw_text)	Processa o texto bruto: divide em fragmentos, calcula entropia, gera ponteiros e popula layer1_vision e layer2_mass. Retorna um bundle para ser selado na blockchain.
-falar_soberano(pergunta, cache)	Responde a uma pergunta comparando entropia das palavras com os registros da camada 1 e recupera o fato mais próximo. Inclui fraseologia dos arquétipos.
-carregar_fundamentos(mc_f, mm_f)	Carrega arquivos de arquétipos (formato <intro>, <ponte>, <concl>) e preenche self.arquétipos.
-exportar_banco_normalizado()	Converte todos os fatos da layer2_mass em um único parágrafo contínuo, sem duplicatas.
-texto()	Gera um relatório detalhado do estado atual do núcleo (para depuração).
-3. QuintikusAGI (Núcleo Emocional)
+# Documentação Técnica: Núcleo QuintikusAGI
+
+## 1. Arquétipos de Personalidade
+O sistema utiliza os arquivos `mc.txt` e `mm.txt` para definir o comportamento linguístico. Estes ficheiros fornecem a estrutura de frases (introdução, ponte e conclusão) para os dois modos de fala principais.
+
+* **Carregamento:** Os dados são extraídos no formato `, , ` para popular o atributo `self.arquetipos`.
+
+## 2. Métodos Principais
+
+| Método | Descrição |
+| :--- | :--- |
+| `amadurecer_nexo(raw_text)` | Processa o texto bruto, divide-o em fragmentos, calcula a entropia e popula as camadas `layer1_vision` e `layer2_mass`. Gera um *bundle* para registo em blockchain. |
+| `falar_soberano(pergunta, cache)` | Gera respostas comparando a entropia da pergunta com a Camada 1. Utiliza a fraseologia dos arquétipos para a saída de texto. |
+| `carregar_fundamentos(mc_f, mm_f)` | Carrega os ficheiros de arquétipos e preenche as definições de personalidade. |
+| `exportar_banco_normalizado()` | Converte os factos da `layer2_mass` num parágrafo único e contínuo, livre de duplicados. |
+| `texto()` | Gera um relatório de estado do núcleo para depuração (debug). |
+
+## 3. QuintikusAGI (Núcleo Emocional)
+Responsável pela gestão dos estados internos e integração com os métodos de fala e processamento de nexo.
 
 Implementa um estado interno de temperatura emocional (três variáveis), um dicionário de palavras com força e raridade, e uma memória em cadeia (DLM) que liga épocas de contexto.
 Método	Descrição
