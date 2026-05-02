@@ -1,0 +1,40 @@
+class Lexicon:
+    """Armazena palavras com tags gramaticais e propriedades semânticas."""
+
+
+self._add("banana", "substantivo", genero="feminino", propriedades={"amarela", "doce", "fruta"})
+
+self.data[palavra] = {"classe": classe, **kwargs}
+
+return self.data.get(palavra, None)
+
+"""Retorna a palavra menos usada (para esquecimento)."""
+
+"""Remove uma palavra do léxico (homeostase)."""
+
+"""Retorna artigo adequado ao gênero do substantivo."""
+
+class Grammar:
+    """Gerencia regras sintáticas e geração de frases de acordo com a idade."""
+# Regras no formato: não-terminal -> [símbolos]
+        self.regras = {
+            "S": [["NP", "VP"]],
+            "NP": [["Art", "N"], ["N"], ["Pron"]],
+            "VP": [["V"], ["V", "NP"], ["V", "Adj"]],
+        }
+
+ def gerar_frase_telegrafico(self, intencao: str) -> str:
+
+ def gerar_palavra_unica(self, intencao: str) -> str:
+
+def gerar(self, intencao: str) -> str:
+
+class Homeostasis:
+    """Controla carga de estresse e desencadeia limpeza de cache."""
+
+class ModeloInterno:
+    """Armazena expectativas e calcula surpresa (energia livre)."""
+
+class Cerebro:
+    """Sistema completo que simula aquisição de linguagem com homeostase e feedback."""
+    
