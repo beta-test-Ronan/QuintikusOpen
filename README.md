@@ -158,6 +158,33 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 
    Agi = precessamento bruto e busca<br>
    Fast = velocidade de busca grande contexto 
+   Doomoble = IA transformer de bolso
+   
+# Quintikus Doomoble 🥔🧠
+
+
+**Assistente pessoal offline, IA transformer de bolso, que roda até em celular.**
+
+- [📜 Código Principal](QuintikusOpenDoomoble.py)
+- [🧠 Como usar](#como-usar)
+- [🔧 Personalização](#personalização)
+- [📦 Especialistas prontos](especialistas/)
+- [📄 Licença MIT](LICENSE)
+
+## O que é?
+O Quintikus Doomoble é um motor de IA baseado em transformer, escrito em Python puro + NumPy.  
+Ele entende regras, aprende com frases, traduz intenções, e pode controlar dispositivos reais.
+
+## Características
+- 🚫 **Offline e privado** – seus dados nunca saem do seu dispositivo.
+- 📏 **Leve** – menos de 2 MB por especialista.
+- 🧠 **Memória viva** – aprende sem retreino, só adicionando frases.
+- 🗣️ **Tradutor de intenções** – entende linguagem natural.
+- 🔌 **Conecta ao mundo real** – GPIO, e‑mail, câmera.
+
+## Como usar
+python3 QuintikusOpenDoomoble.py
+
 
 Versão: Quintikus Proton-Flow TDLM v117.0
 Autor: Ronan Basto
