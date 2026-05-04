@@ -7,8 +7,6 @@
 </head>
 <body>
 
-<h1>QuintikusOpen</h1>
-
 <p><strong>Transformer deterministo – Dlm class 1‑2</strong><br>
 <strong>Quintikus Proton-Flow TDLM v117.0 [MIT]</strong></p>
 
