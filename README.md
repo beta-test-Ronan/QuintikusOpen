@@ -4,12 +4,10 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
+
 </head>
 <body id="google_translate_element">
 
-
-<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 <p><strong>Transformer deterministo – Dlm class 1‑2</strong><br>
 <strong>Quintikus Proton-Flow TDLM v117.0 [MIT]</strong></p>
 
