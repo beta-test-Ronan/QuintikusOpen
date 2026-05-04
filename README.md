@@ -7,7 +7,7 @@
     <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-    google-site-verification: google739aba7ebb7b7959.html
+ 
 </head>
 <body id="google_translate_element">
 
