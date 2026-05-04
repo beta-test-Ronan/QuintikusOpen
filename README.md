@@ -6,7 +6,18 @@
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
-
+<div id="google_translate_element"></div>
+<script type="text/javascript">
+  function googleTranslateElementInit() {
+    new google.translate.TranslateElement({
+      pageLanguage: 'pt',
+      includedLanguages: 'en,es,fr,de,it,ja,ko,zh-CN',
+      layout: google.translate.TranslateElement.InlineLayout.HORIZONTAL,
+      autoDisplay: false
+    }, 'google_translate_element');
+  }
+</script>
+<script type="text/javascript" src="//translate.google.com/translate_a/element.js?cb=googleTranslateElementInit"></script>
 <p><strong>Transformer deterministo – Dlm class 1‑2</strong><br>
 <strong>Quintikus Proton-Flow TDLM v117.0 [MIT]</strong></p>
 
