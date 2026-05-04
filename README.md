@@ -5,8 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
 </head>
-<body>
-<div id="google_translate_element"></div>
+<body id="google_translate_element">
+
 <script type="text/javascript">
   function googleTranslateElementInit() {
     new google.translate.TranslateElement({
