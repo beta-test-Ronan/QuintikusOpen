@@ -217,11 +217,11 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 <p><strong>Assistente pessoal offline, IA transformer de bolso, que roda até em celular.</strong></p>
 
 <ul>
-    <li><a href="QuintikusOpenDoomoble.py">📜 Código Principal</a></li>
-    <li><a href="#como-usar">🧠 Como usar</a></li>
-    <li><a href="#personalização">🔧 Personalização</a></li>
-    <li><a href="especialistas/">📦 Especialistas prontos</a></li>
-    <li><a href="LICENSE">📄 Licença MIT</a></li>
+    <li>📜 Código Principal</li>
+    <li>🧠 Como usar</li>
+    <li>🔧 Personalização</a></li>
+    <li>📦 Especialistas prontos</a></li>
+    <li>📄 Licença MIT</a></li>
 </ul>
 
 <h2>O que é?</h2>
