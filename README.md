@@ -7,7 +7,10 @@
     <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="style.css">
-
+<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=GTM-PT5BVGX8"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->
 </head>
 <body id="google_translate_element">
 
