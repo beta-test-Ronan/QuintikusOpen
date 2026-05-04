@@ -1,3 +1,4 @@
+🌐 Traduzir esta página: [English](https://translate.google.com/translate?hl=en&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Español](https://translate.google.com/translate?hl=es&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Français](https://translate.google.com/translate?hl=fr&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)
 <!DOCTYPE html>
 <html lang="pt">
 <head>
