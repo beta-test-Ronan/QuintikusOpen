@@ -1,191 +1,330 @@
-#  QuintikusOpen
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>QuintikusOpen</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 2rem;
+            color: #24292e;
+            background: #fff;
+        }
+        h1, h2, h3, h4, h5, h6 {
+            margin-top: 1.5em;
+            margin-bottom: 0.5em;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+        h1 { font-size: 2em; border-bottom: 1px solid #eaecef; padding-bottom: 0.3em; }
+        h2 { font-size: 1.5em; border-bottom: 1px solid #eaecef; padding-bottom: 0.2em; }
+        h3 { font-size: 1.25em; }
+        h4 { font-size: 1em; }
+        p { margin-top: 0; margin-bottom: 1rem; }
+        a { color: #0366d6; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        strong { font-weight: 600; }
+        code {
+            background: rgba(27,31,35,0.05);
+            padding: 0.2em 0.4em;
+            border-radius: 3px;
+            font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+            font-size: 85%;
+        }
+        pre {
+            background: #f6f8fa;
+            padding: 1rem;
+            overflow: auto;
+            line-height: 1.45;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+        }
+        pre code {
+            background: none;
+            padding: 0;
+            font-size: 100%;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 1rem;
+            display: block;
+            overflow-x: auto;
+        }
+        th, td {
+            padding: 0.5rem 1rem;
+            border: 1px solid #dfe2e5;
+            text-align: left;
+        }
+        th {
+            background: #f6f8fa;
+            font-weight: 600;
+        }
+        blockquote {
+            padding: 0 1rem;
+            color: #6a737d;
+            border-left: 0.25em solid #dfe2e5;
+            margin: 0 0 1rem 0;
+        }
+        hr {
+            border: 0;
+            height: 0.25em;
+            background: #e1e4e8;
+            margin: 2rem 0;
+        }
+        ul, ol {
+            padding-left: 2em;
+            margin-bottom: 1rem;
+        }
+        img {
+            max-width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
 
-**Transformer deterministo – Dlm class 1‑2**  
-**Quintikus Proton-Flow TDLM v117.0 [MIT]**
+<h1>QuintikusOpen</h1>
 
-![Modelo Dual Loop Memory F](https://github.com/beta-test-Ronan/QuintikusOpen/blob/main/model-Dlm-f.png?raw=true)
+<p><strong>Transformer deterministo – Dlm class 1‑2</strong><br>
+<strong>Quintikus Proton-Flow TDLM v117.0 [MIT]</strong></p>
 
----
+<img src="https://github.com/beta-test-Ronan/QuintikusOpen/blob/main/model-Dlm-f.png?raw=true" alt="Modelo Dual Loop Memory F">
 
-## 📌 Visão Geral
+<hr>
 
-O sistema implementa uma arquitetura de **Dupla Inteligência Artificial** com suporte a blockchain de conhecimento:
+<h2>📌 Visão Geral</h2>
 
-- **QuintikusSovereignCore** – IA Analítica, baseada em camadas de visão e massa geradas a partir de um texto fonte.
-- **QuintikusAGI** – IA Emocional, com estados térmicos internos, memória associativa (DLM – *Dual Loop Memory*) e personalidade dinâmica.
+<p>O sistema implementa uma arquitetura de <strong>Dupla Inteligência Artificial</strong> com suporte a blockchain de conhecimento:</p>
 
-Ambas as IAs partilham o mesmo parágrafo de treino extraído do núcleo analítico, mas operam com paradigmas distintos:  
-uma responde de forma **lógica** e a outra de forma **emotiva**.
+<ul>
+    <li><strong>QuintikusSovereignCore</strong> – IA Analítica, baseada em camadas de visão e massa geradas a partir de um texto fonte.</li>
+    <li><strong>QuintikusAGI</strong> – IA Emocional, com estados térmicos internos, memória associativa (DLM – <em>Dual Loop Memory</em>) e personalidade dinâmica.</li>
+</ul>
 
----
+<p>Ambas as IAs partilham o mesmo parágrafo de treino extraído do núcleo analítico, mas operam com paradigmas distintos:<br>
+uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiva</strong>.</p>
 
-## 📦 Dependências
+<hr>
 
-| Biblioteca          | Utilização no código atual                            |
-|---------------------|-------------------------------------------------------|
-| `numpy`             | Processamento linear                                  |
-| `hashlib`           | Geração de hashes de integridade e identificadores    |
-| `time`              | Simulação de processamento e métricas                 |
-| `pickle`            | Serialização da blockchain                            |
-| `os`                | Manipulação de arquivos                               |
-| `re`                | Processamento de texto (expressões regulares)         |
-| `random`            | Escolha aleatória de frases dos arquétipos            |
-| `sys`,`unicodedata` | Config system                                         |
+<h2>📦 Dependências</h2>
 
-## ⚙️ Estrutura de Classes
+<table>
+    <thead>
+        <tr>
+            <th>Biblioteca</th>
+            <th>Utilização no código atual</th>
+        </tr>
+    </thead>
+    <tbody>
+        <tr><td><code>numpy</code></td><td>Processamento linear</td></tr>
+        <tr><td><code>hashlib</code></td><td>Geração de hashes de integridade e identificadores</td></tr>
+        <tr><td><code>time</code></td><td>Simulação de processamento e métricas</td></tr>
+        <tr><td><code>pickle</code></td><td>Serialização da blockchain</td></tr>
+        <tr><td><code>os</code></td><td>Manipulação de arquivos</td></tr>
+        <tr><td><code>re</code></td><td>Processamento de texto (expressões regulares)</td></tr>
+        <tr><td><code>random</code></td><td>Escolha aleatória de frases dos arquétipos</td></tr>
+        <tr><td><code>sys</code>, <code>unicodedata</code></td><td>Config system</td></tr>
+    </tbody>
+</table>
 
-### 1. SovereignBlockchain
-Responsável pela persistência e integridade do conhecimento gerado.
+<h2>⚙️ Estrutura de Classes</h2>
 
-| Método                          | Descrição                                                                                  |
-|---------------------------------|--------------------------------------------------------------------------------------------|
-| `__init__(name)`                | Define o caminho do ficheiro de cache (`blockchain_{name}.cache`).                         |
-| `selar_memoria(knowledge_bundle)` | Serializa o *bundle* com `pickle` e retorna o hash SHA‑256 (8 caracteres) como assinatura. |
-| `carregar_ponteiro()`           | Carrega o *bundle* do disco, se o ficheiro existir.                                        |
+<h3>1. SovereignBlockchain</h3>
+<p>Responsável pela persistência e integridade do conhecimento gerado.</p>
 
-### 2. QuintikusSovereignCore (Núcleo Analítico)
-Armazena o conhecimento em três camadas:
+<table>
+    <thead>
+        <tr><th>Método</th><th>Descrição</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>__init__(name)</code></td><td>Define o caminho do ficheiro de cache (<code>blockchain_{name}.cache</code>).</td></tr>
+        <tr><td><code>selar_memoria(knowledge_bundle)</code></td><td>Serializa o <em>bundle</em> com <code>pickle</code> e retorna o hash SHA‑256 (8 caracteres) como assinatura.</td></tr>
+        <tr><td><code>carregar_ponteiro()</code></td><td>Carrega o <em>bundle</em> do disco, se o ficheiro existir.</td></tr>
+    </tbody>
+</table>
 
-- `layer1_vision` – visões sintéticas com ponteiros, entropia e janelas de contexto.
-- `layer2_mass` – factos brutos originais.
-- `word_rarity` – raridade de palavras baseada na frequência.
+<h3>2. QuintikusSovereignCore (Núcleo Analítico)</h3>
+<p>Armazena o conhecimento em três camadas:</p>
 
-#### 🧠 Métodos Principais
+<ul>
+    <li><code>layer1_vision</code> – visões sintéticas com ponteiros, entropia e janelas de contexto.</li>
+    <li><code>layer2_mass</code> – factos brutos originais.</li>
+    <li><code>word_rarity</code> – raridade de palavras baseada na frequência.</li>
+</ul>
 
-| Método                                    | Descrição                                                                                           |
-|-------------------------------------------|-----------------------------------------------------------------------------------------------------|
-| `amadurecer_nexo(raw_text)`               | Processa o texto bruto, divide‑o em fragmentos, calcula entropia e povoa `layer1_vision` e `layer2_mass`. Gera *bundle* para a blockchain. |
-| `falar_soberano(pergunta, cache)`         | Gera respostas comparando a entropia da pergunta com a **Camada 1**. Usa os arquétipos para a saída textual. |
-| `carregar_fundamentos(mc_f, mm_f)`        | Carrega os ficheiros de arquétipos e preenche as definições de personalidade.                      |
-| `exportar_banco_normalizado()`            | Converte os factos da `layer2_mass` num parágrafo único e contínuo, livre de duplicados.           |
-| `texto()`                                 | Gera um relatório do estado do núcleo para depuração (*debug*).                                    |
+<h4>🧠 Métodos Principais</h4>
 
-> 📖 **Arquétipos de Personalidade**  
-> Os ficheiros `mc.txt` e `mm.txt` definem o comportamento linguístico. São carregados no formato 
-> `<intro>`, `<ponte>`, `<concl>` para popular o atributo `self.arquetipos`.
+<table>
+    <thead>
+        <tr><th>Método</th><th>Descrição</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>amadurecer_nexo(raw_text)</code></td><td>Processa o texto bruto, divide‑o em fragmentos, calcula entropia e povoa <code>layer1_vision</code> e <code>layer2_mass</code>. Gera <em>bundle</em> para a blockchain.</td></tr>
+        <tr><td><code>falar_soberano(pergunta, cache)</code></td><td>Gera respostas comparando a entropia da pergunta com a <strong>Camada 1</strong>. Usa os arquétipos para a saída textual.</td></tr>
+        <tr><td><code>carregar_fundamentos(mc_f, mm_f)</code></td><td>Carrega os ficheiros de arquétipos e preenche as definições de personalidade.</td></tr>
+        <tr><td><code>exportar_banco_normalizado()</code></td><td>Converte os factos da <code>layer2_mass</code> num parágrafo único e contínuo, livre de duplicados.</td></tr>
+        <tr><td><code>texto()</code></td><td>Gera um relatório do estado do núcleo para depuração (<em>debug</em>).</td></tr>
+    </tbody>
+</table>
 
-### 3. QuintikusAGI (Núcleo Emocional)
-Implementa um **estado interno de temperatura emocional** (três variáveis), um dicionário de palavras com força e raridade, e uma memória em cadeia (**DLM**) que liga épocas de contexto.
+<blockquote>
+<p>📖 <strong>Arquétipos de Personalidade</strong><br>
+Os ficheiros <code>mc.txt</code> e <code>mm.txt</code> definem o comportamento linguístico. São carregados no formato<br>
+<code>&lt;intro&gt;</code>, <code>&lt;ponte&gt;</code>, <code>&lt;concl&gt;</code> para popular o atributo <code>self.arquetipos</code>.</p>
+</blockquote>
 
-| Método               | Descrição                                                                                                              |
-|----------------------|------------------------------------------------------------------------------------------------------------------------|
-| `__init__(_t)`       | Inicializa estados térmicos, dicionários e blocos filosóficos em hexadecimal.                                         |
-| `inicializar(_txt)`  | Analisa o parágrafo de entrada: estatísticas de palavras, criação de épocas (grupos de 5 frases) e construção da DLM. |
-| `_upd_thermal(_q)`   | Atualiza os estados de estresse e harmonia com base nas palavras‑chave da pergunta (tabela de valências).             |
-| `falar(_qi)`         | Gera uma resposta usando a melhor época que intersecta a pergunta, aplica a DLM e escolhe frases de abertura/fecho conforme o estado térmico. |
+<h3>3. QuintikusAGI (Núcleo Emocional)</h3>
+<p>Implementa um <strong>estado interno de temperatura emocional</strong> (três variáveis), um dicionário de palavras com força e raridade, e uma memória em cadeia (<strong>DLM</strong>) que liga épocas de contexto.</p>
 
----
+<table>
+    <thead>
+        <tr><th>Método</th><th>Descrição</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>__init__(_t)</code></td><td>Inicializa estados térmicos, dicionários e blocos filosóficos em hexadecimal.</td></tr>
+        <tr><td><code>inicializar(_txt)</code></td><td>Analisa o parágrafo de entrada: estatísticas de palavras, criação de épocas (grupos de 5 frases) e construção da DLM.</td></tr>
+        <tr><td><code>_upd_thermal(_q)</code></td><td>Atualiza os estados de estresse e harmonia com base nas palavras‑chave da pergunta (tabela de valências).</td></tr>
+        <tr><td><code>falar(_qi)</code></td><td>Gera uma resposta usando a melhor época que intersecta a pergunta, aplica a DLM e escolhe frases de abertura/fecho conforme o estado térmico.</td></tr>
+    </tbody>
+</table>
 
-## 🔁 Fluxo de Execução Principal
+<hr>
 
-1. **Inicialização**  
-   - Instancia `QuintikusSovereignCore` e carrega arquétipos (`mc.txt`, `mm.txt`).  
-   - Lê `texto.txt` (ou usa texto padrão).  
-   - Se não existir blockchain em cache, processa o texto via `amadurecer_nexo` e sela.
+<h2>🔁 Fluxo de Execução Principal</h2>
 
-2. **Preparação do Parágrafo Único**  
-   - Carrega a memória ativa da blockchain.  
-   - Gera um parágrafo contínuo com `exportar_banco_normalizado()`.  
-   - Exibe os primeiros 500 caracteres.
+<ol>
+    <li>
+        <strong>Inicialização</strong>
+        <ul>
+            <li>Instancia <code>QuintikusSovereignCore</code> e carrega arquétipos (<code>mc.txt</code>, <code>mm.txt</code>).</li>
+            <li>Lê <code>texto.txt</code> (ou usa texto padrão).</li>
+            <li>Se não existir blockchain em cache, processa o texto via <code>amadurecer_nexo</code> e sela.</li>
+        </ul>
+    </li>
+    <li>
+        <strong>Preparação do Parágrafo Único</strong>
+        <ul>
+            <li>Carrega a memória ativa da blockchain.</li>
+            <li>Gera um parágrafo contínuo com <code>exportar_banco_normalizado()</code>.</li>
+            <li>Exibe os primeiros 500 caracteres.</li>
+        </ul>
+    </li>
+    <li>
+        <strong>Inicialização da AGI Emocional</strong>
+        <ul>
+            <li>Cria uma instância de <code>QuintikusAGI</code> e chama <code>inicializar()</code> com o mesmo parágrafo usado pelo núcleo analítico.</li>
+        </ul>
+    </li>
+    <li>
+        <strong>Loop Interativo</strong>
+        <ul>
+            <li>Pergunta ao utilizador (<code>RONAN:</code>).</li>
+            <li>Obtém resposta <strong>lógica</strong> de <code>SovereignCore.falar_soberano()</code>.</li>
+            <li>Obtém resposta <strong>emocional</strong> de <code>AGI.falar()</code>, passando o comando e o texto original.</li>
+            <li>Exibe a resposta da AGI com efeito de digitação (<code>efeito_llm</code>).</li>
+        </ul>
+    </li>
+</ol>
 
-3. **Inicialização da AGI Emocional**  
-   - Cria uma instância de `QuintikusAGI` e chama `inicializar()` com o mesmo parágrafo usado pelo núcleo analítico.
+<hr>
 
-4. **Loop Interativo**  
-   - Pergunta ao utilizador (`RONAN:`).  
-   - Obtém resposta **lógica** de `SovereignCore.falar_soberano()`.  
-   - Obtém resposta **emocional** de `AGI.falar()`, passando o comando e o texto original.  
-   - Exibe a resposta da AGI com efeito de digitação (`efeito_llm`).
+<h2>📁 Arquivos Necessários</h2>
 
----
+<table>
+    <thead>
+        <tr><th>Arquivo</th><th>Função</th></tr>
+    </thead>
+    <tbody>
+        <tr><td><code>texto.txt</code></td><td>Texto fonte para treino do núcleo analítico.</td></tr>
+        <tr><td><code>mc.txt</code></td><td>Arquétipos de personalidade <em>"mc"</em> (intro / ponte / concl).</td></tr>
+        <tr><td><code>mm.txt</code></td><td>Arquétipos de personalidade <em>"mm"</em>.</td></tr>
+        <tr><td><code>blockchain_machado.cache</code></td><td>Cache da blockchain (gerado automaticamente).</td></tr>
+    </tbody>
+</table>
 
-## 📁 Arquivos Necessários
+<h2>✍️ Formato dos Arquétipos (<code>mc.txt</code>, <code>mm.txt</code>)</h2>
+<p>Os ficheiros devem conter marcadores como os seguintes:</p>
 
-| Arquivo                       | Função                                                     |
-|-------------------------------|------------------------------------------------------------|
-| `texto.txt`                   | Texto fonte para treino do núcleo analítico.               |
-| `mc.txt`                      | Arquétipos de personalidade *"mc"* (intro / ponte / concl).|
-| `mm.txt`                      | Arquétipos de personalidade *"mm"*.                        |
-| `blockchain_machado.cache`    | Cache da blockchain (gerado automaticamente).              |
-
-
-
-## ✍️ Formato dos Arquétipos (`mc.txt`, `mm.txt`)
-Os ficheiros devem conter marcadores como os seguintes:
-
-
-<intro>
+<pre><code>&lt;intro&gt;
 Frase de introdução 1
 Frase de introdução 2
-<ponte>
+&lt;ponte&gt;
 ...
-<concl>
+&lt;concl&gt;
 ...
+</code></pre>
 
+<h2>💬 Exemplo de Uso</h2>
 
+<pre><code>📄 PARÁGRAFO GERADO (mesmo texto para as duas IAs):
+</code></pre>
 
+<p>Saída típica durante a interação:</p>
 
-## 💬 Exemplo de Uso
-
-
-📄 PARÁGRAFO GERADO (mesmo texto para as duas IAs):
-
-Saída típica durante a interação:
-text
-
-👤 RONAN: Qual o sentido do fluxo galvânico?
+<pre><code class="language-text">👤 RONAN: Qual o sentido do fluxo galvânico?
 
 💡 [CARDUS MASTER FLOW | 0.15 μs | Quality: 100%]
 LAYER-1 (VISÃO): Analisei que Localizado nexo no ponteiro 12345678.
 LAYER-2 (MASSA): O fluxo galvânico inicializa o sistema sem base externa.
- | Pulse | [FLUXO] <-> [GALVÂNICO] | Densidade: 0.9234
--> fim. (Selo: Cardus-100)
+ | Pulse | [FLUXO] &lt;-&gt; [GALVÂNICO] | Densidade: 0.9234
+-&gt; fim. (Selo: Cardus-100)
 [DLM-FLOW: 45.23μs | D:8/10 | T:0.2 | DLM-ACTIVE | SIGN: 25e0bb26]
 No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso, ... Aguardando nexo.
+</code></pre>
 
+<h2>📝 Notas Técnicas</h2>
 
-## 📝 Notas Técnicas
+<ul>
+    <li>A IA analítica utiliza hash e entropia para associar perguntas a factos.</li>
+    <li>A IA emocional usa uma rede de memória temporal (DLM) que liga épocas consecutivas.</li>
+    <li>O estado térmico (<code>self._st</code>) influencia a escolha de frases e o tom da resposta.</li>
+    <li>Todo o conhecimento da Camada 2 é compactado num parágrafo normalizado que alimenta a AGI, garantindo consistência total entre os dois núcleos.</li>
+</ul>
 
-    A IA analítica utiliza hash e entropia para associar perguntas a factos.
+<h2>Model</h2>
 
-    A IA emocional usa uma rede de memória temporal (DLM) que liga épocas consecutivas.
-
-    O estado térmico (self._st) influencia a escolha de frases e o tom da resposta.
-
-    Todo o conhecimento da Camada 2 é compactado num parágrafo normalizado que alimenta a AGI, garantindo consistência total entre os dois núcleos.
-
-## Model
-
-   Agi = precessamento bruto e busca<br>
+<pre><code>   Agi = precessamento bruto e busca&lt;br&gt;
    Fast = velocidade de busca grande contexto 
    Doomoble = IA transformer de bolso
-   
-# Quintikus Doomoble 🥔🧠
+</code></pre>
 
+<h1>Quintikus Doomoble 🥔🧠</h1>
 
-**Assistente pessoal offline, IA transformer de bolso, que roda até em celular.**
+<p><strong>Assistente pessoal offline, IA transformer de bolso, que roda até em celular.</strong></p>
 
-- [📜 Código Principal](QuintikusOpenDoomoble.py)
-- [🧠 Como usar](#como-usar)
-- [🔧 Personalização](#personalização)
-- [📦 Especialistas prontos](especialistas/)
-- [📄 Licença MIT](LICENSE)
+<ul>
+    <li><a href="QuintikusOpenDoomoble.py">📜 Código Principal</a></li>
+    <li><a href="#como-usar">🧠 Como usar</a></li>
+    <li><a href="#personalização">🔧 Personalização</a></li>
+    <li><a href="especialistas/">📦 Especialistas prontos</a></li>
+    <li><a href="LICENSE">📄 Licença MIT</a></li>
+</ul>
 
-## O que é?
-O Quintikus Doomoble é um motor de IA baseado em transformer, escrito em Python puro + NumPy.  
-Ele entende regras, aprende com frases, traduz intenções, e pode controlar dispositivos reais.
+<h2>O que é?</h2>
+<p>O Quintikus Doomoble é um motor de IA baseado em transformer, escrito em Python puro + NumPy.<br>
+Ele entende regras, aprende com frases, traduz intenções, e pode controlar dispositivos reais.</p>
 
-## Características
-- 🚫 **Offline e privado** – seus dados nunca saem do seu dispositivo.
-- 📏 **Leve** – menos de 2 MB por especialista.
-- 🧠 **Memória viva** – aprende sem retreino, só adicionando frases.
-- 🗣️ **Tradutor de intenções** – entende linguagem natural.
-- 🔌 **Conecta ao mundo real** – GPIO, e‑mail, câmera.
+<h2>Características</h2>
+<ul>
+    <li>🚫 <strong>Offline e privado</strong> – seus dados nunca saem do seu dispositivo.</li>
+    <li>📏 <strong>Leve</strong> – menos de 2 MB por especialista.</li>
+    <li>🧠 <strong>Memória viva</strong> – aprende sem retreino, só adicionando frases.</li>
+    <li>🗣️ <strong>Tradutor de intenções</strong> – entende linguagem natural.</li>
+    <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
+</ul>
 
-## Como usar
-python3 QuintikusOpenDoomoble.py
+<h2>Como usar</h2>
+<pre><code>python3 QuintikusOpenDoomoble.py
+</code></pre>
 
+<p>Versão: Quintikus Proton-Flow TDLM v117.0<br>
+Autor: Ronan Basto<br>
+Licença: Livre para estudo e experimentação.</p>
 
-Versão: Quintikus Proton-Flow TDLM v117.0
-Autor: Ronan Basto
-Licença: Livre para estudo e experimentação.
+</body>
+</html>
