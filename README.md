@@ -217,9 +217,9 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 <ul>
     <li>📜 Código Principal</li>
     <li>🧠 Como usar</li>
-    <li>🔧 Personalização</a></li>
-    <li>📦 Especialistas prontos</a></li>
-    <li>📄 Licença MIT</a></li>
+    <li>🔧 Personalização</li>
+    <li>📦 Especialistas prontos</li>
+    <li>📄 Licença MIT<</li>
 </ul>
 
 <h2>O que é?</h2>
