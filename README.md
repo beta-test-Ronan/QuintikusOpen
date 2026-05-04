@@ -4,7 +4,6 @@
 <html lang="pt">
 <head>
     <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
-    <meta name="google-site-verification" content="evXskOm9GSvzBLMosfHcsjrkWdsH5H-b7CS2Qn7xPrw" />
     <meta charset="UTF-8">
     <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
