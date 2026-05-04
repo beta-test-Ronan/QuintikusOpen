@@ -3,6 +3,7 @@
 [Africâner](https://translate.google.com/translate?hl=af&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Swahili](https://translate.google.com/translate?hl=sw&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Zulu](https://translate.google.com/translate?hl=zu&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Yorùbá](https://translate.google.com/translate?hl=yo&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)
 <html lang="pt">
 <head>
+    <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
     <meta name="google-site-verification" content="evXskOm9GSvzBLMosfHcsjrkWdsH5H-b7CS2Qn7xPrw" />
     <meta charset="UTF-8">
     <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
