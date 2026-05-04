@@ -1,5 +1,6 @@
-🌐 Traduzir esta página: [English](https://translate.google.com/translate?hl=en&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Español](https://translate.google.com/translate?hl=es&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Français](https://translate.google.com/translate?hl=fr&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)
-<!DOCTYPE html>
+🌐 **Traduzir:**  
+[English](https://translate.google.com/translate?hl=en&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Español](https://translate.google.com/translate?hl=es&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [中文 (简)](https://translate.google.com/translate?hl=zh-CN&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [中文 (繁)](https://translate.google.com/translate?hl=zh-TW&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)  
+[Africâner](https://translate.google.com/translate?hl=af&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Swahili](https://translate.google.com/translate?hl=sw&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Zulu](https://translate.google.com/translate?hl=zu&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Yorùbá](https://translate.google.com/translate?hl=yo&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)
 <html lang="pt">
 <head>
     <meta charset="UTF-8">
