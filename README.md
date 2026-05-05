@@ -1,8 +1,7 @@
 🌐 **Traduzir:**  
 [English](https://translate.google.com/translate?hl=en&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Español](https://translate.google.com/translate?hl=es&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [中文 (简)](https://translate.google.com/translate?hl=zh-CN&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [中文 (繁)](https://translate.google.com/translate?hl=zh-TW&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)  
 [Africâner](https://translate.google.com/translate?hl=af&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Swahili](https://translate.google.com/translate?hl=sw&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Zulu](https://translate.google.com/translate?hl=zu&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/) | [Yorùbá](https://translate.google.com/translate?hl=yo&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/)
-<a href="https://info.flagcounter.com/ioyy"><img src="https://s01.flagcounter.com/countxl/ioyy/bg_FFFFFF/txt_000000/border_CCCCCC/columns_7/maxflags_7/viewers_0/labels_1/pageviews_1/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
-<html lang="pt">
+<a href="https://info.flagcounter.com/tTxZ"><img src="https://s01.flagcounter.com/count/tTxZ/bg_FFFFFF/txt_000000/border_CCCCCC/columns_7/maxflags_12/viewers_0/labels_1/pageviews_0/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
 <head>
     <meta name="google-site-verification" content="CIF8gF5LWM_CsvmLmaJKaJmpzZS34aOlwjrQzks4LDo" />
     <meta charset="UTF-8">
