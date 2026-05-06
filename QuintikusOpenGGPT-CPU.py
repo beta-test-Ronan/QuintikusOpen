@@ -145,9 +145,7 @@ class Quintikus:
             if char == "\n" and len(res) > 20: break
         return res
 
-# ============================================================
-# 🕹️ EXECUÇÃO
-# ============================================================
+
 if __name__ == "__main__":
     ggpt = Quintikus(d_model=256, seq_len=48, batch=16)
     
