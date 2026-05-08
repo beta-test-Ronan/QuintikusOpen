@@ -3,11 +3,11 @@ import unicodedata
 import time
 import os
 import math
-import random # Necessário para o random.choices
+import random
 from collections import defaultdict
 
 # ==================================================================
-# 1. O HARDWARE (Engine de Matrizes - v9.4)
+# 1. O HARDWARE (Engine v9.4.2 - Ética Sináptica)
 # ==================================================================
 class AutoLeiEngine:
     def __init__(self, dim=16):
@@ -17,8 +17,9 @@ class AutoLeiEngine:
         self.lr = 0.05   
         self.temperatura = 0.0 
         self.limiar_revolucao = 0.8 
-        self.memoria_recente = [] # Buffer de fatos (S, V, O)
-        self.ultima_energia = {}  # Guarda a última dissonância de cada fato
+        self.memoria_recente = [] 
+        self.ultima_energia = {}  
+        self.fator_inibicao = {}  
 
     def _get_v(self, w):
         if w not in self.words:
@@ -44,17 +45,23 @@ class AutoLeiEngine:
         delta_a = proj - vo
         dissonancia = np.linalg.norm(delta_a)
         
-        # Registra energia para o sono
-        self.ultima_energia[(s, v, o)] = dissonancia
-        if (s, v, o) not in self.memoria_recente:
-            self.memoria_recente.append((s, v, o))
+        chave = (s, v, o)
+        self.ultima_energia[chave] = dissonancia
+        if chave not in self.memoria_recente:
+            self.memoria_recente.append(chave)
+            self.fator_inibicao[chave] = 4.0 
             if len(self.memoria_recente) > 20: self.memoria_recente.pop(0)
 
-        # LEI 8: REVOLUÇÃO
+        # LEI 8: REVOLUÇÃO (Agora guiada pela Lei 15)
         forca_novo = afeto_o * raridade_o * autoridade
         if dissonancia > self.limiar_revolucao and forca_novo > 3.0:
             self.temperatura = 1.0 
             self.W[v] = np.eye(self.dim) + np.random.randn(self.dim, self.dim) * 0.1
+            
+            for s_old, v_old, o_old in self.memoria_recente:
+                if v_old == v and (s_old, v_old, o_old) != chave:
+                    self.fator_inibicao[(s_old, v_old, o_old)] = 0.5
+            
             lr_efetivo = self.lr * 5.0 
             status = "REVOLUÇÃO"
         else:
@@ -74,7 +81,7 @@ class AutoLeiEngine:
         return dissonancia, status
 
 # ==================================================================
-# 2. A MENTE E MEDULA
+# 2. MENTE E MEDULA
 # ==================================================================
 class Medula:
     def __init__(self): self.nervos = {}
@@ -109,9 +116,20 @@ class MenteBeta:
         return candidatos[0][1], candidatos[0][2]
 
 # ==================================================================
-# 3. O CÉREBRO INTEGRADO (v9.4 com Sono Ponderado)
+# 3. O CÉREBRO INTEGRADO (v9.5 com Epistemologia de Fonte)
 # ==================================================================
 class CerebroV9:
+    # LEI 15: HIERARQUIA DE FONTE
+    FONTES = {
+        "livro_escola": 100.0, # Dogma (Revolução garantida)
+        "professor": 50.0,     # Quase dogma
+        "wikipedia": 20.0,     # Revolução se bater limiar
+        "jornal": 10.0,        # Adaptação forte
+        "povo_falou": 1.0,     # Adaptação fraca (Padrão)
+        "fofoca": 0.1,         # Quase ignorado
+        "sonho": 0.0           # Não aprende, só consolida
+    }
+
     def __init__(self):
         self.engine = AutoLeiEngine()
         self.medula = Medula()
@@ -123,39 +141,25 @@ class CerebroV9:
         t = "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn')
         return t.replace("?", "").replace("!", "").strip()
 
-    def dormir(self, ciclos=10):
-        """
-        LEI 10: Consolidação Sináptica Ponderada.
-        O cérebro foca em sonhar com o que 'doeu' (maior energia).
-        """
-        if not self.engine.memoria_recente:
-            return "Nada para consolidar."
-            
-        print(f"\n[SONO] Quintikus consolidando trauma ({ciclos} ciclos)...")
-        
+    def dormir(self, ciclos=30):
+        if not self.engine.memoria_recente: return "Vazio."
+        print(f"\n[SONO] Quintikus consolidando saber ({ciclos} ciclos)...")
         for i in range(ciclos):
-            # AJUSTE: Pesos baseados na última energia (Trauma)
-            # Fatos com energia alta têm até 4x mais chance de serem escolhidos
-            pesos = [1 + self.engine.ultima_energia.get((s,v,o), 0) * 4 
-                     for s,v,o in self.engine.memoria_recente]
-            
-            # Escolha ponderada
+            pesos = []
+            for fato in self.engine.memoria_recente:
+                energia = self.engine.sentir_energia(*fato)
+                fator = self.engine.fator_inibicao.get(fato, 4.0)
+                pesos.append(1 + energia * fator)
             escolha = random.choices(self.engine.memoria_recente, weights=pesos, k=1)[0]
-            s, v, o = escolha
-            
-            # Re-pulsar suavemente (Consolidação)
-            self.engine.pulsar(s, v, o, self.mente.afeto[o], self.mente.raridade[o], autoridade=1.0)
-            
-            # Esfriamento rápido da temperatura (Cortisol)
+            self.engine.pulsar(*escolha, self.mente.afeto[escolha[2]], self.mente.raridade[escolha[2]], 1.0)
             self.engine.temperatura *= 0.8
-            
-        return f"Sono concluído. Estabilidade restaurada."
+        return "Sono concluído. Paradigma estabilizado."
 
-    def escutar(self, entrada, autoridade=1.0):
+    def escutar(self, entrada, fonte="povo_falou"):
+        autoridade = self.FONTES.get(fonte, 1.0)
         entrada_orig = entrada.strip()
         entrada_norm = self.normalizar(entrada_orig)
-        eh_pergunta = entrada_orig.endswith('?') or \
-                      entrada_norm.startswith(('quem', 'o que', 'qual', 'onde', 'por que'))
+        eh_pergunta = entrada_orig.endswith('?') or entrada_norm.startswith(('quem', 'o que'))
         tokens = [t for t in entrada_norm.split() if t not in self.stop_words]
         
         if eh_pergunta and len(tokens) >= 2:
@@ -169,37 +173,40 @@ class CerebroV9:
             s, v, o = tokens[0], tokens[1], " ".join(tokens[2:])
             v = self.canon_v.get(v, v)
             energia_nova = self.engine.sentir_energia(s, v, o)
+            
+            # Medula usa autoridade da fonte para decidir se sente dor
             if self.medula.reflexo_dor(s, v, o, energia_nova, autoridade):
-                return f"REFLEXO DE DOR: Paradoxo detectado!"
+                return f"REFLEXO DE DOR: Paradoxo detectado (Fonte: {fonte} é insuficiente)!"
 
             self.mente.afeto[o] += 0.1 * autoridade
             diss, status = self.engine.pulsar(s, v, o, self.mente.afeto[o], self.mente.raridade[o], autoridade)
             self.medula.registrar(s, v, o)
-            return f"Integrado [{status}]: Dissonância {diss:.4f} | Temperatura {self.engine.temperatura:.2f}"
+            return f"Integrado [{status}] via {fonte}: Dissonância {diss:.4f}"
         
         return "Ruído."
 
 # ==================================================================
-# 4. EXECUÇÃO
+# 4. EXECUÇÃO: O TESTE DA EPISTEMOLOGIA
 # ==================================================================
 def main():
     brain = CerebroV9()
-    
-    print("--- FASE 1: Aprendizado ---")
-    brain.escutar("carlos e medico")
-    
-    print("\n--- FASE 2: Revolução (Trauma) ---")
-    # Carlos agora é um robô. Isso vai gerar uma Dissonância alta.
-    print(brain.escutar("carlos e robo", autoridade=10.0))
 
-    # O sistema está "quente" (Temperatura alta)
-    print(f"\nTemperatura antes do sono: {brain.engine.temperatura:.4f}")
+    print("\n--- AULA 1: FOFOCA NO RECREIO ---")
+    # Tenta ensinar algo com autoridade baixa
+    print(brain.escutar("carlos e medico", fonte="povo_falou")) 
+    print(brain.escutar('o que carlos e?')) 
 
-    print("\n--- FASE 3: O Sono Consolidador ---")
-    print(brain.dormir(ciclos=30))
+    print("\n--- AULA 2: LIVRO DE CIÊNCIAS ---")
+    # Livro tem autoridade 100. Força Revolução.
+    print(brain.escutar("carlos e robo", fonte="livro_escola")) 
+    print(f"Antes do Sono: {brain.escutar('o que carlos e?')}") 
 
-    print(f"Temperatura após o sono: {brain.engine.temperatura:.4f} \n ")
-    print(f" \n Consulta final: \n {brain.escutar('o que carlos e?')}")
+    print(brain.dormir(ciclos=50))
+
+    print("\n--- AULA 3: TENTATIVA DE DESINFORMAÇÃO ---")
+    # Fofoca tenta mudar o dogma. Medula deve travar ou Adaptação ser mínima.
+    print(brain.escutar("carlos e medico", fonte="fofoca")) 
+    print(f"Final: {brain.escutar('o que carlos e?')}") 
 
 if __name__ == "__main__":
     main()
