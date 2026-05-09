@@ -243,7 +243,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 <pre><code>python3 QuintikusOpenDoomoble.py
 </code></pre>
 
-<p>Versão: Quintikus Proton-Flow TDLM v117.0<br>
+<p>Versão: Quintikus Proton-Flow TDLM v117.0 - Topological DLM Cognitive Engine.<br>
 Autor: Ronan Basto<br>
 Licença: Livre para estudo e experimentação.</p>
 <a href="https://info.flagcounter.com/tTxZ"><img src="https://s01.flagcounter.com/count/tTxZ/bg_FFFFFF/txt_000000/border_CCCCCC/columns_7/maxflags_12/viewers_0/labels_1/pageviews_0/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
