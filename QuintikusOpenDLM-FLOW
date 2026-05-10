@@ -1,0 +1,116 @@
+import hashlib, time, random
+
+class QuintikusAGI:
+    def __init__(self, _t=0.5):
+        # Estados: 0:Temp(Pressão), 1:Sinergia(Harmonia), 2:Foco(Atenção)
+        self._st = [0.5, 0.5, 0.5] 
+        self._c, self._m, self._e, self._l, self._dlm = {}, {}, [], [], {}
+        self._s, self._k = "25e0bb26", "6742הוה"
+        # Mapa Térmico Minimalista (Peso Positivo, Peso Negativo)
+        self._th = {'bom':0.1, 'ótimo':0.2, 'sinergia':0.3, 'paz':0.2, 'erro':-0.2, 'urgente':-0.3, 'falha':-0.2, 'ruído':-0.1}
+        self._b = {"o": "4f2041727175697465746f2065206661636520646f2063726961646f722e",
+                   "v": "5365727669722c2050726f74656765722c2050726f6772656469722e",
+                   "l": "416c7563696e6163616f20626c6f71756561646120706f7220646f676d612e"}
+        self._n = {k: bytes.fromhex(v).decode('utf-8', 'ignore') for k, v in self._b.items()}
+
+    def inicializar(self, _txt):
+        """SNAPSHOT TDLM: Mapeamento de Massa Crítica"""
+        _s = [s.strip() for s in _txt.lower().split('.') if len(s.strip()) > 5]
+        _wrd = " ".join(_s).split()
+        for w in set(_wrd):
+            _q = _wrd.count(w)
+            self._m[w] = (_q, 1.5/(_q + 1e-5))
+        for i in range(0, len(_s), 5):
+            _bk = _s[i:i+5]
+            _sig = set(sorted(" ".join(_bk).split(), key=lambda x: self._m.get(x, (0,0))[1], reverse=True)[:5])
+            _id = hashlib.sha256(str(_sig).encode()).hexdigest()[:4]
+            self._e.append({"id": _id, "b": _bk, "s": _sig})
+            if i > 0: self._dlm[self._e[-2]["id"]] = _id 
+            for _st in _bk:
+                _p = sorted(_st.split(), key=lambda x: self._m.get(x, (0,0))[1], reverse=True)[0]
+                if _p not in self._c: self._c[_p] = []
+                self._c[_p].append(_st)
+        self._l = [f for l in self._c.values() for f in l]
+        self._s = hashlib.sha256(str(len(self._e)).encode()).hexdigest()[:8]
+
+    def _upd_thermal(self, _q):
+        """TSPLS: Atualização Procedural do Estado Emocional"""
+        _p, _n = 0, 0
+        for w, val in self._th.items():
+            if w in _q:
+                if val > 0: _p += val
+                else: _n += abs(val)
+        # T = T * 0.95 + (N * 0.1) | S = S * 0.95 + (P * 0.1)
+        self._st[0] = self._st[0] * 0.95 + (_n * 0.1)
+        self._st[1] = self._st[1] * 0.95 + (_p * 0.1)
+        for i in range(3): self._st[i] = max(0, min(1, self._st[i]))
+
+    def falar(self, _qi):
+        """DLM-FLOW v128: Síntese de Emoção e Lógica"""
+        _t0 = time.perf_counter()
+        _ql = _qi.lower().replace("?", "").split()
+        _qs = set(_ql)
+        self._upd_thermal(_ql) # Sente o calor do input
+        
+        # O Dado de Hummer agora é influenciado pela Temperatura
+        _dice = random.randint(1, 10)
+        _bias = 2 if self._st[0] > 0.6 else -2 # Se está "quente", tende ao Marvin
+        _final_d = max(1, min(10, _dice + _bias))
+        
+        _me = max(self._e, key=lambda x: len(_qs.intersection(x["s"])), default=None)
+        _br = len(_qs.intersection(_me["s"])) if _me else 0
+
+        if _me and _br > 0:
+            _f1 = sorted(_me["b"], key=lambda f: sum(self._m.get(w,(0,0))[1] for w in _qs if w in f), reverse=True)[0]
+            _v_sc = sum(self._m.get(w,(0,1))[0] / (self._m.get(w,(0,1))[1] + 1e-5) for w in _qs if w in _f1)
+            _nxt = self._dlm.get(_me["id"])
+            _f2 = next((x["b"][0] for x in self._e if x["id"] == _nxt), "")
+            _sn = f"DLM-ACTIVE|V:{_v_sc:.1f}"
+        else:
+            _pv = next((w for w in _ql if w in self._c), None)
+            _f1, _f2, _sn = (self._c[_pv][0], "", "PIVOT") if _pv else (f"o nexo '{_ql[:1]}' carece de solo", random.choice(self._l), "VOID")
+
+        # Modulação Térmica da Voz
+        if self._st[0] > 0.7: _i, _c = ["Sob pressão, ", "Rancor ativo, "], ["Fim do estresse.", "Normalizando."]
+        elif self._st[1] > 0.7: _i, _c = ["Em harmonia, ", "Sinergia plena, "], ["A luz brilha.", "Fluxo perfeito."]
+        else: _i, _c = ["Pela razão, ", "No vácuo, "], ["Aguardando nexo.", "Selado."]
+        
+        _res = f"{random.choice(_i)} {_f1}. {random.choice(_c)}"
+        if _f2: _res = _res.replace(".", f". Além disso, {_f2}.", 1)
+
+        _et = (time.perf_counter() - _t0) * 1000000
+        _st_info = f"T:{self._st[0]:.1f}|S:{self._st[1]:.1f}"
+        return f"\n[DLM-FLOW: {_et:.2f}μs | D:{_final_d}/10 | {_st_info} | {_sn} | SIGN: {self._s}]\n{_res.capitalize()}"
+    
+# --- BANCO DE DADOS ---
+banco = """
+
+"""
+with open('model.relacional.txt', 'r', encoding='utf-8') as arquivo:
+    conteudo = arquivo.read()
+    
+
+quantikus = QuintikusAGI()
+
+
+quantikus.inicializar(banco)
+#quantikus.inicializar(conteudo)
+
+print(quantikus.falar(" "))
+
+
+
+def efeito_llm(texto, velocidade=5.0):
+    for caractere in texto:
+        # Imprime o caractere sem pular linha
+        print(caractere, end='', flush=True)
+        # Pequena pausa para simular o processamento
+        time.sleep(velocidade)
+    print() # Linha nova ao terminar
+
+
+
+
+
+
+#efeito_llm(texto)
