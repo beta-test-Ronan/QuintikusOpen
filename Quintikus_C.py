@@ -8,7 +8,7 @@ import hashlib
 from collections import defaultdict
 
 # ==================================================================
-# 1. HARDWARE (Matrizes 16D - Estabilidade e Revolução)
+# 1. HARDWARE (Engine 16D - Pesos Raros e Frequência de Esforço)
 # ==================================================================
 class AutoLeiEngine:
     def __init__(self, dim=16):
@@ -16,11 +16,7 @@ class AutoLeiEngine:
         self.words = {}  
         self.W = {}      
         self.lr = 0.05   
-        self.temperatura = 0.0 
-        self.limiar_revolucao = 0.8 
-        self.memoria_recente = [] 
-        self.ultima_energia = {}  
-        self.fator_inibicao = {}  
+        self.frequencia_pulso = defaultdict(int) # x_aprendido
 
     def _get_v(self, w):
         if w not in self.words:
@@ -33,45 +29,62 @@ class AutoLeiEngine:
             self.W[v] = np.eye(self.dim) + np.random.randn(self.dim, self.dim) * 0.01
         return self.W[v]
 
-    def pulsar(self, s, v, o, afeto_o, raridade_o, autoridade):
+    def pulsar(self, s, v, o, autoridade):
         vs, vo = self._get_v(s), self._get_v(o)
         Wv = self._get_W(v)
-        proj = vs @ Wv
-        delta_a = proj - vo
-        diss = np.linalg.norm(delta_a)
-        
-        chave = (s, v, o)
-        self.ultima_energia[chave] = diss
-        if chave not in self.memoria_recente:
-            self.memoria_recente.append(chave)
-            self.fator_inibicao[chave] = 4.0 
-            if len(self.memoria_recente) > 25: self.memoria_recente.pop(0)
-
-        # LEI 8: REVOLUÇÃO (Thomas Kuhn)
-        forca_novo = afeto_o * raridade_o * (autoridade / 10.0)
-        if diss > self.limiar_revolucao and forca_novo > 3.0:
-            self.temperatura = 1.0 
-            self.W[v] = np.eye(self.dim) + np.random.randn(self.dim, self.dim) * 0.1
-            lr_efetivo = self.lr * 5.0 
-            status = "REVOLUÇÃO"
-        else:
-            lr_efetivo = self.lr / (1.0 + afeto_o * raridade_o)
-            status = "ADAPTAÇÃO"
-
-        self.temperatura *= 0.9
-        lr_final = lr_efetivo * (1.0 + self.temperatura)
-        self.W[v] -= lr_final * np.outer(vs, delta_a)
-        self.words[o] += lr_final * delta_a
-        return diss, status
+        delta = (vs @ Wv) - vo
+        # Aprendizado baseado na autoridade
+        self.W[v] -= self.lr * (autoridade/100) * np.outer(vs, delta)
+        self.words[o] += self.lr * delta
+        # Registra o esforço (x_aprendido)
+        self.frequencia_pulso[s] += 1
+        self.frequencia_pulso[o] += 1
+        return np.linalg.norm(delta)
 
 # ==================================================================
-# 2. SUBCONSCIENTE (Tabela de Neurônios + Aura de Recuperação)
+# 2. VOID MERITOCRÁTICO (O Crivo de Sanidade)
+# ==================================================================
+class VoidMeritocratico:
+    def __init__(self, engine, sub):
+        self.engine = engine
+        self.sub = sub
+
+    def meditar(self, tokens):
+        Q = len(tokens) # Quantidade
+        P = sum(self.sub.pesos_raros.get(t, 0.01) for t in tokens) # Raridade
+        D = 1.0 # Distorção base
+        
+        # x_necessario: o quanto o sistema precisa saber para falar
+        x_necessario = Q / (P + 1e-5)
+        
+        # x_aprendido: o quanto o sistema realmente pulsou sobre esses tokens
+        frequencias = [self.engine.frequencia_pulso.get(t, 0) for t in tokens]
+        x_aprendido = sum(frequencias) / (Q + 1e-5)
+        
+        # Equação do Erro Meritocrático
+        erro = D - (D * x_aprendido * P / (Q + 1e-5))
+        
+        if erro > 0.1 * D: 
+            return "DESEQUILIBRIO", x_necessario, erro
+        if x_aprendido < x_necessario * 0.9: 
+            return "ZONA_SILENCIO", x_necessario, erro
+            
+        return "LIBERADO", x_necessario, erro
+
+    def perguntar(self, tokens, x, erro):
+        # Identifica o que está causando o vácuo
+        desconhecidos = [t for t in tokens if self.engine.frequencia_pulso.get(t, 0) < 2]
+        entidades = ", ".join(desconhecidos) if desconhecidos else "nexo complexo"
+        
+        return f"VOID: Erro de predição={erro:.2f}. Carece de x={x:.0f}. Me dê o solo de [{entidades}] para eu sair do vazio."
+
+# ==================================================================
+# 3. SUBCONSCIENTE E GENERALIZADOR
 # ==================================================================
 class SubconscienteCosmus:
     def __init__(self):
         self.neuronios = defaultdict(list)
         self.pesos_raros = {} 
-        self.conteineres = defaultdict(set) 
         self.fatos_brutos = []
 
     def inicializar(self, txt):
@@ -85,156 +98,98 @@ class SubconscienteCosmus:
                 if len(t) < 3: continue
                 self.neuronios[t].append(frase)
                 q = sum(1 for f in self.fatos_brutos if t in f)
-                # Omega (Raridade): Entropia local
                 self.pesos_raros[t] = 2.0 / (math.log(q + 1.1) + 1e-5)
-                for vizinho in tokens:
-                    if vizinho != t: self.conteineres[t].add(vizinho)
 
-    def intuicao(self, tokens_list):
-        t_start = time.perf_counter()
-        _qs = set(tokens_list)
-        if not self.fatos_brutos: return None, "VOID", 0
-        
-        delta_t_busca = 0
-        candidatos = defaultdict(float)
-        for t in _qs:
-            if t in self.neuronios:
-                for frase in self.neuronios[t]:
-                    delta_t_busca += 1
-                    candidatos[frase] += self.pesos_raros.get(t, 0.1)
-
-        if candidatos:
-            melhor = max(candidatos, key=candidatos.get)
-            latencia = (time.perf_counter() - t_start) * 1000
-            a_foco = (candidatos[melhor] + (delta_t_busca * 0.01)) / (latencia + 0.1)
-            return melhor, "NEURON-JOIN", a_foco
-        return None, "VOID", 0
-
-# ==================================================================
-# 3. GENERALIZADOR (Massa Crítica + Atenção Não Linear)
-# ==================================================================
 class Generalizado:
     def __init__(self, sub, engine):
         self.sub = sub
         self.engine = engine
-        self.z = 3.0 # Fator de Não-Linearidade
 
-    def sintetizar(self, tokens_input, debug=False):
-        # 1. Big-Text: Reúne vizinhança semântica
-        contexto_big = []
+    def sintetizar(self, tokens_input):
+        contexto = []
         for t in tokens_input:
-            if t in self.sub.neuronios: contexto_big.extend(self.sub.neuronios[t])
-        contexto_big = list(set(contexto_big))
-        if not contexto_big: return None
-
-        # 2. Atenção Não Linear e Raridade
-        pool_tokens = list(set(" ".join(contexto_big).split()))
-        scores = {}
-        vec_q = np.mean([self.engine._get_v(t) for t in tokens_input], axis=0)
-
-        for t in pool_tokens:
-            if len(t) < 3 or t in tokens_input: continue
-            # Omega * Attn^z * Densidade
-            omega = self.sub.pesos_raros.get(t, 0.1)
-            vec_k = self.engine._get_v(t)
-            attn = math.pow(max(0, np.dot(vec_q, vec_k)), self.z)
-            
-            score = omega * attn
-            if score > 0.001: scores[t] = score
-
-        if not scores: return None
-
-        # 3. Join de Improbabilidade
-        vencedores = sorted(scores.items(), key=lambda x: x[1], reverse=True)
-        tokens_final = [v[0] for v in vencedores[:5]]
+            if t in self.sub.neuronios: contexto.extend(self.sub.neuronios[t])
+        contexto = list(set(contexto))
+        if not contexto: return None
         
-        # Proporção baseada em I_pura
-        i_pura = sum(scores.values()) / (1.0 / (len(contexto_big) + 0.1))
-        if debug: print(f"   [DMN-LOOP] I_pura: {i_pura:.2f} | Densidade: {len(contexto_big)}")
-
-        resumo = " ".join(tokens_final)
-        return f"Identifico nexo raro com: {resumo}. Além disso, o solo sugere {random.choice(contexto_big)}"
+        pool = list(set(" ".join(contexto).split()))
+        vencedores = [t for t in pool if len(t) > 3 and t not in tokens_input]
+        resumo = ", ".join(vencedores[:3])
+        return f"Ressoa com {resumo}. Solo: {random.choice(contexto)}"
 
 # ==================================================================
-# 4. QUINTIKUS AGI v12.0 (Interface e Orquestração)
+# 4. QUINTIKUS AGI v12.4.1 (Interface LLM-Style)
 # ==================================================================
 class QuintikusAGI:
-    FONTES = {"livro_escola": 100.0, "professor": 50.0, "povo_falou": 1.0, "fofoca": 0.1}
-
     def __init__(self, debug=False):
         self.engine = AutoLeiEngine()
         self.sub = SubconscienteCosmus()
         self.gen = Generalizado(self.sub, self.engine)
-        self.medula = {} 
-        self.debug = debug 
-        self.stop_words = ["o", "a", "de", "que", "do", "da", "um", "uma", "é", "com", "para"]
-        self.comandos = ('quem', 'o que', 'qual', 'mostra', 'fale', 'diga', 'explique', 'contexto', 'como')
+        self.void = VoidMeritocratico(self.engine, self.sub)
+        self.debug = debug
+        self.stop_words = ["o", "a", "de", "que", "do", "da", "um", "uma", "é"]
 
     def normalizar(self, t):
         t = "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn')
         return t.replace("?", "").replace("!", "").strip()
 
-    def escutar(self, entrada, fonte="povo_falou"):
+    def escutar(self, entrada, autoridade=1.0):
         t0 = time.perf_counter()
-        autoridade = self.FONTES.get(fonte, 1.0)
         clean = self.normalizar(entrada)
         tokens = [t for t in clean.split() if t not in self.stop_words]
         
-        eh_pergunta = entrada.strip().endswith('?') or clean.startswith(self.comandos)
+        if len(tokens) < 2: return "Ruído."
+
+        eh_pergunta = entrada.strip().endswith('?') or clean.startswith(('como', 'quem', 'qual', 'o que'))
 
         if eh_pergunta:
-            # 1. Tenta Generalização (Massa Crítica)
-            res_gen = self.gen.sintetizar(tokens, debug=self.debug)
-            # 2. Tenta Intuição (Aura de Recuperação)
-            f1, sn, a_foco = self.sub.intuicao(tokens)
+            # 1. MEDITAÇÃO
+            status, x, erro = self.void.meditar(tokens)
             
+            if status != "LIBERADO":
+                return self.void.perguntar(tokens, x, erro)
+            
+            # 2. SÍNTESE
+            res_gen = self.gen.sintetizar(tokens)
             et = (time.perf_counter() - t0) * 1000000
-            header = f"\n[FLOW: {et:.2f}μs | {sn} | A_foco: {a_foco:.2f}]\n" if self.debug else ""
             
-            if res_gen: return f"{header}SÍNTESE: {res_gen}\nRECORDEI: {f1}"
-            if f1: return f"{header}RECORDEI: {f1}"
-            return "VOID: Carece de solo."
+            if self.debug:
+                return f"\n[FLOW: {et:.2f}μs | STATUS: {status}]\nSÍNTESE: {res_gen}"
+            return res_gen
 
-        # 3. Aprendizado (SVO)
+        # 3. APRENDIZADO
         if len(tokens) >= 3:
-            s, v, o = tokens[0], tokens[1], " ".join(tokens[2:])
-            # Reflexo de Dor
-            if (s, v) in self.medula and self.engine.sentir_energia(s, v, o) > 0.5 and autoridade < 5.0:
-                return "REFLEXO DE DOR: Paradoxo bloqueado."
-
             self.sub.inicializar(entrada)
-            p_raro = self.sub.pesos_raros.get(o.split()[0], 0.1)
-            diss, status = self.engine.pulsar(s, v, o, 0.5, p_raro, autoridade)
-            self.medula[(s, v)] = (o, autoridade)
-            
-            if self.debug: return f"Integrado [{status}] via {fonte}: Dissonância {diss:.4f}"
+            s, v, o = tokens[0], tokens[1], " ".join(tokens[2:])
+            self.engine.pulsar(s, v, o, autoridade)
             return "Entendido."
 
         return "Sinal baixo."
 
 # ==================================================================
-# EXECUÇÃO: O TESTE DA SINGULARIDADE FINAL
+# EXECUÇÃO
 # ==================================================================
 def main():
+    # debug=False para saída limpa igual LLM
     q = QuintikusAGI(debug=True)
     
-    # Ingestão de Conhecimento
-    q.escutar("Maria tem alergia a aspirina", fonte="povo_falou")
-    q.escutar("Dor de cabeca se cura com paracetamol", fonte="professor")
-    q.escutar("Aspirina e perigoso para Maria", fonte="livro_escola")
-    q.escutar("Meu pai é Ronan Bastos ele me criou", fonte="livro_escola")
-    q.escutar("Eu amo meu pai Ronan", fonte="povo_falou")
+    # Ingestão Inicial
+    q.escutar("Maria tem dor de cabeca", autoridade=50.0)
 
-    print("--- QUINTIKUS v12.0: SINGULARIDADE DE PROCESSO ---")
+    print("--- QUINTIKUS v12.4.1 (Modo Limpo) ---")
     
-    print("\n--- TESTE 1: Generalização Maria ---")
-    print(q.escutar("Como curar a dor de Maria?"))
+    # Teste 1: Bloqueio (Falta estudo)
+    print(f"Usuário: Como Maria cura a dor de cabeça severa?")
+    print(f"Bot: {q.escutar('Como Maria cura a dor de cabeça severa?')}")
 
-    print("\n--- TESTE 2: Aura de Recuperação Ronan ---")
-    print(q.escutar("Quem criou você?"))
-
-    print("\n--- TESTE 3: VOID (Sem Alucinação) ---")
-    print(q.escutar("Como consertar um avião?"))
+    # Teste 2: Estudo (Aumenta o mérito)
+    print("\n--- ESTUDANDO... ---")
+    for _ in range(5):
+        q.escutar("Maria cura dor de cabeca com paracetamol", autoridade=100.0)
+    
+    # Teste 3: Liberado
+    print(f"\nUsuário: Como Maria cura a dor de cabeça?")
+    print(f"Bot: {q.escutar('Como Maria cura a dor de cabeça?')}")
 
 if __name__ == "__main__":
     main()
