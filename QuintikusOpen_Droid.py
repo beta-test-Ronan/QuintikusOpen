@@ -76,7 +76,7 @@ class VoidMeritocratico:
         # Identifica o que está causando o vácuo
         desconhecidos = [t for t in tokens if self.engine.frequencia_pulso.get(t, 0) < 2]
         entidades = ", ".join(desconhecidos) if desconhecidos else "nexo complexo"
-        return f"VOID: Erro de predição={erro:.2f}. Carece de x={x:.0f} entendimento para [{entidades}]. Me dê o solo disso."
+        return f"VOID: Erro de predição={erro:.2f}. Carece de x={x:.0f} . Me dê o solo disso."
 
 # ==================================================================
 # 3. SUBCONSCIENTE E GENERALIZADOR
