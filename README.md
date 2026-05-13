@@ -227,16 +227,13 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
    Doomoble = IA transformer de bolso
 </code></pre>
 
-<h1>Quintikus Doomoble 🥔🧠</h1>
+<h1>Quintikus Doomoble🥔 Droid🧠</h1>
 
 <p><strong>Assistente pessoal offline, IA transformer de bolso, que roda até em celular.</strong></p>
 
 <ul>
-    <li>📜 Código Principal</li>
-    <li>🧠 Como usar</li>
     <li>🔧 Personalização</li>
     <li>📦 Especialistas prontos</li>
-    <li>📄 Licença MIT<</li>
 </ul>
 
 <h2>O que é?</h2>
