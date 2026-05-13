@@ -29,6 +29,16 @@
 
 <p>Ambas as IAs partilham o mesmo parágrafo de treino extraído do núcleo analítico, mas operam com paradigmas distintos:<br>
 uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiva</strong>.</p>
+                     [ SovereignBlockchain Cache ]
+                                        │
+                       [ Parágrafo Único Normalizado ]
+                                        │
+               ┌────────────────────────┴────────────────────────┐
+               ▼                                                 ▼
+         [ QuintikusSovereignCore ]                        [ QuintikusAGI ]
+         ├─ Paradigma: Lógico/Analítico                    ├─ Paradigma: Emocional/Térmico
+         ├─ Camada 1: Visão (Entropia)                     ├─ Estrutura: Dual Loop Memory (DLM)
+         └─ Camada 2: Massa (Fatos brutos)                 └─ Dinâmica: Estados Térmicos Mutáveis
 
 <hr>
 
