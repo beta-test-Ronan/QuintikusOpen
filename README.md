@@ -248,8 +248,8 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 ## 💸 Se o Quintikus rodou no seu J2
 Esse projeto me custou 3 anos,<br> 
 café e paciência. 
-[café click]([https://translate.google.com/translate?hl=af&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD))
-    
+
+ [Acesse o pypal]([google.com](https://translate.google.com/translate?hl=af&sl=pt&u=https://beta-test-ronan.github.io/QuintikusOpen/](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD))   
 <p>Autor: Ronan Basto<br></p>
 <p>Licença: Livre para estudo e experimentação.</p>
 
