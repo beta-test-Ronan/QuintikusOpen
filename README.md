@@ -55,7 +55,7 @@ uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiv
 
 <h2> Estrutura de Classes</h2>
 <code>
-                   [ SovereignBlockchain Cache ]
+   quintikus-Agi_base->[ SovereignBlockchain Cache ]
                                         │
                        [ Parágrafo Único Normalizado ]
                                         │
