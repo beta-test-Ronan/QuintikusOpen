@@ -18,7 +18,7 @@
 
 <hr>
 
-<h2>📌 Visão Geral</h2>
+<h2> Visão Geral</h2>
 
 <p>O sistema implementa uma arquitetura de <strong>Dupla Inteligência Artificial</strong> com suporte a blockchain de conhecimento:</p>
 
@@ -29,21 +29,10 @@
 
 <p>Ambas as IAs partilham o mesmo parágrafo de treino extraído do núcleo analítico, mas operam com paradigmas distintos:<br>
 uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiva</strong>.</p>
-<code>
-                   [ SovereignBlockchain Cache ]
-                                        │
-                       [ Parágrafo Único Normalizado ]
-                                        │
-               ┌────────────────────────┴────────────────────────┐
-               ▼                                                 ▼
-         [ QuintikusSovereignCore ]                        [ QuintikusAGI ]
-         ├─ Paradigma: Lógico/Analítico                    ├─ Paradigma: Emocional/Térmico
-         ├─ Camada 1: Visão (Entropia)                     ├─ Estrutura: Dual Loop Memory (DLM)
-         └─ Camada 2: Massa (Fatos brutos)                 └─ Dinâmica: Estados Térmicos Mutáveis
-</code>     
+    
 <hr>
 
-<h2>📦 Dependências</h2>
+<h2> Dependências</h2>
 
 <table>
     <thead>
@@ -64,8 +53,19 @@ uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiv
     </tbody>
 </table>
 
-<h2>⚙️ Estrutura de Classes</h2>
-
+<h2> Estrutura de Classes</h2>
+<code>
+                   [ SovereignBlockchain Cache ]
+                                        │
+                       [ Parágrafo Único Normalizado ]
+                                        │
+               ┌────────────────────────┴────────────────────────┐
+               ▼                                                 ▼
+         [ QuintikusSovereignCore ]                        [ QuintikusAGI ]
+         ├─ Paradigma: Lógico/Analítico                    ├─ Paradigma: Emocional/Térmico
+         ├─ Camada 1: Visão (Entropia)                     ├─ Estrutura: Dual Loop Memory (DLM)
+         └─ Camada 2: Massa (Fatos brutos)                 └─ Dinâmica: Estados Térmicos Mutáveis
+</code> 
 <h3>1. SovereignBlockchain</h3>
 <p>Responsável pela persistência e integridade do conhecimento gerado.</p>
 
