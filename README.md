@@ -262,7 +262,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 Esse projeto me custou 3 anos, 
 café e paciência.<br> 
 coffee help:
- [Doação o pypal click](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD)  
+ [Doação o paypal click](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD)  
 <p>Autor: Ronan Basto<br></p>
 <p>Licença: Livre para estudo e experimentação.</p>
 
