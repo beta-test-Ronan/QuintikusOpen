@@ -246,10 +246,10 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 <p>Versão: Quintikus Proton-Flow TDLM v117.0 - Topological DLM Cognitive Engine.<br>
 
 ## 💸 Se o Quintikus rodou no seu J2
-Esse projeto me custou 3 anos,<br> 
-café e paciência. 
-
- [Acesse o pypal](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD)  
+Esse projeto me custou 3 anos, 
+café e paciência.<br> 
+coffee help:
+ [Doação o pypal click](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD)  
 <p>Autor: Ronan Basto<br></p>
 <p>Licença: Livre para estudo e experimentação.</p>
 
