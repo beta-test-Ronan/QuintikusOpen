@@ -237,7 +237,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 </ul>
 
 <h2>O que é?</h2>
-<p>O Quintikus Doomoble é um motor de IA baseado em transformer, escrito em Python puro + NumPy.<br>
+<p>O Quintikus Doomoble e Droid é um motor de IA baseado em transformer e rede, escrito em Python puro + NumPy.<br>
 Ele entende regras, aprende com frases, traduz intenções, e pode controlar dispositivos reais.</p>
 
 <h2>Características</h2>
