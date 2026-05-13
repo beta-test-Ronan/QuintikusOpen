@@ -256,7 +256,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 <pre><code>python3 quintikus-model.py
 </code></pre>
 
-<p>Versão: Quintikus Proton-Flow TDLM v117.0 - Topological DLM Cognitive Engine.<br>
+<p>Versão:Topological DLM: Dynamic Linguistic Modular Model.<br>
 
 ## 💸 Se o Quintikus rodou no seu J2
 Esse projeto me custou 3 anos, 
