@@ -39,8 +39,8 @@ uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiv
          [ QuintikusSovereignCore ]                        [ QuintikusAGI ]
          ├─ Paradigma: Lógico/Analítico                    ├─ Paradigma: Emocional/Térmico
          ├─ Camada 1: Visão (Entropia)                     ├─ Estrutura: Dual Loop Memory (DLM)
-</code>  └─ Camada 2: Massa (Fatos brutos)                 └─ Dinâmica: Estados Térmicos Mutáveis
-         
+         └─ Camada 2: Massa (Fatos brutos)                 └─ Dinâmica: Estados Térmicos Mutáveis
+    </code>     
 <hr>
 
 <h2>📦 Dependências</h2>
