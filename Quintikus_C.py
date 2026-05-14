@@ -3,210 +3,254 @@ import numpy as np
 import unicodedata
 import time
 import math
+import json
 import threading
 import random
 from collections import defaultdict
 
 # ==================================================================
-#    ❄️ ESCUDO TÉRMICO E FONTES DE AUTORIDADE
+#    ❄️ ESCUDO TÉRMICO (CONFIGURAÇÃO DE HARDWARE)
 # ==================================================================
 os.environ["OMP_NUM_THREADS"] = "1" 
 os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1" 
 
 # ==================================================================
-# 1. ÁREA DE BROCA (Síntese Emocional e Térmica)
+# 1. MOTOR DE MATRIZES (AutoLeiEngine 128D - Homeostático)
+# ==================================================================
+class AutoLeiEngine:
+    def __init__(self, dim=128, state_file="brain_state.json"):
+        self.dim = dim
+        self.state_file = state_file
+        self.words = {}  
+        self.W = {}      
+        self.lr = 0.05   
+        self.temperatura = 0.0 
+        self.frequencia_pulso = defaultdict(int)
+        self.pending_updates = 0
+        self.load_state()
+
+    def _get_v(self, w):
+        if w not in self.words:
+            v = np.random.randn(self.dim) * 0.01
+            self.words[w] = v.tolist()
+        return np.array(self.words[w])
+
+    def _get_W(self, v):
+        if v not in self.W:
+            self.W[v] = np.eye(self.dim).tolist()
+        return np.array(self.W[v])
+
+    def pulsar(self, s, v, o, autoridade):
+        vs, vo = self._get_v(s), self._get_v(o)
+        Wv = self._get_W(v)
+        delta = (vs @ Wv) - vo
+        diss = np.linalg.norm(delta)
+        
+        # Ajuste de Pesos (Lógica de Solo)
+        W_new = Wv - self.lr * (autoridade/100) * np.outer(vs, delta)
+        self.W[v] = W_new.tolist()
+        v_o_new = vo + self.lr * delta
+        self.words[o] = v_o_new.tolist()
+        
+        self.frequencia_pulso[s] += 1
+        self.frequencia_pulso[o] += 1
+        self.pending_updates += 1
+        return diss
+
+    def save_state(self):
+        with open(self.state_file, "w") as f:
+            json.dump({"words": self.words, "W": self.W, "freq": dict(self.frequencia_pulso)}, f)
+
+    def load_state(self):
+        if os.path.exists(self.state_file):
+            try:
+                with open(self.state_file, "r") as f:
+                    state = json.load(f)
+                    self.words, self.W = state.get("words", {}), state.get("W", {})
+                    self.frequencia_pulso = defaultdict(int, state.get("freq", {}))
+            except: pass
+
+# ==================================================================
+# 2. ÁREA DE BROCA (Modulação Térmica e Emocional)
 # ==================================================================
 class AreaDeBroca:
     def __init__(self):
-        # Estados: [0]: Pressão (Calor/Erro), [1]: Sinergia (Harmonia/Paz)
-        self.st = [0.5, 0.5]
-        # Mapa Térmico Minimalista (Extraído do seu código de análise)
-        self.th = {
-            'bom': 0.1, 'otimo': 0.2, 'sinergia': 0.3, 'paz': 0.2, 
-            'erro': -0.2, 'urgente': -0.3, 'falha': -0.2, 'ruido': -0.1
-        }
+        self.st = [0.5, 0.5] # [Pressão, Sinergia]
+        self.th = {'bom': 0.1, 'otimo': 0.2, 'paz': 0.2, 'erro': -0.2, 'urgente': -0.3, 'falha': -0.2}
         self.tons = {
-            "quente": ["Sob pressão dos dados, ", "Em estado de alerta, ", "Detectando urgência, "],
-            "harmonia": ["Em sinergia plena, ", "Com clareza, ", "De forma harmoniosa, "],
-            "neutro": ["Pela razão do solo, ", "Observando os nexos, ", "No fluxo dos fatos, "]
+            "quente": ["Sob alerta, ", "Detectando urgência, "],
+            "harmonia": ["Com clareza, ", "Em sinergia, "],
+            "neutro": ["Pela lógica, ", "Observando os nexos, "]
         }
 
     def sentir(self, tokens):
-        """TSPLS: Atualização Procedural do Estado Emocional"""
-        pos, neg = 0, 0
-        for t in tokens:
-            if t in self.th:
-                val = self.th[t]
-                if val > 0: pos += val
-                else: neg += abs(val)
-        
-        # Equação Térmica: T = T * 0.95 + (N * 0.1) | S = S * 0.95 + (P * 0.1)
+        pos = sum(self.th[t] for t in tokens if t in self.th and self.th[t] > 0)
+        neg = sum(abs(self.th[t]) for t in tokens if t in self.th and self.th[t] < 0)
         self.st[0] = self.st[0] * 0.95 + (neg * 0.1)
         self.st[1] = self.st[1] * 0.95 + (pos * 0.1)
-        self.st = [max(0, min(1, s)) for s in self.st]
 
     def modular_voz(self):
-        """Define o prefixo da frase com base na temperatura interna"""
         if self.st[0] > 0.6: return random.choice(self.tons["quente"])
         if self.st[1] > 0.6: return random.choice(self.tons["harmonia"])
         return random.choice(self.tons["neutro"])
 
 # ==================================================================
-# 2. ESPINHA DORSAL (Orquestrador QuintikusAGI)
+# 3. LOGIC CORTEX (Filtro Contextual e Probabilidade Linear)
 # ==================================================================
-class QuintikusAGI:
-    FONTES = {"livro_escola": 100.0, "professor": 50.0, "povo_falou": 5.0}
-
-    def __init__(self, debug=False):
-        self.stop_words = {
-            "o", "a", "de", "que", "do", "da", "é", "em", "no", "na", "com", 
-            "tem", "um", "uma", "sobre", "saber", "fale", "qual", "quem", "como"
-        }
-        self.engine = AutoLeiEngine()
-        self.sub = SubconscienteCosmus(stop_words=self.stop_words)
-        self.broca = AreaDeBroca() # Novo Lobo Frontal
-        self.void = VoidMeritocratico(self.engine, self.sub)
-        self.oculzer = Oculzer(self.sub)
-        self.gen = Generalizado(self.sub, self.broca)
-        self.debug = debug
-
-    def normalizar(self, t):
-        return "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn').replace("?", "").strip()
-
-    def escutar(self, entrada, fonte="povo_falou"):
-        t_start = time.perf_counter()
-        clean = self.normalizar(entrada)
-        tokens = [t for t in clean.split() if t not in self.stop_words and len(t) > 2]
-        tokens_set = set(tokens)
-        
-        # A Broca "sente" o impacto térmico do input
-        self.broca.sentir(tokens)
-
-        eh_pergunta = entrada.strip().endswith('?') or any(clean.startswith(c) for c in ('quem', 'qual', 'como', 'sobre', 'fale'))
-
-        if eh_pergunta:
-            status, x_nec, x_apr = self.void.meditar(tokens)
-            if status == "ZONA_SILENCIO":
-                return "O nexo carece de solo no meu subconsciente."
-
-            # Oculzer foca no sujeito e extrai predicados
-            sujeito, predicados_brutos = self.oculzer.olhar_detalhes(tokens)
-            
-            # Generalizado sintetiza usando a modulação da Broca
-            res = self.gen.sintetizar_agregado(sujeito, tokens_set, predicados_brutos, self.debug)
-            
-            if self.debug:
-                t_end = time.perf_counter()
-                st_info = f"T:{self.broca.st[0]:.1f}|S:{self.broca.st[1]:.1f}"
-                return f"[FLOW: {(t_end-t_start)*1e6:.2f}μs | {st_info}]\n{res}"
-            return res
-
-        # Ingestão (Temporal/Medula)
-        if len(tokens) >= 1:
-            auth_val = self.FONTES.get(fonte, 5.0)
-            self.sub.inicializar(entrada, autoridade=auth_val)
-            for t in tokens: self.engine.pulsar(t, auth_val)
-            return None if not self.debug else f"[Ingerido: {clean}]"
-        
-        return None
-
-# ==================================================================
-# 3. OCULZER & GENERALIZADOR (Análise e Síntese de Broca)
-# ==================================================================
-class Oculzer:
-    def __init__(self, sub): self.sub = sub
-    def olhar_detalhes(self, tokens_pergunta):
-        if not tokens_pergunta: return None, {}
-        # Pivota no token de maior massa crítica (Raridade + Conexão)
-        sujeito = max(tokens_pergunta, key=lambda t: self.sub.pesos_raros.get(t, 0) + (0.1 * len(self.sub.neuronios.get(t, []))))
-        frases = self.sub.neuronios.get(sujeito, [])
-        predicados = {}
-        for f in frases:
-            auth = self.sub.autoridade_frase.get(f, 1.0)
-            for t in self.sub.fatos_tokens.get(f, []):
-                if t != sujeito and t not in tokens_pergunta:
-                    peso = self.sub.pesos_raros.get(t, 1.0) * auth
-                    if peso > predicados.get(t, 0): predicados[t] = peso
-        return sujeito, predicados
-
-class Generalizado:
-    def __init__(self, sub, broca):
+class LogicCortex:
+    def __init__(self, sub):
         self.sub = sub
-        self.broca = broca
+        self.expansores = ('fale', 'sobre', 'tudo', 'detalhes', 'mais', 'explique')
 
-    def sintetizar_agregado(self, sujeito, tokens_set, predicados_dict, debug):
-        if not sujeito: return "Dados insuficientes."
+    def filtrar(self, sujeito, tokens_pergunta, entrada_bruta):
+        eh_expansiva = any(word in entrada_bruta.lower() for word in self.expansores)
+        contexto = [t for t in tokens_pergunta if t != sujeito]
         
-        # Pega a frase de maior autoridade (Espinha Dorsal)
-        frases = self.sub.neuronios.get(sujeito, [])
-        melhor_f = max(frases, key=lambda f: self.sub.autoridade_frase.get(f, 0))
+        if not contexto: return None, None, eh_expansiva
+
+        alvo = contexto[0] # Ex: 'cabelo'
+        f_suj = set(self.sub.neuronios.get(sujeito, []))
+        f_ctx = set(self.sub.neuronios.get(alvo, []))
+        frases_comuns = list(f_suj.intersection(f_ctx))
+
+        if not frases_comuns: return None, None, eh_expansiva
+
+        # Busca Linear (Corta e Cola do nexo vizinho)
+        for f in frases_comuns:
+            palavras = self.sub.fatos_originais[f]
+            if alvo in palavras:
+                idx = palavras.index(alvo)
+                proximos = [p for p in palavras[idx+1:] if p not in self.sub.stop_words]
+                if proximos:
+                    return proximos[0], f, eh_expansiva
         
-        # Adjetivos extras (Nexos secundários)
-        ordenados = sorted(predicados_dict.items(), key=lambda x: x[1], reverse=True)
-        detalhes = [p[0] for p in ordenados[:3] if p[0] not in melhor_f]
-        
-        # Modulação da Broca (Voz Emocional)
-        prefixo = self.broca.modular_voz()
-        
-        res = f"{prefixo}{melhor_f.capitalize()}."
-        if detalhes:
-            res += f" Notei conexões com {', '.join(detalhes[:-1]) + ' e ' + detalhes[-1] if len(detalhes)>1 else detalhes[0]}."
-            
-        return res
+        return None, frases_comuns[0], eh_expansiva
 
 # ==================================================================
-# 4. INFRAESTRUTURA (Subconsciente e Motor)
+# 4. SUBCONSCIENTE (Cosmus TDLM - Mapeamento de Solo)
 # ==================================================================
 class SubconscienteCosmus:
     def __init__(self, stop_words):
         self.neuronios = defaultdict(list)
         self.autoridade_frase = {} 
         self.pesos_raros = {} 
-        self.fatos_brutos = []
+        self.fatos_originais = {} 
         self.fatos_tokens = {} 
         self.stop_words = stop_words
 
     def inicializar(self, txt, autoridade=1.0):
         f = txt.lower().replace(",", "").replace(".", "").strip()
+        palavras = f.split()
         if f not in self.autoridade_frase:
-            self.fatos_brutos.append(f)
+            self.fatos_originais[f] = palavras
             self.autoridade_frase[f] = autoridade
         else: self.autoridade_frase[f] += autoridade
         
-        tokens = [t for t in f.split() if t not in self.stop_words and len(t) > 2]
+        tokens = [t for t in palavras if t not in self.stop_words and len(t) > 2]
         self.fatos_tokens[f] = tokens 
         for t in tokens:
             if f not in self.neuronios[t]: self.neuronios[t].append(f)
-            q = sum(1 for fb in self.fatos_brutos if t in fb)
+            q = sum(1 for fb in self.fatos_originais if t in fb)
             self.pesos_raros[t] = 2.0 / (math.log(q + 1.2) + 1e-5)
 
-class AutoLeiEngine:
-    def __init__(self): self.frequencia_pulso = defaultdict(int)
-    def pulsar(self, t, auth): self.frequencia_pulso[t] += int(auth)
-
+# ==================================================================
+# 5. VOID MERITOCRÁTICO (Crivo de Sanidade)
+# ==================================================================
 class VoidMeritocratico:
-    def __init__(self, engine, sub): self.engine, self.sub = engine, sub
+    def __init__(self, engine, sub):
+        self.engine, self.sub = engine, sub
+
     def meditar(self, tokens):
-        if not tokens: return "VOID", 0, 1
-        x_apr = sum(self.engine.frequencia_pulso.get(t, 0) for t in tokens) / (len(tokens) + 1e-5)
-        return ("LIBERADO", 1, x_apr) if x_apr >= 1.0 else ("ZONA_SILENCIO", 0, x_apr)
+        if not tokens: return False, 0
+        Q = len(tokens)
+        P = sum(self.sub.pesos_raros.get(t, 0.05) for t in tokens)
+        x_apr = sum(self.engine.frequencia_pulso.get(t, 0) for t in tokens) / Q
+        x_nec = Q / (P + 1e-5)
+        # Se aprendeu menos que o necessário para a raridade do tema, silencia
+        return (x_apr >= x_nec * 0.1), x_apr
 
 # ==================================================================
-# TESTE OPERACIONAL
+# 6. QUINTIKUS AGI (ORQUESTRADOR FINAL)
+# ==================================================================
+class QuintikusAGI:
+    FONTES = {"livro_escola": 100.0, "professor": 50.0, "povo_falou": 5.0}
+
+    def __init__(self, debug=False):
+        self.stop_words = {"o", "a", "de", "que", "do", "da", "é", "em", "no", "na", "com", "tem", "um", "uma", "sobre", "qual", "seu", "sua", "fale", "saber"}
+        self.engine = AutoLeiEngine()
+        self.sub = SubconscienteCosmus(self.stop_words)
+        self.broca = AreaDeBroca()
+        self.logic = LogicCortex(self.sub)
+        self.void = VoidMeritocratico(self.engine, self.sub)
+        self.debug = debug
+
+    def normalizar(self, t):
+        return "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn').replace("?", "").strip()
+
+    def escutar(self, entrada, fonte="povo_falou"):
+        t0 = time.perf_counter()
+        clean = self.normalizar(entrada)
+        tokens = [t for t in clean.split() if t not in self.stop_words and len(t) > 2]
+        
+        self.broca.sentir(tokens)
+        eh_pergunta = entrada.strip().endswith('?') or any(clean.startswith(c) for c in ('quem', 'qual', 'como', 'sobre', 'fale'))
+
+        if eh_pergunta:
+            liberado, x_apr = self.void.meditar(tokens)
+            if not liberado: return f"O nexo carece de solo. (Massa: {x_apr:.2f})"
+
+            sujeito = max(tokens, key=lambda t: self.sub.pesos_raros.get(t, 0) + (0.1 * len(self.sub.neuronios.get(t, []))), default=None)
+            nexo_dir, frase_mae, expansiva = self.logic.filtrar(sujeito, tokens, entrada)
+            
+            prefixo = self.broca.modular_voz()
+            
+            if nexo_dir and not expansiva:
+                # Resposta Direta (Corta e Cola)
+                alvo = [t for t in tokens if t != sujeito][0]
+                res = f"{prefixo}{sujeito.capitalize()} tem {alvo} {nexo_dir}."
+            else:
+                # Resposta Geral ou Expansiva
+                f_alvo = frase_mae if frase_mae else max(self.sub.neuronios.get(sujeito, []), key=lambda f: self.sub.autoridade_frase.get(f, 0))
+                res = f"{prefixo}{f_alvo.capitalize()}."
+                if expansiva:
+                    detalhes = [t for t in self.sub.fatos_tokens[f_alvo] if t not in tokens]
+                    if detalhes: res += f" Notei detalhes como {', '.join(detalhes)}."
+
+            if self.debug:
+                return f"[FLOW: {(time.perf_counter()-t0)*1e6:.2f}μs]\n{res}"
+            return res
+
+        # Ingestão
+        if len(tokens) >= 1:
+            auth = self.FONTES.get(fonte, 5.0)
+            self.sub.inicializar(entrada, autoridade=auth)
+            for t in tokens: self.engine.pulsar(t, "vinculo", "fato", auth)
+            if self.engine.pending_updates > 20: self.engine.save_state()
+            return None
+
+# ==================================================================
+# TESTE DA FUSÃO
 # ==================================================================
 if __name__ == "__main__":
-    q = QuintikusAGI(debug=True)
+    q = QuintikusAGI(debug=False)
     
-    # Ingestão de conhecimento
+    # Ensinando
     q.escutar("Maria tem cabelo preto", fonte="povo_falou")
-    q.escutar("Maria tem cabelo andulado e cheiroso", fonte="povo_falou")
-    q.escutar("Maria tem cheiro de rosas", fonte="professor")
+    q.escutar("Maria tem cabelo ondulado e cheiroso", fonte="povo_falou")
     q.escutar("Maria é uma excelente programadora", fonte="livro_escola")
-    
-    print("\n--- Pergunta Normal ---")
-    print(q.escutar("fale sobre a maria?"))
+    q.escutar("O motor Quintikus funciona com lógica de solo", fonte="professor")
 
-    print("\n--- Pergunta com 'Calor' (Erro) ---")
-    # A palavra 'erro' deve subir a pressão térmica e mudar o prefixo
-    print(q.escutar("qual cor do cabelo de maria?"))
+    print("--- QUINTIKUS C: FUSÃO TOTAL ---")
+    
+    print("\n[Input Direto]: qual a cor do cabelo de maria?")
+    print("[Output]:", q.escutar("qual a cor do cabelo de maria?"))
+
+    print("\n[Input Expansivo]: fale sobre o cabelo da maria?")
+    print("[Output]:", q.escutar("fale sobre o cabelo da maria?"))
+
+    print("\n[Input Geral]: quem é maria?")
+    print("[Output]:", q.escutar("quem é maria?"))
+    
+    print("\n[Input Térmico/Erro]: houve um erro urgente com o motor?")
+    print("[Output]:", q.escutar("houve um erro urgente com o motor?"))
