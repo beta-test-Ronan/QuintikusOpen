@@ -31,6 +31,9 @@ class QuintikusFeeling:
         self.modelo = None
         self.arquivo_padrao = "emo.rn"
         
+        # Garante que o arquivo .rn existe
+        self._garantir_arquivo()
+        
         if self.modo == "visual":
             print("🖥️  QUINTIKUSFEELING - Modo VISUAL ativado")
             print("   Interface completa: treino + previsão + métricas")
@@ -42,32 +45,57 @@ class QuintikusFeeling:
             print("   Usando 'visual' como padrão")
             self.modo = "visual"
     
+    def _garantir_arquivo(self, arquivo=None):
+        """Garante que o arquivo .rn existe, cria se não existir"""
+        if arquivo is None:
+            arquivo = self.arquivo_padrao
+        
+        if not os.path.exists(arquivo):
+            print(f"📄 Arquivo '{arquivo}' não encontrado. Criando novo modelo...")
+            try:
+                neuro_temp = NeuroMicro(arquivo)
+                neuro_temp._salvar_rede()
+                print(f"✅ Arquivo '{arquivo}' criado com sucesso!")
+            except Exception as e:
+                print(f"❌ Erro ao criar '{arquivo}': {e}")
+    
     def predict(self, arquivo_rn, texto):
         """
         Faz previsão de sentimento
         Uso: resultado = model.predict("emo.rn", "estou feliz hoje")
         """
-        # Carrega modelo do arquivo .rn
-        neuro = NeuroMicro(arquivo_rn)
+        # Garante que arquivo existe
+        self._garantir_arquivo(arquivo_rn)
         
-        # Faz previsão
-        resultado = neuro.prever(texto)
+        try:
+            # Carrega modelo do arquivo .rn
+            neuro = NeuroMicro(arquivo_rn)
+            
+            # Faz previsão
+            resultado = neuro.prever(texto)
+            
+            # Emojis
+            emojis = {
+                'alegria': '😊', 'tristeza': '😢', 'raiva': '😡',
+                'medo': '😨', 'surpresa': '😲', 'nojo': '🤢'
+            }
+            
+            sentimento = resultado['sentimento']
+            emoji = emojis.get(sentimento, '🤔')
+            
+            print(f"\n  📝 Texto: '{texto[:60]}'")
+            print(f"  🎯 Sentimento: {sentimento.upper()} {emoji}")
+            print(f"  📊 Confiança: {resultado['confianca']:.4f}")
+            print(f"  ⚡ Tempo: {resultado['tempo_us']:.2f} μs")
+            
+            return resultado
         
-        # Emojis
-        emojis = {
-            'alegria': '😊', 'tristeza': '😢', 'raiva': '😡',
-            'medo': '😨', 'surpresa': '😲', 'nojo': '🤢'
-        }
-        
-        sentimento = resultado['sentimento']
-        emoji = emojis.get(sentimento, '🤔')
-        
-        print(f"\n  📝 Texto: '{texto[:60]}'")
-        print(f"  🎯 Sentimento: {sentimento.upper()} {emoji}")
-        print(f"  📊 Confiança: {resultado['confianca']:.4f}")
-        print(f"  ⚡ Tempo: {resultado['tempo_us']:.2f} μs")
-        
-        return resultado
+        except FileNotFoundError:
+            print(f"\n  ❌ Arquivo '{arquivo_rn}' não encontrado!")
+            return {'sentimento': 'erro', 'confianca': 0.0, 'erro': 'arquivo nao encontrado'}
+        except Exception as e:
+            print(f"\n  ❌ Erro na previsão: {str(e)}")
+            return {'sentimento': 'erro', 'confianca': 0.0, 'erro': str(e)}
     
     def trainer(self, frase, emocao, arquivo_rn=None):
         """
@@ -78,21 +106,32 @@ class QuintikusFeeling:
         if arquivo_rn is None:
             arquivo_rn = self.arquivo_padrao
         
-        # Carrega modelo
-        neuro = NeuroMicro(arquivo_rn)
+        # Garante que arquivo existe
+        self._garantir_arquivo(arquivo_rn)
         
-        # Treina
-        resultado = neuro.treinar(frase, emocao)
+        try:
+            # Carrega modelo
+            neuro = NeuroMicro(arquivo_rn)
+            
+            # Treina
+            resultado = neuro.treinar(frase, emocao)
+            
+            if resultado:
+                print(f"\n  ✅ TREINO CONCLUÍDO!")
+                print(f"  📝 Frase: '{frase[:50]}'")
+                print(f"  🎯 Emoção: {emocao}")
+                print(f"  📉 Loss: {resultado['loss_antes']:.4f} → {resultado['loss_depois']:.4f}")
+                print(f"  📈 Melhora: {resultado['melhora']:.6f}")
+                print(f"  💾 Salvo em: {arquivo_rn}")
+            
+            return resultado
         
-        if resultado:
-            print(f"\n  ✅ TREINO CONCLUÍDO!")
-            print(f"  📝 Frase: '{frase[:50]}'")
-            print(f"  🎯 Emoção: {emocao}")
-            print(f"  📉 Loss: {resultado['loss_antes']:.4f} → {resultado['loss_depois']:.4f}")
-            print(f"  📈 Melhora: {resultado['melhora']:.6f}")
-            print(f"  💾 Salvo em: {arquivo_rn}")
-        
-        return resultado
+        except PermissionError:
+            print(f"\n  ❌ Sem permissão para salvar em '{arquivo_rn}'!")
+            return None
+        except Exception as e:
+            print(f"\n  ❌ Erro no treino: {str(e)}")
+            return None
     
     def trainer_lote(self, exemplos, arquivo_rn=None, intensivo=False):
         """
@@ -105,27 +144,41 @@ class QuintikusFeeling:
         if arquivo_rn is None:
             arquivo_rn = self.arquivo_padrao
         
-        neuro = NeuroMicro(arquivo_rn)
+        # Garante que arquivo existe
+        self._garantir_arquivo(arquivo_rn)
         
-        if intensivo:
-            resultados = neuro.treinar_lote_adaptativo(exemplos, repeticoes=3)
-        else:
-            resultados = neuro.treinar_lote(exemplos)
+        try:
+            neuro = NeuroMicro(arquivo_rn)
+            
+            if intensivo:
+                resultados = neuro.treinar_lote_adaptativo(exemplos, repeticoes=3)
+            else:
+                resultados = neuro.treinar_lote(exemplos)
+            
+            print(f"\n  ✅ LOTE CONCLUÍDO!")
+            print(f"  📚 {len(resultados)}/{len(exemplos)} exemplos processados")
+            print(f"  💾 Salvo em: {arquivo_rn}")
+            
+            return resultados
         
-        print(f"\n  ✅ LOTE CONCLUÍDO!")
-        print(f"  📚 {len(resultados)}/{len(exemplos)} exemplos processados")
-        print(f"  💾 Salvo em: {arquivo_rn}")
-        
-        return resultados
+        except Exception as e:
+            print(f"\n  ❌ Erro no treino em lote: {str(e)}")
+            return []
     
     def info(self, arquivo_rn=None):
         """Mostra informações do modelo"""
         if arquivo_rn is None:
             arquivo_rn = self.arquivo_padrao
         
-        neuro = NeuroMicro(arquivo_rn)
-        neuro.mostrar_estado()
-        neuro.mostrar_metricas()
+        # Garante que arquivo existe
+        self._garantir_arquivo(arquivo_rn)
+        
+        try:
+            neuro = NeuroMicro(arquivo_rn)
+            neuro.mostrar_estado()
+            neuro.mostrar_metricas()
+        except Exception as e:
+            print(f"\n  ❌ Erro ao carregar informações: {str(e)}")
 
 
 # ============================================
@@ -710,6 +763,6 @@ def start():
 # ============================================
 
 if __name__ == "__main__":
-   start()
-   model = QuintikusFeeling("visual") 
+    #start()
+   model = QuintikusFeeling("terminal") 
    model.predict("emo.rn", "estou feliz hoje")
