@@ -1,256 +1,231 @@
 import os
-import numpy as np
-import unicodedata
-import time
 import math
-import json
-import threading
+import time
+import struct
 import random
-from collections import defaultdict
+import json
+import unicodedata
+import hashlib
+import re
+import numpy as np
+import pickle
+from collections import defaultdict, Counter
 
-# ==================================================================
-#    ❄️ ESCUDO TÉRMICO (CONFIGURAÇÃO DE HARDWARE)
-# ==================================================================
-os.environ["OMP_NUM_THREADS"] = "1" 
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1" 
+# =================================================================
+# 1. CLASSE CALCULER (CHAIN-OF-THOUGHT & MATH CACHE)
+# =================================================================
+class Calculer:
+    # O Cache agora é um dicionário {expressao_limpa: resultado}
+    cache = {}
 
-# ==================================================================
-# 1. MOTOR DE MATRIZES (AutoLeiEngine 128D - Homeostático)
-# ==================================================================
-class AutoLeiEngine:
-    def __init__(self, dim=128, state_file="brain_state.json"):
-        self.dim = dim
-        self.state_file = state_file
-        self.words = {}  
-        self.W = {}      
-        self.lr = 0.05   
-        self.temperatura = 0.0 
-        self.frequencia_pulso = defaultdict(int)
-        self.pending_updates = 0
-        self.load_state()
+    @staticmethod
+    def eh_matematica(texto):
+        padrao = re.compile(r'^[0-9\+\-\*\/\(\)\.\s\^]+$')
+        return bool(padrao.match(texto)) and any(c in texto for c in "+-*/^")
 
-    def _get_v(self, w):
-        if w not in self.words:
-            v = np.random.randn(self.dim) * 0.01
-            self.words[w] = v.tolist()
-        return np.array(self.words[w])
-
-    def _get_W(self, v):
-        if v not in self.W:
-            self.W[v] = np.eye(self.dim).tolist()
-        return np.array(self.W[v])
-
-    def pulsar(self, s, v, o, autoridade):
-        vs, vo = self._get_v(s), self._get_v(o)
-        Wv = self._get_W(v)
-        delta = (vs @ Wv) - vo
-        diss = np.linalg.norm(delta)
-        
-        # Ajuste de Pesos (Lógica de Solo)
-        W_new = Wv - self.lr * (autoridade/100) * np.outer(vs, delta)
-        self.W[v] = W_new.tolist()
-        v_o_new = vo + self.lr * delta
-        self.words[o] = v_o_new.tolist()
-        
-        self.frequencia_pulso[s] += 1
-        self.frequencia_pulso[o] += 1
-        self.pending_updates += 1
-        return diss
-
-    def save_state(self):
-        with open(self.state_file, "w") as f:
-            json.dump({"words": self.words, "W": self.W, "freq": dict(self.frequencia_pulso)}, f)
-
-    def load_state(self):
-        if os.path.exists(self.state_file):
-            try:
-                with open(self.state_file, "r") as f:
-                    state = json.load(f)
-                    self.words, self.W = state.get("words", {}), state.get("W", {})
-                    self.frequencia_pulso = defaultdict(int, state.get("freq", {}))
-            except: pass
-
-# ==================================================================
-# 2. ÁREA DE BROCA (Modulação Térmica e Emocional)
-# ==================================================================
-class AreaDeBroca:
-    def __init__(self):
-        self.st = [0.5, 0.5] # [Pressão, Sinergia]
-        self.th = {'bom': 0.1, 'otimo': 0.2, 'paz': 0.2, 'erro': -0.2, 'urgente': -0.3, 'falha': -0.2}
-        self.tons = {
-            "quente": ["Sob alerta, ", "Detectando urgência, "],
-            "harmonia": ["Com clareza, ", "Em sinergia, "],
-            "neutro": ["Pela lógica, ", "Observando os nexos, "]
-        }
-
-    def sentir(self, tokens):
-        pos = sum(self.th[t] for t in tokens if t in self.th and self.th[t] > 0)
-        neg = sum(abs(self.th[t]) for t in tokens if t in self.th and self.th[t] < 0)
-        self.st[0] = self.st[0] * 0.95 + (neg * 0.1)
-        self.st[1] = self.st[1] * 0.95 + (pos * 0.1)
-
-    def modular_voz(self):
-        if self.st[0] > 0.6: return random.choice(self.tons["quente"])
-        if self.st[1] > 0.6: return random.choice(self.tons["harmonia"])
-        return random.choice(self.tons["neutro"])
-
-# ==================================================================
-# 3. LOGIC CORTEX (Filtro Contextual e Probabilidade Linear)
-# ==================================================================
-class LogicCortex:
-    def __init__(self, sub):
-        self.sub = sub
-        self.expansores = ('fale', 'sobre', 'tudo', 'detalhes', 'mais', 'explique')
-
-    def filtrar(self, sujeito, tokens_pergunta, entrada_bruta):
-        eh_expansiva = any(word in entrada_bruta.lower() for word in self.expansores)
-        contexto = [t for t in tokens_pergunta if t != sujeito]
-        
-        if not contexto: return None, None, eh_expansiva
-
-        alvo = contexto[0] # Ex: 'cabelo'
-        f_suj = set(self.sub.neuronios.get(sujeito, []))
-        f_ctx = set(self.sub.neuronios.get(alvo, []))
-        frases_comuns = list(f_suj.intersection(f_ctx))
-
-        if not frases_comuns: return None, None, eh_expansiva
-
-        # Busca Linear (Corta e Cola do nexo vizinho)
-        for f in frases_comuns:
-            palavras = self.sub.fatos_originais[f]
-            if alvo in palavras:
-                idx = palavras.index(alvo)
-                proximos = [p for p in palavras[idx+1:] if p not in self.sub.stop_words]
-                if proximos:
-                    return proximos[0], f, eh_expansiva
-        
-        return None, frases_comuns[0], eh_expansiva
-
-# ==================================================================
-# 4. SUBCONSCIENTE (Cosmus TDLM - Mapeamento de Solo)
-# ==================================================================
-class SubconscienteCosmus:
-    def __init__(self, stop_words):
-        self.neuronios = defaultdict(list)
-        self.autoridade_frase = {} 
-        self.pesos_raros = {} 
-        self.fatos_originais = {} 
-        self.fatos_tokens = {} 
-        self.stop_words = stop_words
-
-    def inicializar(self, txt, autoridade=1.0):
-        f = txt.lower().replace(",", "").replace(".", "").strip()
-        palavras = f.split()
-        if f not in self.autoridade_frase:
-            self.fatos_originais[f] = palavras
-            self.autoridade_frase[f] = autoridade
-        else: self.autoridade_frase[f] += autoridade
-        
-        tokens = [t for t in palavras if t not in self.stop_words and len(t) > 2]
-        self.fatos_tokens[f] = tokens 
-        for t in tokens:
-            if f not in self.neuronios[t]: self.neuronios[t].append(f)
-            q = sum(1 for fb in self.fatos_originais if t in fb)
-            self.pesos_raros[t] = 2.0 / (math.log(q + 1.2) + 1e-5)
-
-# ==================================================================
-# 5. VOID MERITOCRÁTICO (Crivo de Sanidade)
-# ==================================================================
-class VoidMeritocratico:
-    def __init__(self, engine, sub):
-        self.engine, self.sub = engine, sub
-
-    def meditar(self, tokens):
-        if not tokens: return False, 0
-        Q = len(tokens)
-        P = sum(self.sub.pesos_raros.get(t, 0.05) for t in tokens)
-        x_apr = sum(self.engine.frequencia_pulso.get(t, 0) for t in tokens) / Q
-        x_nec = Q / (P + 1e-5)
-        # Se aprendeu menos que o necessário para a raridade do tema, silencia
-        return (x_apr >= x_nec * 0.1), x_apr
-
-# ==================================================================
-# 6. QUINTIKUS AGI (ORQUESTRADOR FINAL)
-# ==================================================================
-class QuintikusAGI:
-    FONTES = {"livro_escola": 100.0, "professor": 50.0, "povo_falou": 5.0}
-
-    def __init__(self, debug=False):
-        self.stop_words = {"o", "a", "de", "que", "do", "da", "é", "em", "no", "na", "com", "tem", "um", "uma", "sobre", "qual", "seu", "sua", "fale", "saber"}
-        self.engine = AutoLeiEngine()
-        self.sub = SubconscienteCosmus(self.stop_words)
-        self.broca = AreaDeBroca()
-        self.logic = LogicCortex(self.sub)
-        self.void = VoidMeritocratico(self.engine, self.sub)
-        self.debug = debug
-
-    def normalizar(self, t):
-        return "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn').replace("?", "").strip()
-
-    def escutar(self, entrada, fonte="povo_falou"):
-        t0 = time.perf_counter()
-        clean = self.normalizar(entrada)
-        tokens = [t for t in clean.split() if t not in self.stop_words and len(t) > 2]
-        
-        self.broca.sentir(tokens)
-        eh_pergunta = entrada.strip().endswith('?') or any(clean.startswith(c) for c in ('quem', 'qual', 'como', 'sobre', 'fale'))
-
-        if eh_pergunta:
-            liberado, x_apr = self.void.meditar(tokens)
-            if not liberado: return f"O nexo carece de solo. (Massa: {x_apr:.2f})"
-
-            sujeito = max(tokens, key=lambda t: self.sub.pesos_raros.get(t, 0) + (0.1 * len(self.sub.neuronios.get(t, []))), default=None)
-            nexo_dir, frase_mae, expansiva = self.logic.filtrar(sujeito, tokens, entrada)
+    @staticmethod
+    def resolver(expressao, auria):
+        try:
+            # Normaliza a expressão para busca no cache (sem espaços)
+            exp_limpa = expressao.replace(" ", "")
             
-            prefixo = self.broca.modular_voz()
+            # 1. Tenta encontrar a MAIOR sub-expressão conhecida dentro da atual
+            sub_conhecida = None
+            valor_sub = None
             
-            if nexo_dir and not expansiva:
-                # Resposta Direta (Corta e Cola)
-                alvo = [t for t in tokens if t != sujeito][0]
-                res = f"{prefixo}{sujeito.capitalize()} tem {alvo} {nexo_dir}."
+            # Ordena as chaves do maior para o menor para pegar o nexo mais longo
+            chaves_ordenadas = sorted(Calculer.cache.keys(), key=len, reverse=True)
+            
+            for chave in chaves_ordenadas:
+                if chave in exp_limpa and len(chave) < len(exp_limpa):
+                    sub_conhecida = chave
+                    valor_sub = Calculer.cache[chave]
+                    break
+            
+            # 2. Executa a substituição para o cálculo final
+            if sub_conhecida:
+                # Substitui apenas a primeira ocorrência
+                exp_para_resolver = exp_limpa.replace(sub_conhecida, str(valor_sub), 1)
+                final_res = eval(exp_para_resolver.replace('^', '**'), {"__builtins__": None}, {})
+                
+                msg = f"LEMBRO que {sub_conhecida} = {valor_sub}, então {expressao} = {final_res} <!>"
+                status = "[CALCULER-MEM-CHAIN]"
             else:
-                # Resposta Geral ou Expansiva
-                f_alvo = frase_mae if frase_mae else max(self.sub.neuronios.get(sujeito, []), key=lambda f: self.sub.autoridade_frase.get(f, 0))
-                res = f"{prefixo}{f_alvo.capitalize()}."
-                if expansiva:
-                    detalhes = [t for t in self.sub.fatos_tokens[f_alvo] if t not in tokens]
-                    if detalhes: res += f" Notei detalhes como {', '.join(detalhes)}."
+                final_res = eval(exp_limpa.replace('^', '**'), {"__builtins__": None}, {})
+                msg = f"O resultado de {expressao} é {final_res}."
+                status = "[CALCULER-NEW-FACT]"
 
-            if self.debug:
-                return f"[FLOW: {(time.perf_counter()-t0)*1e6:.2f}μs]\n{res}"
-            return res
+            # 3. Atualiza Cache e Injeta Nexo no Solo Quântico
+            Calculer.cache[exp_limpa] = final_res
+            nexo_completo = f"{expressao} = {final_res}. {msg}"
+            auria.amadurecer_solo(nexo_completo, silenciar=True)
+            
+            return f"\n{status}\n> {msg}"
+            
+        except Exception as e:
+            return f"\n[CALCULER-ERROR]\n> Falha ao decompor nexo matemático: {e}"
 
-        # Ingestão
-        if len(tokens) >= 1:
-            auth = self.FONTES.get(fonte, 5.0)
-            self.sub.inicializar(entrada, autoridade=auth)
-            for t in tokens: self.engine.pulsar(t, "vinculo", "fato", auth)
-            if self.engine.pending_updates > 20: self.engine.save_state()
-            return None
+# =================================================================
+# 2. SOVEREIGN TOKENIZER + LPS (V13)
+# =================================================================
+class SovereignTokenizer:
+    def __init__(self):
+        self.pattern = re.compile(r'\?\?+|\!\!+|\.\.\.+|[:;]-?[)DPpoO]|s2|<3|[\w]+|[\?\!\.]')
+        self.special = ["<BOS>", "<EOS>", "<PAD>", "<?>", "<!>", "<.>"]
+        
+    def tokenize(self, text):
+        text = text.replace('\x00', '')
+        norm = "".join(c for c in unicodedata.normalize("NFKD", text.lower().strip()) if not unicodedata.combining(c))
+        raw_tokens = self.pattern.findall(norm)
+        processed = []
+        for t in raw_tokens:
+            if t == "?": processed.append("<?>")
+            elif t == "!": processed.append("<!>")
+            elif t == ".": processed.append("<.>")
+            else: processed.append(t)
+        return processed
 
-# ==================================================================
-# TESTE DA FUSÃO
-# ==================================================================
+# =================================================================
+# 3. QUANTUM LPS CORE
+# =================================================================
+class QuantumLPSCore:
+    def __init__(self, vocab_size, d_model=32):
+        self.d_model = d_model
+        limit = np.sqrt(6 / (vocab_size + d_model))
+        self.embeddings = np.random.uniform(-limit, limit, (vocab_size, d_model)).astype(np.float32)
+        self.Wq = np.random.randn(d_model, d_model).astype(np.float32) * 0.1
+        self.Wk = np.random.randn(d_model, d_model).astype(np.float32) * 0.1
+        self.W_future = np.random.randn(d_model, d_model).astype(np.float32) * 0.2
+
+    def colapsar_nexo(self, q_idx, lps_idx, candidatos_idx_list, rarity_map, word2idx, temp=0.6):
+        if not q_idx or not candidatos_idx_list: return None
+        q_weights = np.array([rarity_map.get(list(word2idx.keys())[idx], 0.1) for idx in q_idx])
+        q_weights /= (q_weights.sum() + 1e-9)
+        sujeito_vec = np.average(self.embeddings[q_idx], axis=0, weights=q_weights)
+        lps_vec = self.embeddings[lps_idx]
+        foco_vec = (sujeito_vec @ self.Wq + lps_vec) @ self.W_future
+        
+        scores = []
+        for c_idx_list in candidatos_idx_list:
+            if not c_idx_list: scores.append(-1.0); continue
+            c_vec = np.mean(self.embeddings[c_idx_list], axis=0) @ self.Wk
+            dot = np.dot(foco_vec, c_vec)
+            norm = (np.linalg.norm(foco_vec) * np.linalg.norm(c_vec) + 1e-9)
+            scores.append(dot / norm)
+        exp_s = np.exp(np.array(scores) / temp)
+        return candidatos_idx_list[np.argmax(exp_s / (exp_s.sum() + 1e-10))]
+
+# =================================================================
+# 4. QUINTIKUS OPEN AURIA v13.0
+# =================================================================
+class QuintikusOpenAuria:
+    def __init__(self):
+        self.path = "brain_v13_quantum.qoa"
+        self.tokenizer = SovereignTokenizer()
+        self.l2_mass, self.l2_tokens_idx = [], []
+        self.neuronios = defaultdict(list)
+        self.rarity, self.word2idx, self.ledger = {}, {}, set()
+        self.core = None
+        self.stop_words = {"o", "a", "de", "que", "do", "da", "é", "em", "um", "para", "com", "na", "no"}
+
+    def amadurecer_solo(self, raw_content, silenciar=False):
+        hash_c = hashlib.sha256(raw_content.encode('utf-8', 'ignore')).hexdigest()
+        if hash_c in self.ledger: return False
+        if not silenciar: print(f"🧠 Amadurecendo Solo (v13)...")
+        
+        chunks = re.split(r'([\?\!\.])', raw_content)
+        all_sentences = [chunks[i] + chunks[i+1] for i in range(0, len(chunks)-1, 2) if len(chunks[i].strip()) > 1]
+        words_total = (" ".join(all_sentences)).lower().split()
+        vocab = sorted(list(set(words_total + self.tokenizer.special + list(self.word2idx.keys()))))
+        self.word2idx = {w: i for i, w in enumerate(vocab)}
+        contagem = Counter(words_total)
+        offset = len(self.l2_mass)
+        for i, s in enumerate(all_sentences):
+            self.l2_mass.append(s)
+            tokens = self.tokenizer.tokenize(s)
+            self.l2_tokens_idx.append([self.word2idx[t] for t in tokens if t in self.word2idx])
+            for t in tokens:
+                if t not in self.stop_words and t in self.word2idx:
+                    if len(self.neuronios[t]) < 10000: self.neuronios[t].append(offset + i)
+                    self.rarity[t] = 2.0 / (math.log(contagem.get(t, 1) + 1.1) + 1e-5)
+        self.core = QuantumLPSCore(len(vocab))
+        self.ledger.add(hash_c)
+        self.selar(silenciar)
+        return True
+
+    def selar(self, silenciar=False):
+        bundle = {
+            'l2': self.l2_mass, 'rar': self.rarity, 'w2i': self.word2idx, 
+            'neu': dict(self.neuronios), 'core': self.core, 
+            't_idx': self.l2_tokens_idx, 'ledger': self.ledger,
+            'math_cache': Calculer.cache # Salva o cache matemático
+        }
+        with open(self.path, 'wb') as f:
+            pickle.dump(bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
+        if not silenciar: print(f"💾 Solo Selado.")
+
+    def boot(self):
+        if os.path.exists(self.path):
+            with open(self.path, 'rb') as f:
+                b = pickle.load(f)
+                self.l2_mass, self.rarity, self.word2idx = b['l2'], b['rar'], b['w2i']
+                self.neuronios, self.core, self.l2_tokens_idx = b['neu'], b['core'], b['t_idx']
+                self.ledger = b['ledger']
+                Calculer.cache = b.get('math_cache', {})
+                print(f"✅ Blockchain Online: {len(self.l2_mass)} nexos.")
+                return True
+        return False
+
+    def pensar_e_falar(self, entrada):
+        if Calculer.eh_matematica(entrada):
+            return Calculer.resolver(entrada, self)
+
+        t0 = time.perf_counter()
+        u_toks = self.tokenizer.tokenize(entrada)
+        if not u_toks: return "[SILÊNCIO]"
+        lps_symbol = u_toks[-1] if u_toks[-1] in ["<?>", "<!>", "<.>"] else "<.>"
+        lps_idx = self.word2idx.get(lps_symbol, self.word2idx.get("<.>"))
+        q_idx = [self.word2idx[t] for t in u_toks if t in self.word2idx]
+        pivos = sorted([t for t in u_toks if t in self.rarity], key=lambda x: self.rarity[x], reverse=True)
+        if not pivos: return "[VÁCUO]"
+        candidatos = self.neuronios.get(pivos[0], [])
+        if not candidatos: return "[SEM PROTOCOLO]"
+        amostra = random.sample(candidatos, min(len(candidatos), 600))
+        amostra_idx_list = [self.l2_tokens_idx[i] for i in amostra]
+        best_future = self.core.colapsar_nexo(q_idx, lps_idx, amostra_idx_list, self.rarity, self.word2idx)
+        final_idx = amostra[amostra_idx_list.index(best_future)]
+        raw_res = self.l2_mass[final_idx]
+        palavras = raw_res.split()
+        res_tokens_idx = self.l2_tokens_idx[final_idx]
+        q_vec = np.mean(self.core.embeddings[q_idx], axis=0)
+        reacoes = [np.dot(self.core.embeddings[t_id], q_vec) for t_id in res_tokens_idx]
+        media_r = np.mean(reacoes) if reacoes else 0
+        resultado = []
+        for i, word in enumerate(palavras):
+            t_id = res_tokens_idx[i] if i < len(res_tokens_idx) else None
+            if t_id is not None and np.dot(self.core.embeddings[t_id], q_vec) > media_r:
+                resultado.append(word.upper())
+            else: resultado.append(word.lower())
+        dt = (time.perf_counter() - t0) * 1000000
+        return f"\n[V13-QUANTUM | {dt:.2f}μs | MODE:{lps_symbol}]\n> {' '.join(resultado)}"
+
 if __name__ == "__main__":
-    q = QuintikusAGI(debug=False)
-    
-    # Ensinando
-    q.escutar("Maria tem cabelo preto", fonte="povo_falou")
-    q.escutar("Maria tem cabelo ondulado e cheiroso", fonte="povo_falou")
-    q.escutar("Maria é uma excelente programadora", fonte="livro_escola")
-    q.escutar("O motor Quintikus funciona com lógica de solo", fonte="professor")
-
-    print("--- QUINTIKUS C: FUSÃO TOTAL ---")
-    
-    print("\n[Input Direto]: qual a cor do cabelo de maria?")
-    print("[Output]:", q.escutar("qual a cor do cabelo de maria?"))
-
-    print("\n[Input Expansivo]: fale sobre o cabelo da maria?")
-    print("[Output]:", q.escutar("fale sobre o cabelo da maria?"))
-
-    print("\n[Input Geral]: quem é maria?")
-    print("[Output]:", q.escutar("quem é maria?"))
-    
-    print("\n[Input Térmico/Erro]: houve um erro urgente com o motor?")
-    print("[Output]:", q.escutar("houve um erro urgente com o motor?"))
+    auria = QuintikusOpenAuria()
+    auria.boot()
+    while True:
+        u = input("\n[user]👤: ").strip()
+        if any(u.startswith(p) for p in ["train:", "trein:", "treino:"]):
+            path = u.split(":")[1]
+            if os.path.exists(path):
+                conteudo = None
+                for enc in ['utf-8', 'latin-1', 'cp1252']:
+                    try:
+                        with open(path, 'r', encoding=enc) as f:
+                            conteudo = f.read()
+                        print(f"✅ Arquivo aberto ({enc})")
+                        break
+                    except UnicodeDecodeError: continue
+                if conteudo: auria.amadurecer_solo(conteudo)
+            continue
+        if u.lower() in ['sair', 'exit']: break
+        print(auria.pensar_e_falar(u))
