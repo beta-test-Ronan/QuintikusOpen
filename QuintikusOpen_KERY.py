@@ -5,204 +5,163 @@ import pickle
 from array import array
 
 # ============================================
-# 📐 QMATH - Inteligência Matemática Purificada
+# ⚙️ MOTOR DE BAIXO NÍVEL (LINEAR TENSOR)
 # ============================================
-class QMath:
+class QuintikusEngine:
     @staticmethod
-    def sigmoid(x): return 1.0 / (1.0 + math.exp(-max(min(x, 50), -50)))
-    
-    @staticmethod
-    def d_sigmoid(x):
-        s = QMath.sigmoid(x)
-        return s * (1.0 - s)
+    def leaky_relu(x):
+        return x if x > 0 else 0.01 * x
 
     @staticmethod
-    def relu(x): return max(0.0, x)
+    def d_leaky_relu(x):
+        return 1.0 if x > 0 else 0.01
 
     @staticmethod
-    def d_relu(x): return 1.0 if x > 0 else 0.0
-
-    @staticmethod
-    def softmax(arr):
-        max_val = max(arr)
-        exp_vals = [math.exp(v - max_val) for v in arr]
-        total = sum(exp_vals)
-        return [v / total for v in exp_vals]
-
-    @staticmethod
-    def cce_loss(pred, real):
-        """Categorical Cross-Entropy: A perda dos profissionais"""
-        # Evita log(0) com um epsilon pequeno
-        return -sum(r * math.log(max(p, 1e-15)) for p, r in zip(pred, real))
-
-    @staticmethod
-    def iguame(pred, real):
-        """Métrica Quintikus de Precisão"""
-        a, b = array('f', pred), array('f', real)
-        dist = math.sqrt(sum((ai - bi)**2 for ai, bi in zip(a, b)))
-        return (1.0 / (1.0 + dist)) * 100
+    def fast_softmax(logits_buffer):
+        """Softmax otimizado para evitar estouro de float64"""
+        max_val = max(logits_buffer)
+        exp_sum = 0.0
+        for i in range(len(logits_buffer)):
+            logits_buffer[i] = math.exp(logits_buffer[i] - max_val)
+            exp_sum += logits_buffer[i]
+        for i in range(len(logits_buffer)):
+            logits_buffer[i] /= exp_sum
 
 # ============================================
-# 🧱 DENSE - Camada Profissional com Adam
+# 🧱 DENSE LINEAR (MEMÓRIA CONTÍGUA)
 # ============================================
-class Dense:
-    def __init__(self, unidades, ativacao='relu'):
-        self.unidades = unidades
-        self.ativacao = ativacao
-        self.pesos, self.bias = None, None
-        self.m_w, self.v_w, self.m_b, self.v_b = None, None, None, None
-        self.t = 0
-
-    def _inicializar(self, dim):
-        # He Initialization (Ideal para ReLU)
-        f = math.sqrt(2.0 / dim)
-        self.pesos = [[random.gauss(0, f) for _ in range(self.unidades)] for _ in range(dim)]
-        self.bias = [0.0] * self.unidades
-        self.m_w = [[0.0] * self.unidades for _ in range(dim)]
-        self.v_w = [[0.0] * self.unidades for _ in range(dim)]
-        self.m_b, self.v_b = [0.0]*self.unidades, [0.0]*self.unidades
-
-    def forward(self, X):
-        if self.pesos is None: self._inicializar(len(X[0]))
-        self.entrada = X
-        # Z = X * W + B
-        self.z = [[sum(X[i][k] * self.pesos[k][j] for k in range(len(X[0]))) + self.bias[j] 
-                   for j in range(self.unidades)] for i in range(len(X))]
+class DenseLinear:
+    def __init__(self, units, input_dim, activation='lrelu'):
+        self.units = units
+        self.input_dim = input_dim
+        self.activation = activation
         
-        if self.ativacao == 'relu': return [[QMath.relu(v) for v in l] for l in self.z]
-        if self.ativacao == 'sigmoid': return [[QMath.sigmoid(v) for v in l] for l in self.z]
-        if self.ativacao == 'softmax': return [QMath.softmax(l) for l in self.z]
-        return self.z
-
-    def backward(self, grad_saida, lr):
-        batch_size, dim_in = len(self.entrada), len(self.entrada[0])
-        self.t += 1
-        b1, b2, eps = 0.9, 0.999, 1e-8
+        # Pesos e Bias em Array Linear (Float32)
+        limit = math.sqrt(2.0 / input_dim)
+        self.w = array('f', [random.gauss(0, limit) for _ in range(input_dim * units)])
+        self.b = array('f', [0.0] * units)
         
-        # O SEGREDO: Se a ativação for Softmax e a perda for Cross-Entropy, 
-        # o gradiente local dz é simplificado. Se for ReLU/Sigmoid, aplicamos a derivada.
-        dz = []
-        for i in range(batch_size):
-            linha = []
-            for j in range(self.unidades):
-                if self.ativacao == 'softmax':
-                    # Atalho matemático: dL/dz para Softmax+CCE é pred - real
-                    # O grad_saida já traz essa diferença.
-                    deriv = 1.0 
-                elif self.ativacao == 'relu':
-                    deriv = QMath.d_relu(self.z[i][j])
-                elif self.ativacao == 'sigmoid':
-                    deriv = QMath.d_sigmoid(self.z[i][j])
-                else:
-                    deriv = 1.0
-                linha.append(grad_saida[i][j] * deriv)
-            dz.append(linha)
-
-        # Cálculo do Gradiente para a camada anterior (Isolado)
-        grad_X = [[sum(dz[i][j] * self.pesos[k][j] for j in range(self.unidades)) 
-                   for k in range(dim_in)] for i in range(batch_size)]
-
-        # Update Adam (Otimização de Segunda Ordem)
-        for j in range(self.unidades):
-            gb = sum(dz[i][j] for i in range(batch_size)) / batch_size
-            self.m_b[j] = b1 * self.m_b[j] + (1-b1) * gb
-            self.v_b[j] = b2 * self.v_b[j] + (1-b2) * (gb**2)
-            self.bias[j] -= lr * (self.m_b[j]/(1-b1**self.t)) / (math.sqrt(self.v_b[j]/(1-b2**self.t)) + eps)
-            for k in range(dim_in):
-                gw = sum(self.entrada[i][k] * dz[i][j] for i in range(batch_size)) / batch_size
-                self.m_w[k][j] = b1 * self.m_w[k][j] + (1-b1) * gw
-                self.v_w[k][j] = b2 * self.v_w[k][j] + (1-b2) * (gw**2)
-                self.pesos[k][j] -= lr * (self.m_w[k][j]/(1-b1**self.t)) / (math.sqrt(self.v_w[k][j]/(1-b2**self.t)) + eps)
+        # Buffer de Momentum (SGD+M)
+        self.v_w = array('f', [0.0] * (input_dim * units))
+        self.v_b = array('f', [0.0] * units)
         
-        return grad_X
+        # Buffers Reutilizáveis (Zero Alocação no Loop)
+        self.z = array('f', [0.0] * units)
+        self.a = array('f', [0.0] * units)
+        self.grad_in = array('f', [0.0] * input_dim)
+        self.last_input = None # Referência, não cópia
 
-# ============================================
-# 🧠 SEQUENCIAL - O Cérebro LEGO Estilo Keras
-# ============================================
-class Sequencial:
-    def __init__(self, camadas=None):
-        self.camadas = camadas or []
-        self.lr = 0.001
-        self.melhor_loss = float('inf')
-
-    def treinar(self, X, y, epocas=100, monitorar=True):
-        print(f"🧱 Treinando 'QuintikusKery' em {len(X)} amostras...")
-        for ep in range(epocas):
-            # Forward Pass
-            pred = X
-            for c in self.camadas: pred = c.forward(pred)
+    def forward(self, x_input):
+        self.last_input = x_input
+        # XW + B Linear
+        for j in range(self.units):
+            soma = self.b[j]
+            for k in range(self.input_dim):
+                # Indexação manual: k * units + j
+                soma += x_input[k] * self.w[k * self.units + j]
+            self.z[j] = soma
             
-            # Cálculo do Gradiente Inicial (dL/dz da última camada)
-            # Para Softmax + Cross-Entropy, o gradiente inicial é (pred - real)
-            grad = [[pi - ti for pi, ti in zip(p, t)] for p, t in zip(pred, y)]
+            if self.activation == 'lrelu':
+                self.a[j] = QuintikusEngine.leaky_relu(soma)
+            elif self.activation == 'softmax':
+                # Softmax é aplicado no final do modelo
+                self.a[j] = soma
+        
+        if self.activation == 'softmax':
+            QuintikusEngine.fast_softmax(self.a)
+        return self.a
+
+    def backward(self, grad_out, lr, momentum=0.9):
+        # grad_out é o erro vindo da camada seguinte
+        # 1. Calcular dZ (in-place)
+        for j in range(self.units):
+            deriv = QuintikusEngine.d_leaky_relu(self.z[j]) if self.activation == 'lrelu' else 1.0
+            dz = grad_out[j] * deriv
             
-            # Cálculo da Perda (CCE para classificação)
-            loss = sum(QMath.cce_loss(p, t) for p, t in zip(pred, y)) / len(X)
+            # 2. Atualizar Pesos com Momentum (SGD+M)
+            # dW = input * dz
+            for k in range(self.input_dim):
+                idx = k * self.units + j
+                gw = self.last_input[k] * dz
+                # Velocidade = m*v - lr*gw
+                self.v_w[idx] = momentum * self.v_w[idx] - lr * gw
+                self.w[idx] += self.v_w[idx]
             
-            # Backward Pass (Retropropagação)
-            for c in reversed(self.camadas):
-                grad = c.backward(grad, self.lr)
+            # 3. Atualizar Bias
+            self.v_b[j] = momentum * self.v_b[j] - lr * dz
+            self.b[j] += self.v_b[j]
             
-            if monitorar and loss < self.melhor_loss:
-                self.melhor_loss = loss
-                self.salvar("melhor_modelo.qkr", verbose=False)
-
-            if ep % 50 == 0 or ep == epocas-1:
-                print(f"🚀 Ep {ep:3d} | Loss: {loss:.6f}")
-
-    def prever(self, X):
-        for c in self.camadas: X = c.forward(X)
-        return X
-
-    def resumo(self):
-        total = sum((len(c.pesos) * c.unidades) + c.unidades for c in self.camadas if c.pesos)
-        print(f"\n🧱 [RESUMO LEGO] Params: {total:,} | RAM: {total*4/1024:.2f} KB\n")
-
-    def salvar(self, arq, verbose=True):
-        with open(arq, 'wb') as f: pickle.dump(self.camadas, f)
-        if verbose: print(f"✅ Modelo Salvo: {arq}")
-
-    @staticmethod
-    def carregar(arq):
-        with open(arq, 'rb') as f: camadas = pickle.load(f)
-        return Sequencial(camadas)
+            # 4. Propagar erro para camada anterior (grad_in)
+            # dX = dZ * W
+            for k in range(self.input_dim):
+                if j == 0: self.grad_in[k] = 0.0 # Reset no primeiro neurônio
+                self.grad_in[k] += dz * self.w[k * self.units + j]
+                
+        return self.grad_in
 
 # ============================================
-# 📝 TEXTY & IMAGIX (Inalterados e Eficientes)
+# 🧠 MODELO ULTRA-LEVE (MODO INFERÊNCIA/TREINO)
 # ============================================
-class Texty:
-    def __init__(self): self.vocab = {}
-    def fit(self, frases):
-        palavras = set(" ".join(frases).lower().split())
-        self.vocab = {p: i for i, p in enumerate(sorted(list(palavras)))}
-    def vetorizar(self, frase):
-        v = [0.0] * len(self.vocab)
-        for p in frase.lower().split():
-            if p in self.vocab: v[self.vocab[p]] = 1.0
-        return array('f', v).tolist()
+class QuintikusKery:
+    def __init__(self, lr=0.01, momentum=0.9):
+        self.layers = []
+        self.lr = lr
+        self.momentum = momentum
+
+    def add(self, layer):
+        self.layers.append(layer)
+
+    def fit_online(self, x_single, y_single):
+        """Treino Online: Batch Size = 1 (Ouro para J2)"""
+        # Forward
+        out = x_single
+        for layer in self.layers:
+            out = layer.forward(out)
+        
+        # Loss Grad (pred - real)
+        error = array('f', [p - r for p, r in zip(out, y_single)])
+        
+        # Backward
+        grad = error
+        for layer in reversed(self.layers):
+            grad = layer.backward(grad, self.lr, self.momentum)
+
+    def predict(self, x_single):
+        """Modo Inferência: Sem cálculos de gradiente"""
+        out = x_single
+        for layer in self.layers:
+            out = layer.forward(out)
+        return out
+
+    def summary(self):
+        total = sum(len(l.w) + len(l.b) for l in self.layers)
+        print(f"🧱 Quintikus Low-Level | Params: {total} | RAM: {total*4/1024:.2f}KB")
 
 # ============================================
-# 🚀 EXEMPLO DE USO (EXTREMAMENTE KERAS)
+# 🚀 TESTE DE PERFORMANCE REAL (J2 STYLE)
 # ============================================
 if __name__ == "__main__":
-    # Dados de Exemplo
-    textos = ["muito bom", "excelente", "muito ruim", "pessimo"]
-    labels = [[1, 0], [1, 0], [0, 1], [0, 1]] # [Pos, Neg]
+    # Configuração de 1 Camada Oculta (Input 784 -> 8 -> Output 2)
+    # Simulando um fragmento de imagem 28x28
+    print("🔥 Iniciando Redução de Sobrecarga...")
     
-    tx = Texty(); tx.fit(textos)
-    X = [tx.vetorizar(f) for f in textos]
-
-    # Arquitetura LEGO pura
-    modelo = Sequencial([
-        Dense(8, ativacao='relu'),
-        Dense(2, ativacao='softmax')
-    ])
-
-    modelo.lr = 0.01
-    modelo.treinar(X, labels, epocas=200)
+    model = QuintikusKery(lr=0.01)
+    model.add(DenseLinear(units=8, input_dim=784, activation='lrelu'))
+    model.add(DenseLinear(units=2, input_dim=8, activation='softmax'))
     
-    # Teste
-    teste = "muito bom"
-    pred = modelo.prever([tx.vetorizar(teste)])[0]
-    print(f"\nFrase: '{teste}' | Predição: {pred}")
-    print(f"Sinergia Quintikus: {QMath.iguame(pred, [1,0]):.2f}%")
+    model.summary()
+    
+    # Simulação de Treino Online (Stream)
+    input_fake = array('f', [random.random() for _ in range(784)])
+    target_fake = array('f', [1.0, 0.0])
+    
+    start = time.time()
+    for _ in range(100):
+        model.fit_online(input_fake, target_fake)
+    end = time.time()
+    
+    print(f"✅ 100 Passos de Treino Online em: {end-start:.4f}s")
+    
+    # Inferência Ultra Rápida
+    pred = model.predict(input_fake)
+    print(f"🎯 Predição Final: {list(pred)}")
