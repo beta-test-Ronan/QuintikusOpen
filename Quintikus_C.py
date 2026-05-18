@@ -116,7 +116,7 @@ class QuantumLPSCore:
         return candidatos_idx_list[np.argmax(exp_s / (exp_s.sum() + 1e-10))]
 
 # =================================================================
-# 4. QUINTIKUS OPEN AURIA v13.0
+# 4. QUINTIKUS AURIA 
 # =================================================================
 class QuintikusOpenAuria:
     def __init__(self):
