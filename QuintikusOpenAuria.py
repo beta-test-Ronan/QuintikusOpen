@@ -20,7 +20,7 @@ class QKernel:
         return soma
 
 # =================================================================
-# 2. AURIA FS - PERSISTÊNCIA BINÁRIA CRUA (SUBSTITUTO DO PICKLE)
+# 2. AURIA FS - PERSISTÊNCIA BINÁRIA CRUA
 # =================================================================
 class AuriaFS:
     """
