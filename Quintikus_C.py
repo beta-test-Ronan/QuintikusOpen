@@ -13,12 +13,11 @@ import platform
 from collections import defaultdict, Counter
 
 # =================================================================
-# 1. SOVEREIGN CRYPT (XOR CIPHER + HARDWARE ANCHOR)
+# 1. SOVEREIGN CRYPT (MANTIDA)
 # =================================================================
 class SovereignCrypt:
     @staticmethod
     def get_key(name):
-        # platform.node() pega o nome do seu PC/Celular no sistema
         salt = platform.node() or "ROOT_NEXUS"
         return hashlib.sha256((name + salt).encode()).digest()
 
@@ -30,7 +29,7 @@ class SovereignCrypt:
         return "".join(res)
 
 # =================================================================
-# 2. USER SOVEREIGN CHAIN (BLOCKCHAIN DE INTIMIDADE)
+# 2. USER SOVEREIGN CHAIN (MANTIDA)
 # =================================================================
 class UserSovereignChain:
     def __init__(self, filename="user.bin"):
@@ -57,7 +56,7 @@ class UserSovereignChain:
         return 0.0, None
 
 # =================================================================
-# 3. CLASSES DE SUPORTE (TOKENIZER, CORE, CALCULER)
+# 3. CLASSES DE SUPORTE REFINADAS
 # =================================================================
 class SovereignTokenizer:
     def __init__(self):
@@ -91,6 +90,7 @@ class QuantumLPSCore:
         sujeito_vec = np.average(self.embeddings[q_idx], axis=0, weights=q_weights)
         lps_vec = self.embeddings[lps_idx]
         foco_vec = (sujeito_vec @ self.Wq + lps_vec) @ self.W_future
+        # Cálculo de similaridade vetorial otimizado
         scores = [np.dot(foco_vec, np.mean(self.embeddings[c], axis=0) @ self.Wk) for c in candidatos_idx_list]
         max_i = np.argmax(scores)
         return candidatos_idx_list[max_i], scores[max_i]
@@ -123,7 +123,7 @@ class Calculer:
         except Exception as e: return f"\n[MATH-ERROR]: {e}"
 
 # =================================================================
-# 4. QUINTIKUS OPEN AURIA v18.0 (ENGINE PRINCIPAL)
+# 4. QUINTIKUS OPEN AURIA v18.2 (FIXED INGESTION)
 # =================================================================
 class QuintikusOpenAuria:
     def __init__(self):
@@ -142,21 +142,33 @@ class QuintikusOpenAuria:
         self.crypto_key = None
 
     def amadurecer_solo(self, raw_content, auth=1, pil_min=0.0, silenciar=False):
+        # Evita duplicidade absoluta do conteúdo
         hash_c = hashlib.sha256((raw_content + str(pil_min)).encode('utf-8', 'ignore')).hexdigest()
         if hash_c in self.ledger: return False
         
-        if not silenciar: print(f"🧠 Amadurecendo Solo (v18 - Trava PIL: {pil_min})...")
-        chunks = re.split(r'([\?\!\.])', raw_content)
-        all_sentences = [chunks[i] + chunks[i+1] for i in range(0, len(chunks)-1, 2) if len(chunks[i].strip()) > 1]
+        if not silenciar: print(f"🧠 Amadurecendo Solo (v18.2 - Trava PIL: {pil_min})...")
         
-        vocab_input = (" ".join(all_sentences)).lower().split()
-        vocab = sorted(list(set(vocab_input + self.tokenizer.special + list(self.word2idx.keys()))))
-        self.word2idx = {w: i for i, w in enumerate(vocab)}
-        contagem = Counter(vocab_input)
+        # --- NOVO SPLITTER DE FRASES (Mais robusto) ---
+        # Tenta quebrar por pontuação, se falhar, quebra por linha
+        all_sentences = []
+        if any(c in raw_content for c in '.!?'):
+            chunks = re.split(r'([\?\!\.])', raw_content)
+            for i in range(0, len(chunks)-1, 2):
+                s = (chunks[i] + chunks[i+1]).strip()
+                if len(s) > 1: all_sentences.append(s)
+        else:
+            all_sentences = [s.strip() for s in raw_content.split('\n') if len(s.strip()) > 1]
+
+        if not all_sentences: return False
+
+        # Atualiza Vocabulário Global (Preserva o antigo e soma o novo)
+        new_words = (" ".join(all_sentences)).lower().split()
+        total_vocab = sorted(list(set(new_words + self.tokenizer.special + list(self.word2idx.keys()))))
+        self.word2idx = {w: i for i, w in enumerate(total_vocab)}
+        contagem = Counter(new_words) # Contagem local para raridade do arquivo
         
         offset = len(self.l2_mass)
         for i, s in enumerate(all_sentences):
-            # Criptografa se o nível de intimidade exigido for alto
             if pil_min >= 9.0 and self.crypto_key:
                 stored_sentence = SovereignCrypt.xor_cipher(s, self.crypto_key)
             else:
@@ -168,12 +180,17 @@ class QuintikusOpenAuria:
             
             toks = self.tokenizer.tokenize(s)
             self.l2_tokens_idx.append([self.word2idx[t] for t in toks if t in self.word2idx])
+            
+            # Indexação nos neurônios
             for t in toks:
                 if t not in self.stop_words and t in self.word2idx:
-                    if len(self.neuronios[t]) < 10000: self.neuronios[t].append(offset + i)
-                    self.rarity[t] = 2.0 / (math.log(contagem.get(t, 1) + 1.1) + 1e-5)
-        
-        self.core = QuantumLPSCore(len(vocab))
+                    if len(self.neuronios[t]) < 10000:
+                        self.neuronios[t].append(offset + i)
+                    # Raridade progressiva
+                    self.rarity[t] = 2.0 / (math.log(contagem.get(t, 1) + 1.2) + 1e-5)
+
+        # Re-inicializa o Cérebro com o novo tamanho de vocabulário
+        self.core = QuantumLPSCore(len(total_vocab))
         self.ledger.add(hash_c)
         self.selar(silenciar)
         return True
@@ -187,27 +204,21 @@ class QuintikusOpenAuria:
         }
         with open(self.path_brain, 'wb') as f:
             pickle.dump(bundle, f, protocol=pickle.HIGHEST_PROTOCOL)
-        if not silenciar: print(f"💾 Cérebro Selado.")
+        if not silenciar: print(f"💾 Solo Selado ({len(self.l2_mass)} nexos).")
 
     def boot(self):
-        # 1. Ritual do Nome
         self.pil_user, self.user_name = self.user_chain.carregar()
         if not self.user_name:
-            print("\n" + "🌑"*20)
-            print("  PRIMEIRA ATIVAÇÃO DETECTADA")
-            print("  O nome é a única âncora que não colapsa.")
+            print("\n" + "🌑"*20 + "\n  PRIMEIRA ATIVAÇÃO\n" + "🌑"*20)
             self.user_name = input("  👤 Qual seu nome? > ").strip()
             self.pil_user = 0.0
             self.user_chain.user_name = self.user_name
             self.user_chain.salvar()
-            print(f"  ✅ Lucy v18 Online. Olá, {self.user_name}. PIL: 0.00")
-            print("🌑"*20 + "\n")
         else:
-            print(f"✅ Lucy v18 Online. Olá, {self.user_name}. PIL: {self.pil_user:.2f}")
+            print(f"✅ Lucy v18.2 Online. Olá, {self.user_name}. PIL: {self.pil_user:.2f}")
 
         self.crypto_key = SovereignCrypt.get_key(self.user_name)
 
-        # 2. Carrega Cérebro
         if os.path.exists(self.path_brain):
             with open(self.path_brain, 'rb') as f:
                 b = pickle.load(f)
@@ -223,18 +234,26 @@ class QuintikusOpenAuria:
         t0 = time.perf_counter()
         u_toks = self.tokenizer.tokenize(entrada)
         q_idx = [self.word2idx[t] for t in u_toks if t in self.word2idx]
-        pivos = sorted([t for t in u_toks if t in self.rarity], key=lambda x: self.rarity[x], reverse=True)
         
-        if not pivos:
-            return f"oi, {self.user_name}... AINDA não te CONHEÇO <!>"
+        if not self.l2_mass:
+            return f"oi, {self.user_name}. Use 'train:arquivo.txt' para me ensinar algo."
 
-        # Filtragem AAIGB (Intimidade + Autoridade)
-        candidatos = [idx for idx in self.neuronios.get(pivos[0], []) if self.l2_pil_min[idx] <= self.pil_user]
+        pivos = sorted([t for t in u_toks if t in self.rarity], key=lambda x: self.rarity[x], reverse=True)
+        if not pivos: pivos = [t for t in u_toks if t in self.word2idx and t not in self.stop_words]
+        if not pivos: return f"oi, {self.user_name}... ainda não conheço essas palavras <!>"
+
+        # Filtragem AAIGB
+        candidatos = []
+        for p in pivos:
+            temp = [idx for idx in self.neuronios.get(p, []) if self.l2_pil_min[idx] <= self.pil_user]
+            if temp:
+                candidatos = temp
+                break
 
         if not candidatos:
             return f"\n[PIL-GATE | {self.pil_user:.1f}] > {self.user_name.upper()}, ainda não confio o bastante <!>"
 
-        amostra = random.sample(candidatos, min(len(candidatos), 500))
+        amostra = random.sample(candidatos, min(len(candidatos), 600))
         amostra_idx_list = [self.l2_tokens_idx[i] for i in amostra]
         lps_symbol = u_toks[-1] if u_toks[-1] in ["<?>", "<!>", "<.>"] else "<.>"
         lps_idx = self.word2idx.get(lps_symbol, self.word2idx.get("<.>"))
@@ -242,62 +261,66 @@ class QuintikusOpenAuria:
         best_future, gravidade = self.core.colapsar_nexo(q_idx, lps_idx, amostra_idx_list, self.rarity, self.word2idx)
         final_idx = amostra[amostra_idx_list.index(best_future)]
 
-        # Decriptografia em tempo real
         frase_final = self.l2_mass[final_idx]
         if self.l2_pil_min[final_idx] >= 9.0:
             frase_final = SovereignCrypt.xor_cipher(frase_final, self.crypto_key)
 
-        # Update PIL Linear
         if gravidade > 0.8:
-            self.pil_user = min(25.0, self.pil_user + (gravidade * 0.05))
+            self.pil_user = min(35.0, self.pil_user + (gravidade * 0.05))
             self.user_chain.current_pil = self.pil_user
             self.user_chain.salvar()
 
-        # Destaque de Atenção
+        # Destaque de Reação
         palavras = frase_final.split()
         res_toks_idx = self.l2_tokens_idx[final_idx]
-        q_vec = np.mean(self.core.embeddings[q_idx], axis=0)
-        reacoes = [np.dot(self.core.embeddings[t_id], q_vec) for t_id in res_toks_idx if t_id < len(self.core.embeddings)]
-        limiar = np.mean(reacoes) if reacoes else 0
-        
         resultado = []
-        for i, word in enumerate(palavras):
-            t_id = res_toks_idx[i] if i < len(res_toks_idx) else None
-            if t_id is not None and t_id < len(self.core.embeddings) and np.dot(self.core.embeddings[t_id], q_vec) > limiar:
-                resultado.append(word.upper())
-            else: resultado.append(word.lower())
+        if q_idx:
+            q_vec = np.mean(self.core.embeddings[q_idx], axis=0)
+            reacoes = [np.dot(self.core.embeddings[t_id], q_vec) for t_id in res_toks_idx if t_id < len(self.core.embeddings)]
+            limiar = np.mean(reacoes) if reacoes else 0
+            for i, word in enumerate(palavras):
+                t_id = res_toks_idx[i] if i < len(res_toks_idx) else None
+                if t_id is not None and t_id < len(self.core.embeddings) and np.dot(self.core.embeddings[t_id], q_vec) > limiar:
+                    resultado.append(word.upper())
+                else: resultado.append(word.lower())
+            frase_final = ' '.join(resultado)
 
         dt = (time.perf_counter() - t0) * 1000000
-        return f"\n[V18-SOVEREIGN | PIL:{self.pil_user:.2f} | {dt:.2f}μs]\n> {' '.join(resultado)}"
+        return f"\n[V18.2-SOVEREIGN | PIL:{self.pil_user:.2f} | {dt:.2f}μs]\n> {frase_final}"
 
 # =================================================================
-# LOOP PRINCIPAL
+# EXECUÇÃO
 # =================================================================
 if __name__ == "__main__":
     auria = QuintikusOpenAuria()
     auria.boot()
     while True:
         u = input(f"\n[{auria.user_name}]👤: ").strip()
-        
         if any(u.startswith(p) for p in ["train:", "trein:", "treino:"]):
-            params = u.split(":", 1)[1]
+            path_part = u.split(":", 1)[1]
             pil_lock = 0.0
-            if "pil[" in params:
+            if "pil[" in path_part:
                 try:
-                    pil_lock = float(params.split("pil[")[1].split("]")[0])
-                    path = params.split("pil[")[0].strip()
-                except: path = params.strip()
-            else: path = params.strip()
+                    pil_lock = float(path_part.split("pil[")[1].split("]")[0])
+                    path = path_part.split("pil[")[0].strip()
+                except: path = path_part.strip()
+            else: path = path_part.strip()
 
             if os.path.exists(path):
+                print(f"📂 Lendo arquivo: {path}...")
                 for enc in ['utf-8', 'latin-1', 'cp1252']:
                     try:
                         with open(path, 'r', encoding=enc) as f:
-                            auria.amadurecer_solo(f.read(), auth=1, pil_min=pil_lock)
-                        print(f"✨ Conhecimento '{path}' integrado (PIL-MIN: {pil_lock})")
+                            conteudo = f.read()
+                            if auria.amadurecer_solo(conteudo, auth=1, pil_min=pil_lock):
+                                print(f"✨ Conhecimento de '{path}' integrado (PIL: {pil_lock})")
+                            else:
+                                print(f"⚠️  Conteúdo de '{path}' já existia no banco.")
                         break
                     except: continue
+            else:
+                print(f"❌ Arquivo '{path}' não encontrado.")
             continue
             
         if u.lower() in ['sair', 'exit']: break
-        print(auria.pensar_e_falar(u))
+        if u: print(auria.pensar_e_falar(u))
