@@ -109,7 +109,7 @@ uma responde de forma <strong>lógica</strong> e a outra de forma <strong>emotiv
 Os ficheiros <code>mc.txt</code> e <code>mm.txt</code> definem o comportamento linguístico. São carregados no formato<br>
 <code>&lt;intro&gt;</code>, <code>&lt;ponte&gt;</code>, <code>&lt;concl&gt;</code> para popular o atributo <code>self.arquetipos</code>.</p>
  --Modelos de Execução Específicos: 
-    O repositório disponibiliza ramificações como QuintikusOpen_FastV2.py focado em otimização de velocidade de busca para contextos extensos; QuintikusOpen_Narativ.py voltado à estruturação narrativa e scripts direcionados para aceleração por hardware como QuintikusOpenGGPT-GPU.py e QuintikusOpenGGPT-CPU.py, agora novo integrande da familia Quintikus é o PCode gencode determinista gerar codigo com Programação Neurolinguística.
+    O repositório disponibiliza ramificações como QuintikusOpen_FastV2.py focado em otimização de velocidade de busca para contextos extensos; QuintikusOpen_Narativ.py voltado à estruturação narrativa e scripts direcionados para aceleração por hardware como QuintikusOpenGGPT-GPU.py e QuintikusOpenGGPT-CPU.py. Agora novo integrante da família Quintikus é o QuintikusPCode.py gencode determinista gerar codigo com Programação Neurolinguística.
 </blockquote>
 
 <h3>3. QuintikusAGI (Núcleo Emocional)</h3>
