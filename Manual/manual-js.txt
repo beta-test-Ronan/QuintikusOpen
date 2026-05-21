@@ -1,0 +1,585 @@
+// 1. CONSOLE
+console.log([valor]);
+console.error([valor]);
+console.warn([valor]);
+console.table([objeto_ou_array]);
+
+// 2. COMENTÁRIOS
+// [comentário de uma linha]
+/* [comentário de múltiplas linhas] */
+
+// 3. VARIÁVEIS
+var [nome] = [valor];
+let [nome] = [valor];
+const [NOME] = [valor];
+
+// 4. TIPOS PRIMITIVOS
+let [str] = "[texto]";
+let [num] = 42;
+let [bool] = true;
+let [bool2] = false;
+let [nulo] = null;
+let [indefinido] = undefined;
+let [simbolo] = Symbol("[descricao]");
+let [bigint] = 9007199254740991n;
+
+// 5. OPERADORES
+[resultado] = [a] + [b];
+[resultado] = [a] - [b];
+[resultado] = [a] * [b];
+[resultado] = [a] / [b];
+[resultado] = [a] % [b];
+[resultado] = [a] ** [b];
+[resultado] = [a] == [b];
+[resultado] = [a] === [b];
+[resultado] = [a] != [b];
+[resultado] = [a] !== [b];
+[resultado] = [a] > [b];
+[resultado] = [a] < [b];
+[resultado] = [a] >= [b];
+[resultado] = [a] <= [b];
+[resultado] = [cond1] && [cond2];
+[resultado] = [cond1] || [cond2];
+[resultado] = ![cond];
+[resultado] = [valor] in [objeto];
+[resultado] = [objeto] instanceof [Classe];
+[var] += [valor];
+[var] -= [valor];
+[var] *= [valor];
+[var] /= [valor];
+[var] %= [valor];
+[var] **= [valor];
+[var] ??= [valor];
+[var] &&= [valor];
+[var] ||= [valor];
+
+// 6. ESTRUTURAS CONDICIONAIS
+if ([condicao]) {
+    [bloco]
+}
+
+if ([condicao]) {
+    [bloco1]
+} else {
+    [bloco2]
+}
+
+if ([cond1]) {
+    [bloco1]
+} else if ([cond2]) {
+    [bloco2]
+} else {
+    [bloco3]
+}
+
+[variavel] = ([condicao]) ? [valor_se_true] : [valor_se_false];
+
+switch ([expressao]) {
+    case [valor1]:
+        [bloco]
+        break;
+    case [valor2]:
+        [bloco]
+        break;
+    default:
+        [bloco]
+}
+
+// 7. LAÇOS
+for (let [i] = [inicio]; [i] < [fim]; [i]++) {
+    [bloco]
+}
+
+for (let [prop] in [objeto]) {
+    [bloco]
+}
+
+for (let [elemento] of [iteravel]) {
+    [bloco]
+}
+
+while ([condicao]) {
+    [bloco]
+}
+
+do {
+    [bloco]
+} while ([condicao]);
+
+// Controle de laços
+break;
+continue;
+
+// 8. FUNÇÕES
+function [nome]([param1], [param2]) {
+    [bloco]
+    return [valor];
+}
+
+[resultado] = [nome]([arg1], [arg2]);
+
+// Parâmetros padrão
+function [nome]([param] = [valor_padrao]) {
+    return [param];
+}
+
+// Parâmetros rest
+function [nome](...[args]) {
+    console.log([args]);
+}
+
+// Arrow functions
+const [nome] = ([param1], [param2]) => {
+    [bloco]
+    return [valor];
+};
+
+const [nome] = ([param]) => [expressao];  // retorno implícito
+
+// Função autoinvocável (IIFE)
+(function([param]) {
+    [bloco]
+})([arg]);
+
+// 9. ARRAYS
+[array] = [];
+[array] = [[valor1], [valor2], [valor3]];
+[elemento] = [array][[indice]];
+[array][[indice]] = [valor];
+[tamanho] = [array].length;
+[array].push([valor]);
+[array].pop();
+[array].unshift([valor]);
+[array].shift();
+[array].splice([inicio], [quantidade], [novo1], [novo2]);
+[array].slice([inicio], [fim]);
+[novo_array] = [array].concat([outro_array]);
+[array].forEach(([elemento], [indice]) => {
+    [bloco]
+});
+[novo_array] = [array].map(([elemento]) => [expressao]);
+[filtrado] = [array].filter(([elemento]) => [condicao]);
+[reduzido] = [array].reduce(([acumulador], [atual]) => [expressao], [inicial]);
+[bool] = [array].every(([elemento]) => [condicao]);
+[bool] = [array].some(([elemento]) => [condicao]);
+[indice] = [array].indexOf([valor]);
+[indice] = [array].findIndex(([elemento]) => [condicao]);
+[elemento] = [array].find(([elemento]) => [condicao]);
+[array].sort();
+[array].sort(([a], [b]) => [a] - [b]);
+[array].reverse();
+[array].includes([valor]);
+[string] = [array].join("[separador]");
+[array_plano] = [array].flat([profundidade]);
+
+// 10. OBJETOS LITERAIS
+[obj] = {};
+[obj] = { [chave]: [valor] };
+[obj] = { [chave1]: [valor1], [chave2]: [valor2] };
+[valor] = [obj].[chave];
+[valor] = [obj][["chave"]];
+[obj].[chave] = [valor];
+delete [obj].[chave];
+
+// Shorthand properties
+let [nome] = "[valor]";
+let [obj] = { [nome] };
+
+// Computed property names
+let [chave] = "[nome]";
+let [obj] = { [[chave]]: [valor] };
+
+// Object methods
+[obj] = {
+    [metodo]([param]) {
+        return [param];
+    }
+};
+
+// 11. DESTRUTURAÇÃO
+// Arrays
+let [[a], [b]] = [[valor1], [valor2]];
+let [[a], ...resto] = [[valor1], [valor2], [valor3]];
+let [[a], [b], [c]] = [[valor1], [valor2]];  // c = undefined
+let [[a], [b] = [padrao]] = [[valor1]];
+
+// Objetos
+let { [prop1], [prop2] } = { [prop1]: [valor1], [prop2]: [valor2] };
+let { [prop1]: [alias] } = { [prop1]: [valor] };
+let { [prop1], ...resto } = { [prop1]: [valor1], [prop2]: [valor2] };
+
+// 12. SPREAD E REST
+// Spread em arrays
+[novo] = [[...array1], [...array2]];
+// Spread em objetos
+[novo_obj] = { ...[obj1], ...obj2 };
+// Spread em chamada de função
+[funcao](...[array]);
+
+// Rest em parâmetros
+function [nome](...[args]) { }
+
+// 13. TEMPLATE STRINGS
+[texto] = `texto ${[variavel]} mais texto`;
+
+// 14. STRINGS MÉTODOS
+[str].length;
+[str].toUpperCase();
+[str].toLowerCase();
+[str].trim();
+[str].replace("[busca]", "[substituto]");
+[str].replaceAll("[busca]", "[substituto]");
+[str].split("[separador]");
+[str].includes("[subtexto]");
+[str].startsWith("[prefixo]");
+[str].endsWith("[sufixo]");
+[str].slice([inicio], [fim]);
+[str].substring([inicio], [fim]);
+[str].charAt([indice]);
+[str].indexOf("[sub]");
+[str].padStart([tamanho], "[char]");
+[str].padEnd([tamanho], "[char]");
+[str].repeat([vezes]);
+
+// 15. NÚMEROS E MATH
+[numero].toFixed([casas]);
+[numero].toString();
+parseInt("[string]");
+parseFloat("[string]");
+Number("[string]");
+isNaN([valor]);
+isFinite([valor]);
+Math.abs([num]);
+Math.ceil([num]);
+Math.floor([num]);
+Math.round([num]);
+Math.max([num1], [num2], ...);
+Math.min([num1], [num2], ...);
+Math.random();
+Math.sqrt([num]);
+Math.pow([base], [exp]);
+Math.PI;
+
+// 16. DATAS
+[data] = new Date();
+[data] = new Date([ano], [mes], [dia], [hora], [minuto], [segundo]);
+[data] = new Date("[string ISO]");
+[timestamp] = Date.now();
+[ano] = [data].getFullYear();
+[mes] = [data].getMonth();  // 0-11
+[dia] = [data].getDate();
+[dia_semana] = [data].getDay(); // 0-6 (domingo = 0)
+[hora] = [data].getHours();
+[minuto] = [data].getMinutes();
+[timestamp] = [data].getTime();
+[data2] = new Date([timestamp]);
+[data].setFullYear([ano]);
+
+// 17. PROMISES
+[promise] = new Promise(([resolve], [reject]) => {
+    if ([sucesso]) {
+        resolve([valor]);
+    } else {
+        reject([erro]);
+    }
+});
+
+[promise].then(([valor]) => {
+    [bloco]
+}).catch(([erro]) => {
+    [bloco]
+}).finally(() => {
+    [bloco]
+});
+
+Promise.all([[prom1], [prom2]]).then(([[val1], [val2]]) => {});
+Promise.race([[prom1], [prom2]]);
+Promise.allSettled([[prom1], [prom2]]);
+Promise.any([[prom1], [prom2]]);
+
+// 18. ASYNC/AWAIT
+async function [nome]([param]) {
+    try {
+        [resultado] = await [promessa];
+        return [resultado];
+    } catch ([erro]) {
+        console.error([erro]);
+    }
+}
+
+// 19. CLASSES
+class [NomeClasse] {
+    [atributo] = [valor];
+    static [atributoEstatico] = [valor];
+    
+    constructor([param1], [param2]) {
+        this.[atributoInstancia] = [param1];
+        this.[_privado] = [param2];
+    }
+    
+    [metodo]([param]) {
+        return this.[atributoInstancia] + [param];
+    }
+    
+    static [metodoEstatico]([param]) {
+        return [param];
+    }
+    
+    get [propriedade]() {
+        return this.[_privado];
+    }
+    
+    set [propriedade]([valor]) {
+        this.[_privado] = [valor];
+    }
+    
+    #[campoPrivado] = [valor];
+    #[metodoPrivado]() {
+        return this.#[campoPrivado];
+    }
+}
+
+class [SubClasse] extends [ClasseBase] {
+    constructor([param]) {
+        super([param]);
+        this.[extra] = [valor];
+    }
+    
+    [metodoSobrescrito]() {
+        super.[metodoBase]();
+        [bloco]
+    }
+}
+
+[instancia] = new [NomeClasse]([arg1], [arg2]);
+
+// 20. MÓDULOS (ES Modules)
+// exportação
+export const [nome] = [valor];
+export function [nome]() {}
+export default [expressao];
+export { [nome1], [nome2] };
+
+// importação
+import [nome] from "[caminho]";
+import { [nome1], [nome2] } from "[caminho]";
+import * as [modulo] from "[caminho]";
+import { [nome] as [alias] } from "[caminho]";
+
+// 21. TRATAMENTO DE ERROS (TRY/CATCH)
+try {
+    [bloco_arriscado]
+} catch ([erro]) {
+    console.error([erro]);
+} finally {
+    [bloco_sempre]
+}
+
+throw new Error("[mensagem]");
+throw new TypeError("[mensagem]");
+
+// 22. SET E MAP
+[set] = new Set();
+[set].add([valor]);
+[set].delete([valor]);
+[bool] = [set].has([valor]);
+[tamanho] = [set].size;
+[set].clear();
+
+[map] = new Map();
+[map].set([chave], [valor]);
+[valor] = [map].get([chave]);
+[bool] = [map].has([chave]);
+[map].delete([chave]);
+[tamanho] = [map].size;
+[map].clear();
+
+// Iteração em Map
+for (let [[chave], [valor]] of [map]) {}
+[map].forEach(([valor], [chave]) => {});
+
+// 23. WEAKSET E WEAKMAP
+[weakSet] = new WeakSet();
+[weakSet].add([objeto]);
+[weakSet].has([objeto]);
+[weakSet].delete([objeto]);
+
+[weakMap] = new WeakMap();
+[weakMap].set([objeto], [valor]);
+[weakMap].get([objeto]);
+
+// 24. REGEX
+[regex] = /[padrao]/;
+[regex] = new RegExp("[padrao]", "[flags]");
+[bool] = [regex].test("[string]");
+[matches] = "[string]".match([regex]);
+[matches] = "[string]".matchAll([regex]);
+[array] = "[string]".split([regex]);
+[string] = "[string]".replace([regex], "[substituto]");
+
+// 25. JSON
+[texto_json] = JSON.stringify([objeto], [replacer], [espacamento]);
+[objeto] = JSON.parse("[texto_json]");
+
+// 26. TEMPORIZADORES
+setTimeout(() => {
+    [bloco]
+}, [milissegundos]);
+
+setInterval(() => {
+    [bloco]
+}, [milissegundos]);
+
+clearTimeout([id]);
+clearInterval([id]);
+
+// 27. EVENTOS (DOM - apenas sintaxe)
+[elemento].addEventListener("[evento]", ([evento]) => {
+    [bloco]
+});
+[elemento].removeEventListener("[evento]", [handler]);
+[evento].preventDefault();
+[evento].stopPropagation();
+
+// 28. MANIPULAÇÃO DO DOM
+[elemento] = document.getElementById("[id]");
+[elementos] = document.getElementsByClassName("[classe]");
+[elementos] = document.getElementsByTagName("[tag]");
+[elemento] = document.querySelector("[seletor]");
+[elementos] = document.querySelectorAll("[seletor]");
+[elemento].innerHTML = "[html]";
+[elemento].textContent = "[texto]";
+[elemento].setAttribute("[attr]", "[valor]");
+[valor] = [elemento].getAttribute("[attr]");
+[elemento].classList.add("[classe]");
+[elemento].classList.remove("[classe]");
+[elemento].classList.toggle("[classe]");
+[bool] = [elemento].classList.contains("[classe]");
+[novo] = document.createElement("[tag]");
+[pai].appendChild([filho]);
+[pai].removeChild([filho]);
+[elemento].style.[propriedade] = "[valor]";
+
+// 29. FETCH API
+fetch("[url]", {
+    method: "[GET|POST|PUT|DELETE]",
+    headers: {
+        "[Content-Type]": "application/json"
+    },
+    body: JSON.stringify([dados])
+})
+.then([resposta] => [resposta].json())
+.then([dados] => {
+    [bloco]
+})
+.catch([erro] => {
+    console.error([erro])
+});
+
+// Com async/await
+async function [buscar]() {
+    try {
+        [res] = await fetch("[url]");
+        [dados] = await [res].json();
+        return [dados];
+    } catch ([err]) {
+        console.error([err]);
+    }
+}
+
+// 30. LOCALSTORAGE E SESSIONSTORAGE
+localStorage.setItem("[chave]", "[valor]");
+[valor] = localStorage.getItem("[chave]");
+localStorage.removeItem("[chave]");
+localStorage.clear();
+
+sessionStorage.setItem("[chave]", "[valor]");
+[valor] = sessionStorage.getItem("[chave]");
+sessionStorage.removeItem("[chave]");
+sessionStorage.clear();
+
+// 31. GENERATORS (function*)
+function* [nomeGerador]() {
+    yield [valor1];
+    yield [valor2];
+    return [valor3];
+}
+
+[gen] = [nomeGerador]();
+[valor] = [gen].next();
+[valor] = [gen].next([valor_enviado]);
+
+// 32. PROXY
+[handler] = {
+    get([target], [prop]) {
+        return [target][[prop]];
+    },
+    set([target], [prop], [valor]) {
+        [target][[prop]] = [valor];
+        return true;
+    }
+};
+[proxy] = new Proxy([objetoAlvo], [handler]);
+
+// 33. REFLECT
+[resultado] = Reflect.get([objeto], "[prop]");
+Reflect.set([objeto], "[prop]", [valor]);
+Reflect.has([objeto], "[prop]");
+Reflect.deleteProperty([objeto], "[prop]");
+
+// 34. SYMBOL
+[sym] = Symbol("[descricao]");
+[objeto][[sym]] = [valor];
+[objeto] = { [Symbol.iterator]: function*() {} };
+
+// 35. TYPED ARRAYS
+[arrayBuffer] = new ArrayBuffer([bytes]);
+[int8] = new Int8Array([tamanho]);
+[uint8] = new Uint8Array([tamanho]);
+[int16] = new Int16Array([tamanho]);
+
+// 36. WEB WORKERS (sintaxe básica)
+[worker] = new Worker("[caminho/worker.js]");
+[worker].postMessage([dados]);
+[worker].onmessage = ([evento]) => {
+    [dados] = [evento].data;
+};
+
+// 37. DEBUGGER
+debugger;
+
+// 38. 'use strict'
+'use strict';
+
+// 39. ENUMERAÇÃO E ITERAÇÃO AVANÇADA
+Object.keys([objeto]);
+Object.values([objeto]);
+Object.entries([objeto]);
+Object.fromEntries([iteravel]);
+
+// 40. ESTRUTURAS ADICIONAIS
+// Nullish coalescing
+[valor] = [variavel] ?? [padrao];
+
+// Optional chaining
+[valor] = [objeto]?.[propriedade]?.[subprop];
+[resultado] = [funcao]?.();
+
+// Promise com finally já visto
+
+// 41. ATIVIDADE DE PROPRIEDADES
+Object.defineProperty([objeto], "[prop]", {
+    value: [valor],
+    writable: true,
+    enumerable: true,
+    configurable: true
+});
+
+Object.freeze([objeto]);
+Object.seal([objeto]);
+
+// 42. INTROSPECÇÃO
+typeof [variavel];
+[objeto] instanceof [Classe];
+'[prop]' in [objeto];
+

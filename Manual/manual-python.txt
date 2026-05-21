@@ -1,0 +1,541 @@
+#1. PRINT
+print([valor])
+
+#2. INPUT
+[variavel] = input("[mensagem]")
+
+#3. COMENTÁRIOS
+#[texto]
+"""
+[texto multilinha]
+"""
+
+#4. VARIÁVEIS E TIPOS
+[int] = [valor]
+[float] = [valor]
+[str] = "[texto]"
+[bool] = True
+[bool] = False
+[lista] = [[valor1], [valor2]]
+[tupla] = ([valor1], [valor2])
+[dicionario] = {[chave1]: [valor1], [chave2]: [valor2]}
+[conjunto] = {[valor1], [valor2]}
+[conjunto_vazio] = set()
+
+#5. OPERADORES
+[resultado +] = [a] + [b]
+[resultado -] = [a] - [b]
+[resultado *] = [a] * [b]
+[resultado /] = [a] / [b]
+[resultado //] = [a] // [b]
+[resultado %] = [a] % [b]
+[resultado **] = [a] ** [b]
+[resultado ==] = [a] == [b]
+[resultado !=] = [a] != [b]
+[resultado > ] = [a] > [b]
+[resultado >=] = [a] < [b]
+[resultado >=] = [a] >= [b]
+[resultado <= ] = [a] <= [b]
+[resultado and] = [condicao1] and [condicao2]
+[resultado or] = [condicao1] or [condicao2]
+[resultado not] = not [condicao]
+[resultado in] = [valor] in [colecao]
+[resultado not in ] = [valor] not in [colecao]
+[resultado  is ] = [objeto] is [objeto2]
+[var] += [valor]
+[var] -= [valor]
+[var] *= [valor]
+[var] /= [valor]
+[var] //= [valor]
+[var] %= [valor]
+[var] **= [valor]
+[variavel] := [expressao]
+
+#6. CONDICIONAIS
+if [condicao]:
+    [bloco]
+
+if [condicao]:
+    [bloco1]
+else:
+    [bloco2]
+
+if [condicao1]:
+    [bloco1]
+elif [condicao2]:
+    [bloco2]
+else:
+    [bloco3]
+
+[var] = [valor1] if [condicao] else [valor2]
+
+#7. LAÇOS
+for [var] in [iteravel]:
+    [bloco]
+
+for [indice], [valor] in enumerate([iteravel]):
+    [bloco]
+
+for [chave] in [dicionario]:
+    [bloco]
+
+for [chave], [valor] in [dicionario].items():
+    [bloco]
+
+while [condicao]:
+    [bloco]
+    break
+    continue
+
+for [item] in [colecao]:
+    if [condicao]:
+        break
+else:
+    [bloco_sem_break]
+
+#8. LISTAS
+[lista] = []
+[lista] = [1, 2, 3]
+[lista].append([valor])
+[lista].extend([iteravel])
+[lista].insert([indice], [valor])
+[lista].remove([valor])
+[valor] = [lista].pop([indice])
+[lista].clear()
+[indice] = [lista].index([valor])
+[contagem] = [lista].count([valor])
+[lista].sort()
+[lista].reverse()
+[lista2] = [lista].copy()
+[len([lista])]
+[elemento] = [lista][[indice]]
+[sub] = [lista][[inicio]:[fim]]
+[sub] = [lista][[inicio]:[fim]:[passo]]
+[lista_compre] = [[expressao] for [item] in [iteravel] if [condicao]]
+
+#9. TUPLAS
+[tupla] = ([valor1], [valor2])
+[tupla] = ([valor],)  #tupla de 1 elemento
+[elemento] = [tupla][[indice]]
+[contagem] = [tupla].count([valor])
+[indice] = [tupla].index([valor])
+
+#10. DICIONÁRIOS
+[dict] = {}
+[dict] = {[chave]: [valor]}
+[dict][[chave]] = [valor]
+[valor] = [dict].get([chave], [padrao])
+[lista_chaves] = list([dict].keys())
+[lista_valores] = list([dict].values())
+[lista_pares] = list([dict].items())
+[dict].update({[chave2]: [valor2]})
+[valor] = [dict].pop([chave], [padrao])
+[par] = [dict].popitem()
+[dict].clear()
+[len([dict])]
+[dict_comp] = {[expr_chave]: [expr_valor] for [item] in [iteravel] if [condicao]}
+
+#11. CONJUNTOS
+[set] = {[valor1], [valor2]}
+[set].add([valor])
+[set].remove([valor])
+[set].discard([valor])
+[uniao] = [set1] | [set2]
+[intersecao] = [set1] & [set2]
+[diferenca] = [set1] - [set2]
+[dif_simetrica] = [set1] ^ [set2]
+[bool] = [set1].issubset([set2])
+[bool] = [set1].issuperset([set2])
+
+#12. STRINGS
+[str] = "[texto]"
+[str] = '[texto]'
+[str] = """[multilinha]"""
+[str] = [str1] + [str2]
+[str] = [str] * [n]
+[caractere] = [str][[indice]]
+[sub] = [str][[inicio]:[fim]]
+[sub] = [str][[inicio]:[fim]:[passo]]
+[str] = [str].upper()
+[str] = [str].lower()
+[str] = [str].capitalize()
+[str] = [str].title()
+[str] = [str].strip()
+[str] = [str].lstrip()
+[str] = [str].rstrip()
+[str] = [str].replace("[velho]", "[novo]")
+[lista] = [str].split("[separador]")
+[str] = "[separador]".join([iteravel])
+[indice] = [str].find("[sub]")
+[indice] = [str].index("[sub]")
+[bool] = [str].startswith("[prefixo]")
+[bool] = [str].endswith("[sufixo]")
+[bool] = [str].isalpha()
+[bool] = [str].isdigit()
+[bool] = [str].isalnum()
+[bool] = [str].isspace()
+[len([str])]
+[texto] = f"texto {[variavel]}"
+[texto] = "{} {}".format([valor1], [valor2])
+[texto] = "%s %d" % ([string], [numero])
+
+#13. FUNÇÕES
+def [nome]([param1], [param2]=[padrao]):
+    """[docstring]"""
+    [bloco]
+    return [valor]
+
+def [nome](*[args], **[kwargs]):
+    [bloco]
+
+def [nome]([param1], [param2], /):  #posicional-only
+    pass
+
+def [nome](*, [kw1], [kw2]):  #keyword-only
+    pass
+
+[resultado] = [nome]([arg1], [arg2])
+
+def [nome]() -> [tipo_retorno]:
+    pass
+
+#14. LAMBDA
+[lambda] = lambda [param1], [param2]: [expressao]
+
+[resultado] = [lambda]([arg1], [arg2])
+
+#15. COMPREENSÃO GERADORA
+[gen] = ([expressao] for [item] in [iteravel] if [condicao])
+
+[valor] = next([gen])
+
+#16. EXCEÇÕES
+try:
+    [bloco]
+except [TipoErro] as [var]:
+    [bloco]
+except ([Tipo1], [Tipo2]):
+    [bloco]
+except:
+    [bloco]
+else:
+    [bloco_sem_erro]
+finally:
+    [bloco_sempre]
+
+raise [TipoErro]("[mensagem]")
+raise [NovaExcecao] from [excecao_original]
+
+class [MeuErro](Exception):
+    pass
+
+#17. MÓDULOS E IMPORTAÇÕES
+import [modulo]
+from [modulo] import [objeto]
+from [modulo] import [objeto] as [alias]
+import [modulo] as [alias]
+from [modulo] import *
+
+if __name__ == "__main__":
+    [bloco]
+
+#18. ARQUIVOS
+[arquivo] = open("[caminho]", "[modo]")
+[conteudo] = [arquivo].read()
+[linha] = [arquivo].readline()
+[linhas] = [arquivo].readlines()
+[arquivo].write("[texto]")
+[arquivo].writelines([lista])
+[arquivo].close()
+
+with open("[caminho]", "[modo]") as [var]:
+    [conteudo] = [var].read()
+
+#19. GERADORES (yield)
+def [nome_gerador]():
+    [bloco]
+    yield [valor]
+    [bloco]
+    yield [valor2]
+
+[gen] = [nome_gerador]()
+[valor] = next([gen])
+for [item] in [nome_gerador]():
+    [bloco]
+
+#20. DECORADORES
+def [decorador]([func]):
+    def [wrapper](*[args], **[kwargs]):
+        [bloco_antes]
+        [resultado] = [func](*[args], **[kwargs])
+        [bloco_depois]
+        return [resultado]
+    return [wrapper]
+
+@[decorador]
+def [funcao_original]([param]):
+    [bloco]
+
+from functools import wraps
+def [decorador]([func]):
+    @wraps([func])
+    def [wrapper](*[args], **[kwargs]):
+        return [func](*[args], **[kwargs])
+    return [wrapper]
+
+#21. CONTEXT MANAGER PERSONALIZADO
+from contextlib import contextmanager
+@contextmanager
+def [meu_contexto]():
+    [recurso] = [alocar]
+    try:
+        yield [recurso]
+    finally:
+        [liberar]
+
+with [meu_contexto]() as [var]:
+    [bloco]
+
+class [Contexto]:
+    def __enter__(self):
+        [recurso] = [alocar]
+        return [recurso]
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        [liberar]
+
+with [Contexto]() as [var]:
+    [bloco]
+
+#22. CLASSES E POO
+class [Nome]:
+    [atributo_classe] = [valor]
+    
+    def __init__(self, [param]):
+        self.[atributo] = [param]
+    
+    def [metodo](self, [param]):
+        return self.[atributo] + [param]
+    
+    @staticmethod
+    def [estatico]([param]):
+        return [param]
+    
+    @classmethod
+    def [metodo_classe](cls, [param]):
+        return cls([param])
+    
+    @property
+    def [prop](self):
+        return self.[_atributo]
+    
+    @[prop].setter
+    def [prop](self, [valor]):
+        self.[_atributo] = [valor]
+
+class [Filha]([Pai]):
+    def [metodo](self):
+        super().[metodo_pai]()
+        [bloco]
+
+[obj] = [Nome]([arg])
+[obj].[metodo]([arg])
+
+#23. DATACLASSES
+from dataclasses import dataclass
+
+@dataclass
+class [Pessoa]:
+    [nome]: [str]
+    [idade]: [int] = 0
+
+#24. METACLASSES
+class [Meta](type):
+    def __new__(cls, [name], [bases], [dct]):
+        [dct]["[novo_atributo]"] = [valor]
+        return super().__new__(cls, [name], [bases], [dct])
+
+class [Classe](metaclass=[Meta]):
+    pass
+
+#25. DESCRITORES
+class [Descritor]:
+    def __get__(self, [obj], [objtype]=None):
+        return self.[valor]
+    def __set__(self, [obj], [valor]):
+        self.[valor] = [valor]
+    def __delete__(self, [obj]):
+        del self.[valor]
+
+class [Classe]:
+    [atributo] = [Descritor]()
+
+import [valor]
+
+#26. TYPE HINTS
+from typing import List, Dict, Tuple, Set, Optional, Union, Any, Callable, TypeVar, Generic
+
+[var]: [tipo] = [valor]
+def [func]([param]: [tipo]) -> [tipo_retorno]:
+    pass
+
+T = TypeVar('T')
+class [Pilha](Generic[T]):
+    def push(self, [item]: T) -> None:
+        pass
+
+#27. DATAS E HORAS
+from datetime import datetime, date, time, timedelta
+
+[agora] = datetime.now()
+[data] = date([ano], [mes], [dia])
+[dt] = datetime([ano], [mes], [dia], [hora], [minuto], [segundo])
+[diff] = [data1] - [data2]  #timedelta
+[td] = timedelta(days=[n], hours=[n])
+[texto] = [dt].strftime("[formato]")
+[dt] = datetime.strptime("[string]", "[formato]")
+
+#28. THREADS
+import threading
+
+[t] = threading.Thread(target=[funcao], args=([arg],))
+[t].start()
+[t].join()
+
+[lock] = threading.Lock()
+with [lock]:
+    [bloco_critico]
+
+#29. MULTIPROCESSAMENTO
+import multiprocessing
+
+[p] = multiprocessing.Process(target=[funcao], args=([arg],))
+[p].start()
+[p].join()
+
+with multiprocessing.Pool([processos]) as [pool]:
+    [resultados] = [pool].map([funcao], [iteravel])
+
+#30. ASSÍNCRONO
+import asyncio
+
+async def [corrotina]([param]):
+    await [asyncio.sleep]([segundos])
+    return [valor]
+
+[resultado] = await [corrotina]([arg])
+[task] = asyncio.create_task([corrotina]([arg]))
+[resultados] = await asyncio.gather([cor1](), [cor2]())
+
+asyncio.run([main_coroutine]())
+
+#31. JSON
+import json
+
+[texto_json] = json.dumps([objeto_python], indent=[num])
+json.dump([objeto], [arquivo])
+[objeto] = json.loads("[string_json]")
+[objeto] = json.load([arquivo])
+
+#32. REGEX
+import re
+
+[padrao] = re.compile(r"[expressao]")
+[match] = [padrao].search("[texto]")
+[match] = re.search(r"[padrao]", "[texto]")
+[lista] = re.findall(r"[padrao]", "[texto]")
+[novo] = re.sub(r"[padrao]", "[replacement]", "[texto]")
+[lista] = re.split(r"[padrao]", "[texto]")
+
+#33. PATHLIB
+from pathlib import Path
+
+[p] = Path("[caminho]")
+[bool] = [p].exists()
+[bool] = [p].is_file()
+[bool] = [p].is_dir()
+[p].mkdir(parents=True, exist_ok=True)
+[conteudo] = [p].read_text()
+[p].write_text("[conteudo]")
+[lista] = list([p].glob("[padrao]"))
+[lista] = list([p].iterdir())
+[absoluto] = [p].resolve()
+
+#34. LOGGING
+import logging
+
+logging.basicConfig(level=logging.[DEBUG], format="[formato]")
+logging.debug("[mensagem]")
+logging.info("[mensagem]")
+logging.warning("[mensagem]")
+logging.error("[mensagem]")
+
+[logger] = logging.getLogger("[nome]")
+[handler] = logging.StreamHandler()
+[logger].addHandler([handler])
+
+#35. ARGPARSE
+import argparse
+
+[parser] = argparse.ArgumentParser(description="[desc]")
+[parser].add_argument("--[nome]", type=[tipo], help="[ajuda]")
+[parser].add_argument("[posicional]")
+[args] = [parser].parse_args()
+[valor] = [args].[nome]
+
+#36. TESTES UNITÁRIOS
+import unittest
+
+class [TesteClasse](unittest.TestCase):
+    def setUp(self):
+        self.[obj] = [valor]
+    def tearDown(self):
+        self.[obj].close()
+    def test_[nome](self):
+        self.assertEqual([atual], [esperado])
+        self.assertTrue([condicao])
+        self.assertRaises([Excecao], [funcao], [arg])
+
+if __name__ == "__main__":
+    unittest.main()
+
+#37. PIP E AMBIENTES VIRTUAIS
+#(comandos do terminal, não código Python)
+python -m venv [nome_ambiente]
+source [nome_ambiente]/bin/activate  #linux/mac
+[nome_ambiente]\Scripts\activate     #windows
+pip install [pacote]
+pip install [pacote]==[versao]
+pip freeze > requirements.txt
+pip install -r requirements.txt
+
+#38. MANIPULAÇÃO DE CSVs
+import csv
+
+with open("[arquivo.csv]", "w", newline="") as [f]:
+    [escritor] = csv.writer([f])
+    [escritor].writerow([[col1], [col2]])
+
+with open("[arquivo.csv]", "r") as [f]:
+    [leitor] = csv.reader([f])
+    for [linha] in [leitor]:
+        [col1], [col2] = [linha]
+
+#39. MÓDULOS ÚTEIS DA BIBLIOTECA PADRÃO
+import math
+[raiz] = math.sqrt([numero])
+import random
+[valor] = random.randint([min], [max])
+[valor] = random.choice([lista])
+import statistics
+[media] = statistics.mean([lista])
+from collections import deque, Counter, defaultdict
+[deque] = deque([lista])
+[contador] = Counter([lista])
+[default] = defaultdict([tipo])
+from itertools import chain, cycle, product, permutations
+[concatenado] = chain([iter1], [iter2])
+for [item] in cycle([lista]):
+    pass
+#============================================================
+#FIM DO MANUAL - SOMENTE CÓDIGO PURO COM PLACEHOLDERS [valor]
+#============================================================
