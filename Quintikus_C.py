@@ -4,12 +4,14 @@ import time
 import random
 import re
 import struct
-import pickle  # compatibilidade com cérebros antigos
-import cmath
+import pickle
+import hashlib
+import platform
+import unicodedata
 from collections import defaultdict, Counter
 
 # =================================================================
-# ANDROID HELPER (QPYTHON) - OPCIONAL
+# 1. KERNEL E VOZ (MANTIDO)
 # =================================================================
 try:
     import androidhelper
@@ -19,554 +21,267 @@ except:
     droid = None
     TEM_VOZ = False
 
-# =================================================================
-# FUNÇÕES DE VOZ E TEXTO (COM EVENTWAIT)
-# =================================================================
 def falar(texto, imprimir=True):
-    if imprimir:
-        print(f"🧠 LUCY: {texto}")
+    if imprimir: print(f"🧠 LUCY: {texto}")
     if TEM_VOZ:
-        try:
-            droid.ttsSpeak(texto)
-            droid.eventWait(3000)
-        except:
-            pass
-    else:
-        time.sleep(0.5)
+        try: droid.ttsSpeak(texto)
+        except: pass
 
 def ouvir():
     if TEM_VOZ:
         try:
-            print("\n🎤 Ouvindo...")
-            resultado = droid.recognizeSpeech("Fale agora", None, None)
-            if resultado and resultado.result:
-                texto = resultado.result.strip().lower()
-                if texto:
-                    print(f"👤 Você disse: {texto}")
-                    return texto
-        except Exception as e:
-            print(f"⚠️ Voz indisponível: {e}")
-    try:
-        return input("👤 Digite seu comando: ").strip().lower()
-    except (EOFError, KeyboardInterrupt):
-        return "sair"
+            r = droid.recognizeSpeech("Sintonizando Mapa Mental...", None, None).result
+            if r: return r.strip().lower()
+        except: pass
+    return input("👤: ").strip().lower()
 
 # =================================================================
-# ÁLGEBRA LINEAR PURA
+# 2. ÁLGEBRA LINEAR PURA (COMPATIBILIDADE TOTAL)
 # =================================================================
-def pure_norm(v):
-    return math.sqrt(sum(x * x for x in v))
-
+def pure_norm(v): return math.sqrt(sum(x * x for x in v))
 def normalize_vector(v):
     n = pure_norm(v)
     return [x / n for x in v] if n > 1e-9 else v
-
-def pure_randn(dims):
-    return [random.gauss(0, 1) for _ in range(dims)]
-
-def pure_dot(v1, v2):
-    return sum(a * b for a, b in zip(v1, v2))
-
-def pure_zeros(n):
-    return [0.0] * n
-
-def vec_add(v1, v2):
-    return [a + b for a, b in zip(v1, v2)]
-
-def vec_sub(v1, v2):
-    return [a - b for a, b in zip(v1, v2)]
-
-def vec_mul(v, scalar):
-    return [x * scalar for x in v]
+def pure_randn(dims): return [random.gauss(0, 1) for _ in range(dims)]
+def pure_dot(v1, v2): return sum(a * b for a, b in zip(v1, v2))
+def vec_add(v1, v2): return [a + b for a, b in zip(v1, v2)]
+def vec_mul(v, scalar): return [x * scalar for x in v]
 
 # =================================================================
-# ANÁLISE DE SENTIMENTO E ESTADO EMOCIONAL
-# =================================================================
-class SentimentAnalyzer:
-    POS = {"amo","amor","lindo","maravilhoso","obrigado","obrigada","querido","querida",
-           "gato","gata","fofo","fofa","bom","boa","ótimo","excelente","feliz","alegre",
-           "carinho","carinhoso","carinhosa","beijo","abraço","saudade","parabéns","incrível",
-           "espetacular","divertido","legal","grato","grata","obrigadão","valeu","top"}
-    NEG = {"triste","chato","chata","ruim","horrível","ódio","raiva","nojento","nojenta",
-           "feio","feia","burro","burra","idiota","imbecil","droga","merda","desculpa",
-           "desculpe","cansado","cansada","estressado","estressada","puto","puta","lixo",
-           "decepcionado","decepcionada","sozinho","sozinha","deprimido","deprimida"}
-    
-    @staticmethod
-    def analisar(texto):
-        tokens = set(texto.lower().split())
-        p = len(tokens.intersection(SentimentAnalyzer.POS))
-        n = len(tokens.intersection(SentimentAnalyzer.NEG))
-        if p > n: return "positivo"
-        elif n > p: return "negativo"
-        return "neutro"
-
-class EmotionState:
-    def __init__(self):
-        self.valencia = 0.0   # -1 (triste) a +1 (feliz)
-        self.excitacao = 0.5  # 0 (calmo) a 1 (agitado)
-        self.decay = 0.9      # taxa de retorno ao neutro
-    
-    def atualizar(self, sentimento):
-        rv, re = random.gauss(0,0.1), random.gauss(0,0.05)
-        if sentimento == "positivo":
-            self.valencia += 0.2 + rv
-            self.excitacao += 0.1 + re
-        elif sentimento == "negativo":
-            self.valencia -= 0.2 + rv
-            self.excitacao += 0.1 + re
-        else:
-            self.valencia += rv
-            self.excitacao += re
-        self.valencia = max(-1.0, min(1.0, self.valencia))
-        self.excitacao = max(0.0, min(1.0, self.excitacao))
-        self.valencia *= self.decay
-        self.excitacao = 0.5 + (self.excitacao-0.5)*self.decay
-    
-    @property
-    def tom(self):
-        if self.valencia > 0.3:
-            return "caloroso"
-        elif self.valencia < -0.3:
-            return "frio"
-        return "neutro"
-
-# =================================================================
-# NÚCLEO ARQUINET ND
-# =================================================================
-class ArquinetCore:
-    def __init__(self, dims=1024):
-        self.dims = dims
-        self.mapa_nd = {}
-        self.grafo = {}
-        self.pulso = defaultdict(int)
-        self.taxa_aprendizado = 0.1
-
-    def treinar(self, tokens, auth=1.0):
-        mapa, grafo = self.mapa_nd, self.grafo
-        for i in range(len(tokens) - 1):
-            t1, t2 = tokens[i], tokens[i+1]
-            if t1 not in mapa:
-                mapa[t1] = normalize_vector(pure_randn(self.dims))
-            if t2 not in mapa:
-                mapa[t2] = normalize_vector(pure_randn(self.dims))
-
-            move = self.taxa_aprendizado * auth
-            diff = vec_sub(mapa[t2], mapa[t1])
-            novo_v = vec_add(mapa[t1], vec_mul(diff, move))
-            mapa[t1] = normalize_vector(novo_v)
-
-            if t1 not in grafo:
-                grafo[t1] = {}
-            if t2 not in grafo[t1]:
-                grafo[t1][t2] = 0.5 + 0j
-
-            grafo[t1][t2] *= cmath.exp(1j * 0.1)
-            grafo[t1][t2] += 0.05 * auth
-            self.pulso[t1] += 1
-
-# =================================================================
-# QUINTIKUS v22.0 + SERIALIZAÇÃO BINÁRIA + SENTIMENTO
+# 3. QUINTIKUS LUCY v25.0 - COGNITIVE ENTROPY MAP
 # =================================================================
 class QuintikusLucy:
     def __init__(self):
-        self.path_brain = "brain_v22_sovereign.qoa"
-        self.path_bin   = "brain_v22_sovereign.qbin"
-        self.tokenizer = re.compile(r'[\w]+|[\?\!\.]')
-        self.cognition = ArquinetCore(dims=1024)
-
-        self.l2_mass, self.l2_vectors, self.l2_auth, self.l2_tokens_len = [], [], [], []
-        self.neuronios = defaultdict(list)
-        self.triplas = defaultdict(list)
+        self.path_bin = "brain_v25_entropy.qbin"
+        self.path_user = "user.bin"
+        self.tokenizer = re.compile(r'\?\?+|\!\!+|\.\.\.+|[:;]-?[)DPpoO]|s2|<3|[\w]+|[\?\!\.]')
+        
+        self.dims = 1024
+        self.mapa_nd = {}
         self.raridade = Counter()
-
+        
+        # AAIGB Matrix + Entropy Maps
+        self.l2_mass = []
+        self.l2_vectors = []
+        self.l2_pil_min = []
+        self.l2_neuron_tag = []
+        
+        self.neuronios = defaultdict(list)
+        self.shard_signatures = {} # Mapa Mental: Neuronio -> Vetor Médio (Assinatura)
+        self.ledger = set() 
+        
         self.pil_user = 0.0
-        self.cache_reflexo = []
-        self.drives = {"afetivo": 0.5, "curioso": 0.3, "analitico": 0.2, "criativo": 0.3,
-                       "empatia": 0.3, "acidez": 0.5}  # novos drives emocionais
-        self.sombra_entropica = pure_zeros(1024)
+        self.user_name = None
+        self.sombra_entropica = [0.0] * self.dims
         self.exaustao = []
 
-        # Componentes de sentimento
-        self.sentiment = SentimentAnalyzer()
-        self.emotion = EmotionState()
+    def amadurecer_solo(self, texto, pil_min=0.0, neuronio="conversa"):
+        """Geração de Gatilho Dinâmico via Entropia Cognitiva"""
+        hash_c = hashlib.sha256((texto + neuronio).encode('utf-8', 'ignore')).hexdigest()
+        if hash_c in self.ledger: return False
 
-    # ---------- TREINAMENTO (sem salvamento automático) ----------
-    def amadurecer_solo(self, texto, auth=1.0):
-        frases = re.split(r'[\.\!\?]', texto)
-        for f in frases:
-            f = f.strip()
-            if len(f) < 2:
-                continue
+        print(f"🧠 Mapeando Entropia: {neuronio.upper()}...")
+        frases = re.split(r'([\.\!\?])', texto)
+        
+        shard_vector_accumulator = [0.0] * self.dims
+        count_frases = 0
+
+        for i in range(0, len(frases)-1, 2):
+            f = (frases[i] + frases[i+1]).strip()
+            if len(f) < 2: continue
+            
             tokens = self.tokenizer.findall(f.lower())
-            if len(tokens) < 2:
-                continue
+            if not tokens: continue
 
             idx = len(self.l2_mass)
             self.l2_mass.append(f)
-            self.l2_auth.append(auth)
-            self.l2_tokens_len.append(len(tokens))
+            self.l2_pil_min.append(pil_min)
+            self.l2_neuron_tag.append(neuronio)
 
-            if len(tokens) >= 3:
-                self.triplas[tokens[0]].append((tokens[1], " ".join(tokens[2:])))
-
+            v_frase = [0.0] * self.dims
             for t in tokens:
                 self.raridade[t] += 1
                 self.neuronios[t].append(idx)
-
-            self.cognition.treinar(tokens, auth)
-
-            v_frase = pure_zeros(1024)
-            for t in tokens:
-                if t in self.cognition.mapa_nd:
-                    peso = 1.0 / (math.log(self.raridade[t] + 2))
-                    v_frase = vec_add(v_frase, vec_mul(self.cognition.mapa_nd[t], peso))
-            self.l2_vectors.append(normalize_vector(v_frase))
-
-    # ---------- SERIALIZAÇÃO BINÁRIA (.qbin) ----------
-    def salvar_binario(self, filename=None):
-        if filename is None:
-            filename = self.path_bin
-        with open(filename, 'wb') as f:
-            f.write(b'QKBR')                     # magic
-            f.write(struct.pack('<H', 1))        # versão
-            f.write(struct.pack('<I', len(self.l2_mass)))
-
-            # 1) Frases
-            for frase in self.l2_mass:
-                data = frase.encode('utf-8')
-                f.write(struct.pack('<H', len(data)))
-                f.write(data)
-
-            # 2) Vetores
-            for vec in self.l2_vectors:
-                f.write(struct.pack(f'<{1024}f', *vec))
-
-            # 3) Neurônios
-            neuro = {k: v for k, v in self.neuronios.items() if isinstance(k, str)}
-            f.write(struct.pack('<I', len(neuro)))
-            for palavra, indices in neuro.items():
-                b = palavra.encode('utf-8')
-                f.write(struct.pack('<H', len(b)))
-                f.write(b)
-                f.write(struct.pack('<I', len(indices)))
-                f.write(struct.pack(f'<{len(indices)}I', *indices))
-
-            # 4) Mapa ND
-            mapa_items = [(k, v) for k, v in self.cognition.mapa_nd.items() if isinstance(k, str)]
-            f.write(struct.pack('<I', len(mapa_items)))
-            for palavra, vec in mapa_items:
-                b = palavra.encode('utf-8')
-                f.write(struct.pack('<H', len(b)))
-                f.write(b)
-                f.write(struct.pack(f'<{1024}f', *vec))
-
-            # 5) Grafo
-            grafo = {}
-            for k, v in self.cognition.grafo.items():
-                if isinstance(k, str):
-                    grafo[k] = {k2: (v2.real, v2.imag) for k2, v2 in v.items() if isinstance(k2, str)}
-            f.write(struct.pack('<I', len(grafo)))
-            for origem, destinos in grafo.items():
-                b = origem.encode('utf-8')
-                f.write(struct.pack('<H', len(b)))
-                f.write(b)
-                f.write(struct.pack('<I', len(destinos)))
-                for destino, (real, imag) in destinos.items():
-                    d = destino.encode('utf-8')
-                    f.write(struct.pack('<H', len(d)))
-                    f.write(d)
-                    f.write(struct.pack('<ff', real, imag))
-
-            # 6) Raridade
-            rar = {k: v for k, v in self.raridade.items() if isinstance(k, str)}
-            f.write(struct.pack('<I', len(rar)))
-            for palavra, contagem in rar.items():
-                b = palavra.encode('utf-8')
-                f.write(struct.pack('<H', len(b)))
-                f.write(b)
-                f.write(struct.pack('<I', contagem))
-
-            # 7) Auth e Tokens Len
-            f.write(struct.pack(f'<{len(self.l2_auth)}f', *self.l2_auth))
-            f.write(struct.pack(f'<{len(self.l2_tokens_len)}I', *self.l2_tokens_len))
-
-    def carregar_binario(self, filename=None):
-        if filename is None:
-            filename = self.path_bin
-        if not os.path.exists(filename):
-            return False
-        with open(filename, 'rb') as f:
-            if f.read(4) != b'QKBR':
-                return False
-            version = struct.unpack('<H', f.read(2))[0]
-            num_frases = struct.unpack('<I', f.read(4))[0]
-
-            self.l2_mass = []
-            for _ in range(num_frases):
-                size = struct.unpack('<H', f.read(2))[0]
-                self.l2_mass.append(f.read(size).decode('utf-8'))
-
-            self.l2_vectors = []
-            for _ in range(num_frases):
-                self.l2_vectors.append(list(struct.unpack(f'<{1024}f', f.read(1024*4))))
-
-            self.neuronios = defaultdict(list)
-            num_entradas = struct.unpack('<I', f.read(4))[0]
-            for _ in range(num_entradas):
-                size = struct.unpack('<H', f.read(2))[0]
-                palavra = f.read(size).decode('utf-8')
-                num_idx = struct.unpack('<I', f.read(4))[0]
-                self.neuronios[palavra] = list(struct.unpack(f'<{num_idx}I', f.read(num_idx*4)))
-
-            self.cognition.mapa_nd = {}
-            num_mapa = struct.unpack('<I', f.read(4))[0]
-            for _ in range(num_mapa):
-                size = struct.unpack('<H', f.read(2))[0]
-                palavra = f.read(size).decode('utf-8')
-                self.cognition.mapa_nd[palavra] = list(struct.unpack(f'<{1024}f', f.read(1024*4)))
-
-            self.cognition.grafo = {}
-            num_origens = struct.unpack('<I', f.read(4))[0]
-            for _ in range(num_origens):
-                size = struct.unpack('<H', f.read(2))[0]
-                origem = f.read(size).decode('utf-8')
-                num_dest = struct.unpack('<I', f.read(4))[0]
-                destinos = {}
-                for _ in range(num_dest):
-                    dsize = struct.unpack('<H', f.read(2))[0]
-                    destino = f.read(dsize).decode('utf-8')
-                    real, imag = struct.unpack('<ff', f.read(8))
-                    destinos[destino] = complex(real, imag)
-                self.cognition.grafo[origem] = destinos
-
-            self.raridade = Counter()
-            num_rar = struct.unpack('<I', f.read(4))[0]
-            for _ in range(num_rar):
-                size = struct.unpack('<H', f.read(2))[0]
-                palavra = f.read(size).decode('utf-8')
-                contagem = struct.unpack('<I', f.read(4))[0]
-                self.raridade[palavra] = contagem
-
-            self.l2_auth = list(struct.unpack(f'<{num_frases}f', f.read(num_frases*4)))
-            self.l2_tokens_len = list(struct.unpack(f'<{num_frases}I', f.read(num_frases*4)))
+                if t not in self.mapa_nd:
+                    self.mapa_nd[t] = normalize_vector(pure_randn(self.dims))
+                
+                # Peso de Raridade (Entropia Cognitiva)
+                peso = 1.0 / (math.log(self.raridade[t] + 1.2) + 1e-5)
+                v_frase = vec_add(v_frase, vec_mul(self.mapa_nd[t], peso))
+            
+            v_frase_norm = normalize_vector(v_frase)
+            self.l2_vectors.append(v_frase_norm)
+            
+            # Acumula para a assinatura do neurônio
+            shard_vector_accumulator = vec_add(shard_vector_accumulator, v_frase_norm)
+            count_frases += 1
+        
+        # Define o "Nexo Médio" deste shard no Mapa Mental
+        if count_frases > 0:
+            self.shard_signatures[neuronio] = normalize_vector(vec_mul(shard_vector_accumulator, 1.0/count_frases))
+        
+        self.ledger.add(hash_c)
         return True
 
-    # ---------- MÉTODOS ANTIGOS (compatibilidade) ----------
-    def salvar_pickle(self):
-        with open(self.path_brain, 'wb') as f:
-            pickle.dump({
-                'm': self.l2_mass, 'v': self.l2_vectors, 'n': self.neuronios,
-                'c': self.cognition, 't': self.triplas, 'r': self.raridade,
-                'a': self.l2_auth, 'tl': self.l2_tokens_len
-            }, f)
+    def rotear_pelo_mapa(self, v_entrada):
+        """Identifica qual neurônio está 'vibrando' com o input atual"""
+        melhor_neuronio = "conversa"
+        maior_atencao = -1.0
+        
+        for neuronio, assinatura in self.shard_signatures.items():
+            atencao = pure_dot(v_entrada, assinatura)
+            if atencao > maior_atencao:
+                maior_atencao = atencao
+                melhor_neuronio = neuronio
+        
+        return melhor_neuronio, maior_atencao
 
-    def carregar_pickle(self):
-        if os.path.exists(self.path_brain):
-            with open(self.path_brain, 'rb') as f:
-                b = pickle.load(f)
-                self.l2_mass = b['m']
-                self.l2_vectors = b['v']
-                self.neuronios = b['n']
-                self.cognition = b['c']
-                self.triplas = b['t']
-                self.raridade = b['r']
-                self.l2_auth = b.get('a', [1]*len(self.l2_mass))
-                self.l2_tokens_len = b.get('tl', [5]*len(self.l2_mass))
-            return True
-        return False
-
-    # ---------- MOTOR DE RESPOSTA (COM MODULAÇÃO EMOCIONAL) ----------
     def pensar_e_falar(self, entrada):
-        # --- NOVO: análise de sentimento e atualização emocional ---
-        sentimento = self.sentiment.analisar(entrada)
-        self.emotion.atualizar(sentimento)
-        # Ajusta drives com base no estado emocional
-        if self.emotion.valencia < -0.3:   # Lucy "solidária"
-            self.drives["acidez"] *= 0.5   # reduz deboche
-            self.drives["empatia"] += 0.2
-        else:
-            self.drives["acidez"] = min(1.0, self.drives["acidez"]*1.1)
-            self.drives["empatia"] *= 0.9
-
-        t0 = time.perf_counter()
         tokens = self.tokenizer.findall(entrada.lower())
-        if not tokens:
-            return "..."
+        if not tokens: return "..."
 
-        v_entrada = pure_zeros(1024)
+        # 1. Gera Vetor de Entrada
+        v_entrada = [0.0] * self.dims
         for t in tokens:
-            if t in self.cognition.mapa_nd:
-                peso = 1.0 / (math.log(self.raridade[t] + 2))
-                v_entrada = vec_add(v_entrada, vec_mul(self.cognition.mapa_nd[t], peso))
+            if t in self.mapa_nd:
+                peso = 1.0 / (math.log(self.raridade[t] + 1.2) + 1e-5)
+                v_entrada = vec_add(v_entrada, vec_mul(self.mapa_nd[t], peso))
         v_entrada = normalize_vector(v_entrada)
 
-        for v_antigo, res_idx in self.cache_reflexo:
-            if pure_dot(v_entrada, v_antigo) > 0.98:
-                return f"[REFLEXO] > {self.l2_mass[res_idx]}"
-
-        eh_pergunta = "?" in entrada
-        sujeito = next((t for t in tokens if t in self.triplas), None)
-        if eh_pergunta and sujeito:
-            rel, obj = random.choice(self.triplas[sujeito])
-            return f"[LÓGICA] > {sujeito.capitalize()} {rel} {obj}."
-
-        if eh_pergunta:
-            self.drives["curioso"] += 0.2
-        if len(tokens) > 6:
-            self.drives["afetivo"] += 0.1
-
+        # 2. Roteamento Dinâmico (Sem gatilhos expostos)
+        target_neuron, forca_nexo = self.rotear_pelo_mapa(v_entrada)
+        
+        # 3. Sombra Entrópica (Memória de Curto Prazo)
         self.sombra_entropica = normalize_vector(
             vec_add(vec_mul(self.sombra_entropica, 0.4), vec_mul(v_entrada, 0.6))
         )
 
         pivo = max(tokens, key=lambda t: self.raridade[t], default=tokens[0])
-        candidatos = self.neuronios.get(pivo, [])
-        if not candidatos:
-            return "Vácuo semântico detectado."
+        candidatos_base = self.neuronios.get(pivo, [])
+        
+        # Filtra por PIL e Prioriza Neurônio do Mapa Mental
+        candidatos_final = [i for i in candidatos_base if self.l2_pil_min[i] <= self.pil_user]
 
+        if not candidatos_final:
+            return f"Nexo insuficiente no mapa mental '{target_neuron.upper()}'."
+
+        # 4. Colapso Quântico Ponderado
+        amostra = random.sample(candidatos_final, min(len(candidatos_final), 100))
         def pontuar(idx):
             score = pure_dot(self.sombra_entropica, self.l2_vectors[idx])
-            if eh_pergunta and self.l2_auth[idx] >= 2:
-                score += self.drives["analitico"]
-            if "?" in self.l2_mass[idx]:
-                score += self.drives["curioso"] * 0.4
-            assimetria = abs(len(tokens) - self.l2_tokens_len[idx])
-            score -= assimetria * 0.1
-            if idx in self.exaustao:
-                score -= 2.0
-
-            # --- NOVO: modulação por alinhamento emocional ---
-            frase = self.l2_mass[idx]
-            palavras_frase = set(frase.lower().split())
-            # Consolo para usuário negativo
-            if sentimento == "negativo" and palavras_frase.intersection(SentimentAnalyzer.POS):
-                score += self.drives["empatia"] * 0.3
-            # Mantém tom divertido para usuário positivo
-            elif sentimento == "positivo":
-                score += self.drives["criativo"] * 0.1
-            # Penalidade para frases muito ácidas em momentos de tristeza
-            if sentimento == "negativo" and palavras_frase.intersection(SentimentAnalyzer.NEG):
-                score -= self.drives["acidez"] * 0.2
-
+            # Bônus se o nexo pertencer ao neurônio que o mapa mental indicou
+            if self.l2_neuron_tag[idx] == target_neuron: 
+                score += (forca_nexo * 0.4) 
+            if idx in self.exaustao: score -= 2.0
             return score
 
-        amostra = random.sample(candidatos, min(len(candidatos), 100))
         idx_final = max(amostra, key=pontuar)
-
-        self.cache_reflexo.append((v_entrada, idx_final))
-        if len(self.cache_reflexo) > 5:
-            self.cache_reflexo.pop(0)
         self.exaustao.append(idx_final)
-        if len(self.exaustao) > 15:
-            self.exaustao.pop(0)
+        if len(self.exaustao) > 15: self.exaustao.pop(0)
 
-        frase_final = self.l2_mass[idx_final]
-        # Pós-edição suave quando a Lucy está empática e o usuário negativo
-        if sentimento == "negativo" and self.drives["empatia"] > 0.5:
-            frase_final = frase_final.replace("burra", "confusa")
-            frase_final = frase_final.replace("idiota", "distraída")
+        # Evolução do PIL
+        if forca_nexo > 0.8:
+            self.pil_user = min(100.0, self.pil_user + 0.05)
 
-        return f"\n> {frase_final}"
+        return self.l2_mass[idx_final]
 
-    def monologo_interno(self):
-        chaves = list(self.cognition.mapa_nd.keys())
-        if len(chaves) < 2:
-            return
-        for _ in range(100):
-            t1, t2 = random.sample(chaves, 2)
-            if pure_dot(self.cognition.mapa_nd[t1], self.cognition.mapa_nd[t2]) > 0.6:
-                if t1 not in self.cognition.grafo:
-                    self.cognition.grafo[t1] = {}
-                self.cognition.grafo[t1][t2] = 0.5 + 0.1j
-                self.cognition.pulso[t1] += 1
+    def salvar(self):
+        with open(self.path_user, 'wb') as f:
+            pickle.dump({'name': self.user_name, 'pil': self.pil_user, 'ld': self.ledger}, f)
+        with open(self.path_bin, 'wb') as f:
+            f.write(b'ENTR') # Magic: Entropy Map
+            f.write(struct.pack('<I', len(self.l2_mass)))
+            for i in range(len(self.l2_mass)):
+                txt = self.l2_mass[i].encode('utf-8')
+                tag = self.l2_neuron_tag[i].encode('utf-8')
+                f.write(struct.pack('<H', len(txt)))
+                f.write(txt)
+                f.write(struct.pack('<B', len(tag)))
+                f.write(tag)
+                f.write(struct.pack('<f', self.l2_pil_min[i]))
+                f.write(struct.pack(f'<{self.dims}f', *self.l2_vectors[i]))
+            
+            # Salva as Assinaturas do Mapa Mental
+            f.write(struct.pack('<I', len(self.shard_signatures)))
+            for k, v in self.shard_signatures.items():
+                kb = k.encode('utf-8')
+                f.write(struct.pack('<B', len(kb)))
+                f.write(kb)
+                f.write(struct.pack(f'<{self.dims}f', *v))
+        print("💾 Mapa Mental e Solo selados.")
+
+    def boot(self):
+        if os.path.exists(self.path_user):
+            with open(self.path_user, 'rb') as f:
+                d = pickle.load(f)
+                self.user_name, self.pil_user, self.ledger = d['name'], d['pil'], d.get('ld', set())
+            falar(f"Olá, {self.user_name}. Mapa Mental carregado ({self.pil_user:.2f} PIL).")
+        else:
+            falar("Iniciando Protocolo de Entropia. Qual seu nome?")
+            self.user_name = ouvir()
+            self.pil_user = 0.0
+            self.salvar()
+
+        if os.path.exists(self.path_bin):
+            with open(self.path_bin, 'rb') as f:
+                if f.read(4) == b'ENTR':
+                    num = struct.unpack('<I', f.read(4))[0]
+                    for _ in range(num):
+                        size = struct.unpack('<H', f.read(2))[0]
+                        txt = f.read(size).decode('utf-8')
+                        tsize = struct.unpack('<B', f.read(1))[0]
+                        tag = f.read(tsize).decode('utf-8')
+                        p = struct.unpack('<f', f.read(4))[0]
+                        vec = list(struct.unpack(f'<{self.dims}f', f.read(self.dims*4)))
+                        self.l2_mass.append(txt)
+                        self.l2_neuron_tag.append(tag)
+                        self.l2_pil_min.append(p)
+                        self.l2_vectors.append(vec)
+                    
+                    # Carrega as assinaturas
+                    try:
+                        num_sig = struct.unpack('<I', f.read(4))[0]
+                        for _ in range(num_sig):
+                            klen = struct.unpack('<B', f.read(1))[0]
+                            k = f.read(klen).decode('utf-8')
+                            v = list(struct.unpack(f'<{self.dims}f', f.read(self.dims*4)))
+                            self.shard_signatures[k] = v
+                    except: pass
+            # Reindexa
+            for i, txt in enumerate(self.l2_mass):
+                for t in self.tokenizer.findall(txt.lower()):
+                    self.neuronios[t].append(i)
+                    self.rarity[t] += 1
+        return True
 
 # =================================================================
-# COMANDOS ESPECIAIS (ATUALIZADOS)
-# =================================================================
-def processar_comandos(cmd, auria):
-    if any(p in cmd for p in ["horas", "hora", "que horas"]):
-        return f"São {time.strftime('%H:%M')}"
-    if "bateria" in cmd and TEM_VOZ:
-        droid.batteryStartMonitoring()
-        time.sleep(0.5)
-        nivel = droid.batteryGetLevel().result
-        droid.batteryStopMonitoring()
-        return f"A bateria está em {nivel}%"
-    if any(p in cmd for p in ["piada", "conte uma piada"]):
-        return random.choice([
-            "Por que o Python foi ao psicólogo? Porque tinha muitos loops internos!",
-            "O que o Java disse pro Python? Você não tem classe!",
-            "Quantos programadores para trocar uma lâmpada? Nenhum, é problema de hardware."
-        ])
-    if cmd == "modo neural":
-        return "Modo neural não disponível nesta versão."
-    # Novo comando para consultar estado emocional
-    if any(p in cmd for p in ["como você está", "como voce esta", "como está", "como esta"]):
-        return f"Estou me sentindo {auria.emotion.tom}. E você?"
-    return auria.pensar_e_falar(cmd)
-
-# =================================================================
-# LOOP PRINCIPAL (COM NOVOS COMANDOS)
+# MAIN
 # =================================================================
 if __name__ == "__main__":
     lucy = QuintikusLucy()
-
-    # Tenta carregar binário primeiro; se não existir, fallback para pickle
-    if not lucy.carregar_binario():
-        if lucy.carregar_pickle():
-            falar(f"✅ Lucy v22.0 Online (pickle convertido). Solo: {len(lucy.l2_mass)} nexos.")
-        else:
-            falar("✅ Lucy v22.0 Online. Nenhum conhecimento prévio.")
-    else:
-        falar(f"✅ Lucy v22.0 Online (binário). Solo: {len(lucy.l2_mass)} nexos.")
-
-    falar("Comandos: 'horas', 'bateria', 'piada', 'sonhar', 'train:arquivo.txt', 'salvar', 'sair', 'como você está'")
-
+    lucy.boot()
     while True:
-        try:
-            comando = ouvir()
-        except (EOFError, KeyboardInterrupt):
-            falar("Até logo! Lucy se despede.")
-            break
+        u = ouvir()
+        if not u or u in ['sair', 'exit', 'tchau']: break
         
-        # Garante que comando é uma string e remove espaços
-        if not isinstance(comando, str):
-            continue
-        comando = comando.strip()
-        if not comando:
-            continue
-
-        if any(p in comando for p in ["desligar", "tchau", "sair", "exit"]):
-            falar("Até logo! Lucy se despede.")
-            break
-
-        if comando == 'sonhar':
-            falar("🌙 Monólogo interno...")
-            lucy.monologo_interno()
-            falar("💾 Use 'salvar' para persistir o sonho.")
-            continue
-
-        if comando.startswith("train:"):
-            path = comando.split(":")[1].strip()
+        if u.startswith("train:"):
+            path = u.split(":")[1].split(" ")[0].strip()
+            n_target = "conversa"
+            if "neuron[" in u: n_target = u.split("neuron[")[1].split("]")[0]
+            p_lock = 0.0
+            if "pil[" in u: p_lock = float(u.split("pil[")[1].split("]")[0])
+            
             if os.path.exists(path):
-                falar(f"📂 Treinando com {path}...")
+                falar(f"Extraindo entropia de {path}...")
                 with open(path, 'r', encoding='utf-8', errors='ignore') as f:
-                    lucy.amadurecer_solo(f.read())
-                falar(f"✨ Treinado! Total: {len(lucy.l2_mass)} nexos. Use 'salvar' para gravar.")
-            else:
-                falar(f"❌ Arquivo '{path}' não encontrado.")
+                    lucy.amadurecer_solo(f.read(), pil_min=p_lock, neuronio=n_target)
+                falar("Mapa Mental atualizado.")
             continue
 
-        if comando == 'salvar':
-            lucy.salvar_binario()
-            falar("💾 Cérebro salvo em formato binário (.qbin).")
+        if u == 'salvar':
+            lucy.salvar()
+            falar("Nexo persistido.")
             continue
 
-        if comando == 'salvar_pickle':
-            lucy.salvar_pickle()
-            falar("💾 Cérebro salvo em formato pickle (.qoa).")
-            continue
-
-        resposta = processar_comandos(comando, lucy)
-        falar(resposta)
+        res = lucy.pensar_e_falar(u)
+        falar(res)
