@@ -10,6 +10,7 @@ import platform
 import unicodedata
 from collections import defaultdict, Counter
 
+
 # =================================================================
 # 1. KERNEL TERMODINÂMICO (ABISMUTO)
 # =================================================================
