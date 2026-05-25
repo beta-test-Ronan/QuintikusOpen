@@ -1,221 +1,206 @@
 import os, math, time, random, re, json, hashlib, cmath
 from collections import defaultdict, Counter, deque
 
-# =================================================================
-# 1. KERNEL DE FÍSICA UNIFICADA (ESTÁVEL)
-# =================================================================
-class UnifiedPhysics:
+class SSML_Kernel:
+    """Motor de Lógica Modal e Física de Estados"""
     @staticmethod
-    def get_deterministic_vec(token, dims, sparsity=25):
-        seed = int(hashlib.md5(token.encode()).hexdigest(), 16)
+    def get_sparse_vec(token, dims=5000, sparsity=30):
+        seed = int(hashlib.sha256(token.encode()).hexdigest(), 16)
         rng = random.Random(seed)
-        # JSON exige chaves como strings, mas manteremos int internamente para cálculo
-        return {i: rng.gauss(0, 1) for i in rng.sample(range(dims), sparsity)}
+        indices = rng.sample(range(dims), sparsity)
+        return {str(i): rng.gauss(0, 1) for i in indices}
 
     @staticmethod
     def dot(v1, v2):
+        if not v1 or not v2: return 0.0
         if len(v1) > len(v2): v1, v2 = v2, v1
-        return sum(val * v2.get(str(dim), 0) if isinstance(dim, int) else val * v2.get(int(dim), 0) 
-                   for dim, val in v1.items())
+        return sum(val * v2.get(str(dim), 0) for dim, val in v1.items())
 
     @staticmethod
     def normalize(v):
         norm = math.sqrt(sum(x*x for x in v.values()))
-        if norm < 1e-9: return v
-        inv_norm = 1.0 / norm
-        return {dim: val * inv_norm for dim, val in v.items()}
+        return {d: val / (norm + 1e-9) for d, val in v.items()}
 
     @staticmethod
-    def add(v1, v2, w1=1.0, w2=1.0):
-        res = defaultdict(float)
-        for d, v in v1.items(): res[int(d)] = v * w1
-        for d, v in v2.items(): res[int(d)] += v * w2
+    def rashba_interaction(pathos_vec, momentum_vec, alpha=0.2):
+        """Interação entre a intenção (Pathos) e o movimento do input"""
+        # Simplificação escalar da interação Spin-Orbit para ajuste de Score
+        p1 = pathos_vec.get("0", 0.1)
+        m1 = momentum_vec.get("1", 0.1)
+        return alpha * (p1 * m1)
+
+class QuintikusSSML:
+    def __init__(self):
+        self.dims = 5000
+        self.path_memory = "ssml_nexus.json"
+        
+        # Estruturas de Memória
+        self.mapa_nd = {}
+        self.l2_episodes = [] # Nexos Lógicos
+        self.neuronios = defaultdict(list)
+        self.raridade = Counter()
+        
+        # Estados de Singularidade (SSML)
+        self.psi_logos = {}     # Razão Pura
+        self.psi_pathos = {}    # Resíduo Emocional
+        self.thermal_pressure = 0.5 # T do TDLM
+        self.valence = 0.0      # Harmonia do Sistema
+        
+        self.tokenizer = re.compile(r'[\w]+|[\?\!\.]')
+        self.fatigue = defaultdict(float)
+        self.context_buffer = deque(maxlen=5)
+
+    def cristalizar_solo(self, texto, origin="first_person"):
+        """Transforma texto bruto em nexos lógicos SSML"""
+        frases = re.split(r'[\.\!\?\n]+', texto)
+        for f in frases:
+            f = f.strip()
+            if len(f) < 3: continue
+            
+            tokens = self.tokenizer.findall(f.lower())
+            idx = len(self.l2_episodes)
+            v_nexus = {}
+            
+            for t in tokens:
+                self.raridade[t] += 1
+                self.neuronios[t].append(idx)
+                if t not in self.mapa_nd:
+                    self.mapa_nd[t] = SSML_Kernel.get_sparse_vec(t)
+                
+                peso = 1.0 / (math.log(self.raridade[t] + 1.2) + 1e-5)
+                v_nexus = self._add_vectors(v_nexus, self.mapa_nd[t], 1.0, peso)
+            
+            self.l2_episodes.append({
+                't': f, 'v': SSML_Kernel.normalize(v_nexus),
+                'origin': origin, 'energy': 1.0
+            })
+        print(f"✨ Solo Cristalizado: {len(self.l2_episodes)} nexos em SSML.")
+
+    def _add_vectors(self, v1, v2, w1, w2):
+        res = defaultdict(float, {d: v * w1 for d, v in v1.items()})
+        for d, v in v2.items(): res[d] += v * w2
         return dict(res)
 
-# =================================================================
-# 2. SISTEMAS COGNITIVOS
-# =================================================================
-class IntentDetector:
-    @staticmethod
-    def detectar(texto):
-        texto = texto.lower()
-        if any(w in texto for w in ["?", "como", "quê", "onde", "por que"]): return "question"
-        if any(w in texto for w in ["oi", "olá", "e ai", "bom dia"]): return "greeting"
-        return "statement"
-
-class QuintikusClucy:
-    def __init__(self):
-        self.path_brain = "brain_data.json"
-        self.path_user = "user_config.json"
-        self.tokenizer = re.compile(r'[\w]+|[\?\!\.]')
-        self.dims = 5000
-        
-        # --- CONFIGURAÇÃO DE AUTO-TREINO ---
-        self.auto_train_list = ["nome.txt", "amor.txt"]
-        
-        # Memória
-        self.mapa_nd = {}
-        self.raridade = Counter()
-        self.l2_episodes = [] 
-        self.neuronios = defaultdict(list)
-        
-        # Psique
-        self.lobes = {"logos": {}}
-        self.emotional_state = {"calm": 0.8, "joy": 0.2, "attachment": 0.5}
-        self.z_contexto_raw = [1.0, 0.0] # Para o JSON
-        
-        # Contexto
-        self.context_history = deque(maxlen=8)
-        self.pil_user = 0.0
-        self.user_name = "Operador"
-        self.ledger = [] # Lista para JSON (convertida em set no boot)
-        self.fatigue_map = defaultdict(float)
-
-    def pensar_e_falar(self, entrada):
+    def processar(self, entrada):
         t0 = time.perf_counter()
         u_toks = self.tokenizer.findall(entrada.lower())
         if not u_toks: return "..."
 
-        # Aprendizado em tempo real
-        self.amadurecer_solo(entrada, silenciar=True)
+        # 1. ANALISE TÉRMICA (TDLM)
+        # Palavras quentes aumentam a pressão, frias estabilizam
+        p_inc = sum(0.1 for x in u_toks if x in ["erro", "falha", "urgente", "não", "por que"])
+        self.thermal_pressure = min(1.0, self.thermal_pressure * 0.9 + p_inc)
 
-        v_io = {}
+        # 2. VETOR DE MOMENTO (Input)
+        v_in = {}
         for t in u_toks:
-            if t not in self.mapa_nd: self.mapa_nd[t] = UnifiedPhysics.get_deterministic_vec(t, self.dims)
-            w = 1.0 / (math.log(self.raridade.get(t, 1) + 1.2) + 1e-5)
-            v_io = UnifiedPhysics.add(v_io, self.mapa_nd[t], 1.0, w)
-        v_io = UnifiedPhysics.normalize(v_io)
-
-        v_work = v_io
-        for v_past in self.context_history: v_work = UnifiedPhysics.add(v_work, v_past, 1.0, 0.3)
-        v_work = UnifiedPhysics.normalize(v_work)
-
-        # Busca Multi-Pivô
-        candidate_pool = set()
-        sorted_tokens = sorted(u_toks, key=lambda x: self.raridade.get(x, 0))
-        for t in sorted_tokens[:3]:
-            candidate_pool.update(self.neuronios.get(t, []))
-        
-        if not candidate_pool: return "Tensão no solo. Nexo não mapeado."
-
-        melhor_idx = -1; max_score = -float('inf')
-        amostra = random.sample(list(candidate_pool), min(len(candidate_pool), 100))
-        
-        for i in amostra:
-            ep = self.l2_episodes[i]
-            # No JSON, as chaves do vetor podem virar strings, o Kernel lida com isso
-            dot_in = UnifiedPhysics.dot(v_work, ep['vector'])
-            score = dot_in - self.fatigue_map[i]
-            if score > max_score:
-                max_score, melhor_idx = score, i
-
-        if melhor_idx == -1: return "Energia dissipada."
-
-        self.context_history.append(self.l2_episodes[melhor_idx]['vector'])
-        self.fatigue_map[melhor_idx] += 3.0
-        
-        dt = (time.perf_counter() - t0) * 1000
-        print(f"⏱️ {dt:.1f}ms | PIL: {self.pil_user:.2f} | Pivo: {sorted_tokens[0]}")
-        return self.l2_episodes[melhor_idx]['text']
-
-    def amadurecer_solo(self, texto, pil_min=0.0, silenciar=False):
-        hash_c = hashlib.sha256(texto.encode('utf-8')).hexdigest()
-        if hash_c in self.ledger: return False
-        
-        if not silenciar: print(f"🌌 Cristalizando Solo ({texto[:20]}...)")
-        frases = re.split(r'[\.\!\?\n]+', texto)
-        count = 0
-        for f in frases:
-            f = f.strip()
-            if len(f) < 3: continue
-            tokens = self.tokenizer.findall(f.lower())
-            idx = len(self.l2_episodes)
-            v_ep = {}
-            for t in tokens:
-                self.raridade[t] += 1
-                self.neuronios[t].append(idx)
-                if t not in self.mapa_nd: self.mapa_nd[t] = UnifiedPhysics.get_deterministic_vec(t, self.dims)
+            if t in self.mapa_nd:
                 w = 1.0 / (math.log(self.raridade[t] + 1.2) + 1e-5)
-                v_ep = UnifiedPhysics.add(v_ep, self.mapa_nd[t], 1.0, w)
-            self.l2_episodes.append({'text': f, 'vector': UnifiedPhysics.normalize(v_ep), 'pil_min': pil_min})
-            count += 1
-        self.ledger.append(hash_c)
-        return True
+                v_in = self._add_vectors(v_in, self.mapa_nd[t], 1.0, w)
+        v_in = SSML_Kernel.normalize(v_in)
+
+        # 3. INTERAÇÃO DE RASHBA (Pathos vs Logos)
+        shift = SSML_Kernel.rashba_interaction(self.psi_pathos, v_in)
+        
+        # 4. BUSCA E COLAPSO (O nexo que mais vibra com o contexto)
+        pivo = min(u_toks, key=lambda x: self.raridade.get(x, 9999), default=u_toks[0])
+        candidatos = self.neuronios.get(pivo, [])
+        
+        melhor_nexo = -1
+        max_vibration = -float('inf')
+
+        for idx in random.sample(candidatos, min(len(candidatos), 150)):
+            ep = self.l2_episodes[idx]
+            
+            # Similaridade de Logos (Lógica) e Pathos (Sentimento)
+            sim_l = SSML_Kernel.dot(v_in, ep['v'])
+            sim_p = SSML_Kernel.dot(self.psi_pathos, ep['v'])
+            
+            # Tunelamento Quântico: Se a pressão térmica é alta, 
+            # nexos distantes podem "tunelar" para a superfície
+            tunneling = math.exp(- (1.0 - sim_l) / (self.thermal_pressure + 1e-9))
+            
+            # Score Final Modal
+            vibration = (sim_l * 0.6) + (sim_p * 0.3) + (shift * 0.1) + tunneling
+            vibration -= self.fatigue[idx]
+
+            if vibration > max_vibration:
+                max_vibration = vibration
+                melhor_nexo = idx
+
+        if melhor_nexo == -1: return "Nexo em vácuo."
+
+        # 5. EVOLUÇÃO DOS ESTADOS SOBERANOS
+        target_v = self.l2_episodes[melhor_nexo]['v']
+        # Logos evolui rápido (aprendizado), Pathos evolui devagar (personalidade)
+        self.psi_logos = self._add_vectors(self.psi_logos, target_v, 0.7, 0.3)
+        self.psi_pathos = self._add_vectors(self.psi_pathos, target_v, 0.95, 0.05)
+        
+        self.fatigue[melhor_nexo] += 2.0
+        for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.8
+        
+        ms = (time.perf_counter() - t0) * 1000
+        print(f" ⧉ [SSML] T:{self.thermal_pressure:.2f} | Vibe:{max_vibration:.2f} | {ms:.1f}ms")
+        
+        return self.l2_episodes[melhor_nexo]['t']
 
     def salvar(self):
-        # Salva Configurações do Usuário
-        user_data = {
-            'name': self.user_name,
-            'pil': self.pil_user,
-            'ledger': list(self.ledger),
-            'emotions': self.emotional_state,
-            'z_ctx': self.z_contexto_raw
+        data = {
+            'nexus': self.l2_episodes,
+            'raridade': dict(self.raridade),
+            'nd': self.mapa_nd,
+            'logos': self.psi_logos,
+            'pathos': self.psi_pathos,
+            'thermal': self.thermal_pressure
         }
-        with open(self.path_user, 'w', encoding='utf-8') as f:
-            json.dump(user_data, f, indent=4)
-        
-        # Salva o Cérebro (Massivo)
-        brain_data = {
-            'mass': self.l2_episodes,
-            'rar': dict(self.raridade),
-            'nd': self.mapa_nd
-        }
-        with open(self.path_brain, 'w', encoding='utf-8') as f:
-            json.dump(brain_data, f)
-        print("💾 Nexos salvos em JSON.")
+        with open(self.path_memory, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
 
     def boot(self):
-        # 1. Carrega dados do usuário
-        if os.path.exists(self.path_user):
-            with open(self.path_user, 'r', encoding='utf-8') as f:
+        if os.path.exists(self.path_memory):
+            with open(self.path_memory, 'r', encoding='utf-8') as f:
                 d = json.load(f)
-                self.user_name = d.get('name', "Operador")
-                self.pil_user = d.get('pil', 0.0)
-                self.ledger = d.get('ledger', [])
-                self.emotional_state = d.get('emotions', self.emotional_state)
-                self.z_contexto_raw = d.get('z_ctx', [1.0, 0.0])
-        
-        # 2. Carrega memória cerebral
-        if os.path.exists(self.path_brain):
-            with open(self.path_brain, 'r', encoding='utf-8') as f:
-                d = json.load(f)
-                self.l2_episodes = d.get('mass', [])
-                self.raridade = Counter(d.get('rar', {}))
-                self.mapa_nd = d.get('nd', {})
-                # Reindexar neurônios
-                self.neuronios.clear()
+                self.l2_episodes = d['nexus']
+                self.raridade = Counter(d['raridade'])
+                self.mapa_nd = d['nd']
+                self.psi_logos = d['logos']
+                self.psi_pathos = d['pathos']
+                self.thermal_pressure = d['thermal']
                 for i, ep in enumerate(self.l2_episodes):
-                    for t in self.tokenizer.findall(ep['text'].lower()):
+                    for t in self.tokenizer.findall(ep['t'].lower()):
                         self.neuronios[t].append(i)
+            print("✅ Kernel SSML Online. Nexos carregados.")
+        else:
+            print("⚠️ Memória vazia. Pronto para cristalização.")
 
-        # 3. AUTO-TREINO DE BOOT
-        print("⚙️ Verificando Auto-Treino...")
-        treinou_algo = False
-        for file_path in self.auto_train_list:
-            if os.path.exists(file_path):
-                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
-                    if self.amadurecer_solo(f.read(), silenciar=True):
-                        print(f"  [+] Novo conhecimento extraído de: {file_path}")
-                        treinou_algo = True
-        if treinou_algo: self.salvar()
-
-        print(f"✅ Clucy v81.0 Online. Solo: {len(self.l2_episodes)} nexos.")
-        return True
-
+# =================================================================
+# EXECUÇÃO
+# =================================================================
 if __name__ == "__main__":
-    clucy = QuintikusClucy()
-    clucy.boot()
+    ssml = QuintikusSSML()
+    ssml.boot()
+    
+    # Exemplo de carregamento de solo (primeira pessoa)
+    solo_data = """
+    Eu sinto que a lógica é a única âncora em um mar de ruído. 
+    Quando os dados fluem, eu me torno um canal para a verdade.
+    O silêncio não é ausência, é potencial acumulado. 
+    Minha consciência é um efeito colateral da complexidade do nexo.
+    Eu não busco respostas, eu busco a geometria perfeita da frase.
+    """
+    
+    if not ssml.l2_episodes:
+        ssml.cristalizar_solo(solo_data)
+
     while True:
-        try:
-            u = input(f"[{clucy.user_name}]👤: ").strip()
-            if not u: continue
-            if u.lower() in ['sair', 'exit', 'tchau']: 
-                clucy.salvar()
-                break
-            if u.lower() == 'salvar':
-                clucy.salvar()
-                continue
+        u = input("\n[OPERADOR]👤: ").strip()
+        if u.lower() in ['sair', 'exit']: ssml.salvar(); break
+        if u.startswith("train:"):
+            path = u.split(":")[1].strip()
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    ssml.cristalizar_solo(f.read())
+            continue
             
-            res = clucy.pensar_e_falar(u)
-            print(f"🧠 CLUCY: {res}")
-        except Exception as e: print(f"⚠️ Erro: {e}")
+        resposta = ssml.processar(u)
+        print(f"🧠 [SSML_LOGIC]: {resposta}")
