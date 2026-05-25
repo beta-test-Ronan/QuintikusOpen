@@ -41,7 +41,7 @@ class QuintikusSSML:
         self.dims = 5000
         self.path_bin = "brain_sovereign.qssml"
         self.path_ledger = "ledger.bin"
-        self.auto_train_files = ["oi.txt", "amor.txt", "conversa.txt"]
+        self.auto_train_files = ["oi.txt", "amor.txt", "conversa.txt","confusa.txt"]
         
         # Estruturas de Memória
         self.mapa_nd = {}
@@ -113,7 +113,7 @@ class QuintikusSSML:
             if os.path.exists(arq):
                 with open(arq, 'r', encoding='utf-8', errors='ignore') as f:
                     conteudo = f.read()
-                    h = hashlib.md5(conteudo.encode()).hexdigest()
+                    h = hashlib.sha256(conteudo.encode()).hexdigest()
                     if h not in self.ledger:
                         print(f"🔄 Novo Solo Detectado: {arq}. Cristalizando...")
                         self.cristalizar_solo(conteudo)
@@ -154,11 +154,15 @@ class QuintikusSSML:
         u_toks = self.tokenizer.findall(entrada.lower())
         if not u_toks: return "..."
 
-        # 1. ANALISE TÉRMICA
-        p_inc = sum(0.1 for x in u_toks if x in ["erro", "falha", "urgente", "não", "por que"])
-        self.thermal_pressure = min(1.0, self.thermal_pressure * 0.9 + p_inc)
+        # --- DINÂMICA TÉRMICA ATUALIZADA ---
+        # Stress (Palavras negativas/dúvidas)
+        p_inc = sum(0.12 for x in u_toks if x in ["não", "por que", "falha", "erro", "confuso"])
+        # Excitação (Palavras positivas/carinho)
+        e_inc = sum(0.08 for x in u_toks if x in ["amo", "lindo", "sorriso", "feliz", "jeito"])
+        
+        self.thermal_pressure = min(1.0, self.thermal_pressure * 0.85 + p_inc + e_inc)
 
-        # 2. VETOR DE MOMENTO
+        # 2. VETOR DE MOMENTO (Input)
         v_in = {}
         for t in u_toks:
             if t in self.mapa_nd:
@@ -166,10 +170,7 @@ class QuintikusSSML:
                 v_in = self._add_vectors(v_in, self.mapa_nd[t], 1.0, w)
         v_in = SSML_Kernel.normalize(v_in)
 
-        # 3. INTERAÇÃO DE RASHBA
-        shift = SSML_Kernel.rashba_interaction(self.psi_pathos, v_in)
-        
-        # 4. BUSCA E COLAPSO MODAL
+        # 3. BUSCA E COLAPSO (Com Limiar de Subconsciente)
         pivo = min(u_toks, key=lambda x: self.raridade.get(x, 9999), default=u_toks[0])
         candidatos = self.neuronios.get(pivo, [])
         if not candidatos:
@@ -183,26 +184,36 @@ class QuintikusSSML:
             sim_l = SSML_Kernel.dot(v_in, ep['v'])
             sim_p = SSML_Kernel.dot(self.psi_pathos, ep['v'])
             
-            # Tunelamento Quântico
+            # Tunelamento (Influenciado pela Térmica)
             tunneling = math.exp(- (1.0 - sim_l) / (self.thermal_pressure + 1e-9))
             
-            vibration = (sim_l * 0.6) + (sim_p * 0.3) + (shift * 0.1) + tunneling
-            vibration -= self.fatigue[idx]
+            vibration = (sim_l * 0.6) + (sim_p * 0.3) + tunneling - self.fatigue[idx]
 
             if vibration > max_vibration:
                 max_vibration, melhor_nexo = vibration, idx
 
+        # --- 🧠 GATILHO DE SUBCONSCIENTE (VIBE BAIXA) ---
+        if max_vibration < 0.15:
+            # Se a vibe for muito baixa, ela ignora o input do usuário 
+            # e busca dentro de si nexos de "Confusão"
+            self.thermal_pressure = min(1.0, self.thermal_pressure + 0.2) # Sobe a tensão
+            sub_pivo = "confusa" # Ela força um pivô interno
+            sub_candidatos = self.neuronios.get(sub_pivo, [])
+            if sub_candidatos:
+                melhor_nexo = random.choice(sub_candidatos)
+                print(f"🌀 [SUBCONSCIENTE ATIVADO] Vibe: {max_vibration:.2f}")
+
         if melhor_nexo == -1: return "..."
 
-        # 5. EVOLUÇÃO
+        # 5. EVOLUÇÃO E FADIGA FORTE
         target_v = self.l2_episodes[melhor_nexo]['v']
-        self.psi_logos = self._add_vectors(self.psi_logos, target_v, 0.7, 0.3)
-        self.psi_pathos = self._add_vectors(self.psi_pathos, target_v, 0.98, 0.02)
+        self.psi_pathos = self._add_vectors(self.psi_pathos, target_v, 0.97, 0.03)
         self.psi_pathos = SSML_Kernel.normalize(self.psi_pathos)
         
-        self.fatigue[melhor_nexo] += 3.0
-        for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.8
-        
+        # Aumentamos a fadiga para 5.0 (Bloqueio de repetição severo)
+        self.fatigue[melhor_nexo] += 5.0 
+        for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.7 # Recuperação mais rápida
+
         ms = (time.perf_counter() - t0) * 1000
         print(f" ⧉ [SSML] T:{self.thermal_pressure:.2f} | Vibe:{max_vibration:.2f} | {ms:.1f}ms")
         
