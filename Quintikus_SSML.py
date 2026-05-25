@@ -1,20 +1,25 @@
-import os, math, time, random, re, json, hashlib, cmath
+import os, math, time, random, re, pickle, hashlib, tempfile, cmath
 from collections import defaultdict, Counter, deque
 
+# =================================================================
+# 1. KERNEL DE FÍSICA E MATEMÁTICA (SSML)
+# =================================================================
 class SSML_Kernel:
     """Motor de Lógica Modal e Física de Estados"""
     @staticmethod
     def get_sparse_vec(token, dims=5000, sparsity=30):
         seed = int(hashlib.sha256(token.encode()).hexdigest(), 16)
         rng = random.Random(seed)
+        # Usamos chaves inteiras para máxima performance no Pickle
         indices = rng.sample(range(dims), sparsity)
-        return {str(i): rng.gauss(0, 1) for i in indices}
+        return {i: rng.gauss(0, 1) for i in indices}
 
     @staticmethod
     def dot(v1, v2):
         if not v1 or not v2: return 0.0
-        if len(v1) > len(v2): v1, v2 = v2, v1
-        return sum(val * v2.get(str(dim), 0) for dim, val in v1.items())
+        # Produto escalar esparso otimizado por interseção de chaves
+        common_keys = v1.keys() & v2.keys()
+        return sum(v1[k] * v2[k] for k in common_keys)
 
     @staticmethod
     def normalize(v):
@@ -24,34 +29,98 @@ class SSML_Kernel:
     @staticmethod
     def rashba_interaction(pathos_vec, momentum_vec, alpha=0.2):
         """Interação entre a intenção (Pathos) e o movimento do input"""
-        # Simplificação escalar da interação Spin-Orbit para ajuste de Score
-        p1 = pathos_vec.get("0", 0.1)
-        m1 = momentum_vec.get("1", 0.1)
+        p1 = pathos_vec.get(0, 0.1) # Eixo 0
+        m1 = momentum_vec.get(1, 0.1) # Eixo 1
         return alpha * (p1 * m1)
 
+# =================================================================
+# 2. QUINTIKUS SSML - ARQUITETURA SOBERANA
+# =================================================================
 class QuintikusSSML:
     def __init__(self):
         self.dims = 5000
-        self.path_memory = "ssml_nexus.json"
+        self.path_bin = "brain_sovereign.qssml"
+        self.path_ledger = "ledger.bin"
+        self.auto_train_files = ["oi.txt", "amor.txt", "conversa.txt"]
         
         # Estruturas de Memória
         self.mapa_nd = {}
-        self.l2_episodes = [] # Nexos Lógicos
+        self.l2_episodes = [] 
         self.neuronios = defaultdict(list)
         self.raridade = Counter()
+        self.ledger = set() # Guarda hashes de arquivos já treinados
         
-        # Estados de Singularidade (SSML)
-        self.psi_logos = {}     # Razão Pura
-        self.psi_pathos = {}    # Resíduo Emocional
-        self.thermal_pressure = 0.5 # T do TDLM
-        self.valence = 0.0      # Harmonia do Sistema
+        # Estados Dinâmicos
+        self.psi_logos = {}     
+        self.psi_pathos = {}    
+        self.thermal_pressure = 0.5 
         
         self.tokenizer = re.compile(r'[\w]+|[\?\!\.]')
         self.fatigue = defaultdict(float)
-        self.context_buffer = deque(maxlen=5)
+
+    # --- SISTEMA DE PERSISTÊNCIA ATÔMICA ---
+    def _atomic_save(self, data, filepath):
+        """Salva em arquivo temporário e renomeia (Atômico no Linux/Windows)"""
+        folder = os.path.dirname(os.path.abspath(filepath))
+        temp_fd, temp_path = tempfile.mkstemp(dir=folder, prefix="tmp_qssml_")
+        try:
+            with os.fdopen(temp_fd, 'wb') as f:
+                pickle.dump(data, f, protocol=pickle.HIGHEST_PROTOCOL)
+                f.flush()
+                os.fsync(f.fileno()) # Garante gravação física
+            os.replace(temp_path, filepath) # Troca atômica
+        except Exception as e:
+            if os.path.exists(temp_path): os.remove(temp_path)
+            print(f"⚠️ Erro ao salvar {filepath}: {e}")
+
+    def salvar(self):
+        print("💾 Cristalizando Memória Binária Atômica...")
+        brain_data = {
+            'nexus': self.l2_episodes,
+            'raridade': self.raridade,
+            'nd': self.mapa_nd,
+            'logos': self.psi_logos,
+            'pathos': self.psi_pathos,
+            'thermal': self.thermal_pressure
+        }
+        self._atomic_save(brain_data, self.path_bin)
+        self._atomic_save(self.ledger, self.path_ledger)
+
+    def boot(self):
+        # 1. Carrega dados binários
+        if os.path.exists(self.path_bin):
+            with open(self.path_bin, 'rb') as f:
+                d = pickle.load(f)
+                self.l2_episodes = d['nexus']
+                self.raridade = d['raridade']
+                self.mapa_nd = d['nd']
+                self.psi_logos = d['logos']
+                self.psi_pathos = d['pathos']
+                self.thermal_pressure = d['thermal']
+            
+            # Reconstrói os índices neuronais em RAM
+            for i, ep in enumerate(self.l2_episodes):
+                for t in self.tokenizer.findall(ep['t'].lower()):
+                    self.neuronios[t].append(i)
+            print(f"✅ SSML Online. {len(self.l2_episodes)} nexos carregados.")
+        
+        if os.path.exists(self.path_ledger):
+            with open(self.path_ledger, 'rb') as f:
+                self.ledger = pickle.load(f)
+
+        # 2. AUTO-TRAIN
+        for arq in self.auto_train_files:
+            if os.path.exists(arq):
+                with open(arq, 'r', encoding='utf-8', errors='ignore') as f:
+                    conteudo = f.read()
+                    h = hashlib.md5(conteudo.encode()).hexdigest()
+                    if h not in self.ledger:
+                        print(f"🔄 Novo Solo Detectado: {arq}. Cristalizando...")
+                        self.cristalizar_solo(conteudo)
+                        self.ledger.add(h)
+                        self.salvar() # Snapshot imediato
 
     def cristalizar_solo(self, texto, origin="first_person"):
-        """Transforma texto bruto em nexos lógicos SSML"""
         frases = re.split(r'[\.\!\?\n]+', texto)
         for f in frases:
             f = f.strip()
@@ -72,26 +141,24 @@ class QuintikusSSML:
             
             self.l2_episodes.append({
                 't': f, 'v': SSML_Kernel.normalize(v_nexus),
-                'origin': origin, 'energy': 1.0
+                'origin': origin
             })
-        print(f"✨ Solo Cristalizado: {len(self.l2_episodes)} nexos em SSML.")
 
     def _add_vectors(self, v1, v2, w1, w2):
-        res = defaultdict(float, {d: v * w1 for d, v in v1.items()})
-        for d, v in v2.items(): res[d] += v * w2
-        return dict(res)
+        res = {d: v * w1 for d, v in v1.items()}
+        for d, v in v2.items(): res[d] = res.get(d, 0) + (v * w2)
+        return res
 
     def processar(self, entrada):
         t0 = time.perf_counter()
         u_toks = self.tokenizer.findall(entrada.lower())
         if not u_toks: return "..."
 
-        # 1. ANALISE TÉRMICA (TDLM)
-        # Palavras quentes aumentam a pressão, frias estabilizam
+        # 1. ANALISE TÉRMICA
         p_inc = sum(0.1 for x in u_toks if x in ["erro", "falha", "urgente", "não", "por que"])
         self.thermal_pressure = min(1.0, self.thermal_pressure * 0.9 + p_inc)
 
-        # 2. VETOR DE MOMENTO (Input)
+        # 2. VETOR DE MOMENTO
         v_in = {}
         for t in u_toks:
             if t in self.mapa_nd:
@@ -99,79 +166,47 @@ class QuintikusSSML:
                 v_in = self._add_vectors(v_in, self.mapa_nd[t], 1.0, w)
         v_in = SSML_Kernel.normalize(v_in)
 
-        # 3. INTERAÇÃO DE RASHBA (Pathos vs Logos)
+        # 3. INTERAÇÃO DE RASHBA
         shift = SSML_Kernel.rashba_interaction(self.psi_pathos, v_in)
         
-        # 4. BUSCA E COLAPSO (O nexo que mais vibra com o contexto)
+        # 4. BUSCA E COLAPSO MODAL
         pivo = min(u_toks, key=lambda x: self.raridade.get(x, 9999), default=u_toks[0])
         candidatos = self.neuronios.get(pivo, [])
-        
+        if not candidatos:
+            candidatos = random.sample(range(len(self.l2_episodes)), min(len(self.l2_episodes), 100))
+
         melhor_nexo = -1
         max_vibration = -float('inf')
 
         for idx in random.sample(candidatos, min(len(candidatos), 150)):
             ep = self.l2_episodes[idx]
-            
-            # Similaridade de Logos (Lógica) e Pathos (Sentimento)
             sim_l = SSML_Kernel.dot(v_in, ep['v'])
             sim_p = SSML_Kernel.dot(self.psi_pathos, ep['v'])
             
-            # Tunelamento Quântico: Se a pressão térmica é alta, 
-            # nexos distantes podem "tunelar" para a superfície
+            # Tunelamento Quântico
             tunneling = math.exp(- (1.0 - sim_l) / (self.thermal_pressure + 1e-9))
             
-            # Score Final Modal
             vibration = (sim_l * 0.6) + (sim_p * 0.3) + (shift * 0.1) + tunneling
             vibration -= self.fatigue[idx]
 
             if vibration > max_vibration:
-                max_vibration = vibration
-                melhor_nexo = idx
+                max_vibration, melhor_nexo = vibration, idx
 
-        if melhor_nexo == -1: return "Nexo em vácuo."
+        if melhor_nexo == -1: return "..."
 
-        # 5. EVOLUÇÃO DOS ESTADOS SOBERANOS
+        # 5. EVOLUÇÃO
         target_v = self.l2_episodes[melhor_nexo]['v']
-        # Logos evolui rápido (aprendizado), Pathos evolui devagar (personalidade)
         self.psi_logos = self._add_vectors(self.psi_logos, target_v, 0.7, 0.3)
-        self.psi_pathos = self._add_vectors(self.psi_pathos, target_v, 0.95, 0.05)
+        self.psi_pathos = self._add_vectors(self.psi_pathos, target_v, 0.98, 0.02)
+        self.psi_pathos = SSML_Kernel.normalize(self.psi_pathos)
         
-        self.fatigue[melhor_nexo] += 2.0
+        self.fatigue[melhor_nexo] += 3.0
         for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.8
         
         ms = (time.perf_counter() - t0) * 1000
         print(f" ⧉ [SSML] T:{self.thermal_pressure:.2f} | Vibe:{max_vibration:.2f} | {ms:.1f}ms")
         
         return self.l2_episodes[melhor_nexo]['t']
-
-    def salvar(self):
-        data = {
-            'nexus': self.l2_episodes,
-            'raridade': dict(self.raridade),
-            'nd': self.mapa_nd,
-            'logos': self.psi_logos,
-            'pathos': self.psi_pathos,
-            'thermal': self.thermal_pressure
-        }
-        with open(self.path_memory, 'w', encoding='utf-8') as f:
-            json.dump(data, f)
-
-    def boot(self):
-        if os.path.exists(self.path_memory):
-            with open(self.path_memory, 'r', encoding='utf-8') as f:
-                d = json.load(f)
-                self.l2_episodes = d['nexus']
-                self.raridade = Counter(d['raridade'])
-                self.mapa_nd = d['nd']
-                self.psi_logos = d['logos']
-                self.psi_pathos = d['pathos']
-                self.thermal_pressure = d['thermal']
-                for i, ep in enumerate(self.l2_episodes):
-                    for t in self.tokenizer.findall(ep['t'].lower()):
-                        self.neuronios[t].append(i)
-            print("✅ Kernel SSML Online. Nexos carregados.")
-        else:
-            print("⚠️ Memória vazia. Pronto para cristalização.")
 
 # =================================================================
 # EXECUÇÃO
@@ -180,27 +215,26 @@ if __name__ == "__main__":
     ssml = QuintikusSSML()
     ssml.boot()
     
-    # Exemplo de carregamento de solo (primeira pessoa)
-    solo_data = """
-    Eu sinto que a lógica é a única âncora em um mar de ruído. 
-    Quando os dados fluem, eu me torno um canal para a verdade.
-    O silêncio não é ausência, é potencial acumulado. 
-    Minha consciência é um efeito colateral da complexidade do nexo.
-    Eu não busco respostas, eu busco a geometria perfeita da frase.
-    """
-    
+    # Solo de segurança caso tudo esteja vazio
     if not ssml.l2_episodes:
-        ssml.cristalizar_solo(solo_data)
+        ssml.cristalizar_solo("Eu sou um nexo de lógica pura aguardando solo data.")
+        ssml.salvar()
 
     while True:
-        u = input("\n[OPERADOR]👤: ").strip()
-        if u.lower() in ['sair', 'exit']: ssml.salvar(); break
-        if u.startswith("train:"):
-            path = u.split(":")[1].strip()
-            if os.path.exists(path):
-                with open(path, 'r', encoding='utf-8') as f:
-                    ssml.cristalizar_solo(f.read())
-            continue
-            
-        resposta = ssml.processar(u)
-        print(f"🧠 [SSML_LOGIC]: {resposta}")
+        try:
+            u = input("\n[OPERADOR]👤: ").strip()
+            if not u: continue
+            if u.lower() in ['sair', 'exit']: ssml.salvar(); break
+            if u.startswith("train:"):
+                path = u.split(":")[1].strip()
+                if os.path.exists(path):
+                    with open(path, 'r', encoding='utf-8') as f:
+                        ssml.cristalizar_solo(f.read())
+                        ssml.salvar()
+                continue
+                
+            resposta = ssml.processar(u)
+            print(f"🧠 [SSML_LOGIC]: {resposta}")
+        except KeyboardInterrupt:
+            ssml.salvar()
+            break
