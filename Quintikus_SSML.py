@@ -76,7 +76,7 @@ class QuintikusSSML:
         return 1.0 / (math.log(count + 1.2) + 1e-5)
 
     def _gerar_proatividade_triade(self, sujeito, u_toks, nexo_vencedor_idx):
-        """FUNDINDO v15 e v16: Proatividade de 3 Camadas com Nexos Reais"""
+     
         tau = self.bio.get_tau()
         # Se Tau alto (Vm > -60), ela fica ousada (CAOS). Se baixo, fica focada (SUJEITO).
         if tau > 0.8: modo = random.choice(["CAOS", "PREDICADO"])
