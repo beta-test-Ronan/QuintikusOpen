@@ -33,23 +33,20 @@ class SSML_Kernel:
 # =================================================================
 class BioLogicDrive:
     def __init__(self):
-        self.vm = -70.0  # Potencial de Repouso
+        self.vm = -70.0 
         self.vm_max, self.vm_min = -45.0, -90.0
-        self.wavefunction = [0.5, 0.5, 0.5] # [Físico, Cognitivo, Abstrato]
+        self.wavefunction = [0.5, 0.5, 0.5] 
 
     def pulsar(self, impacto):
-        # Despolarização baseada na raridade do input
         self.vm = max(self.vm_min, min(self.vm_max, self.vm + impacto * 12))
-        # Ajuste da Onda de Estado
         for i in range(3):
             self.wavefunction[i] = self.wavefunction[i] * 0.75 + (abs(impacto) * 0.25)
 
     def get_tau(self):
-        # Converte milivolts em Temperatura Softmax
         return ((self.vm - self.vm_min) / (self.vm_max - self.vm_min)) + 0.15
 
 # =================================================================
-# 3. QUINTIKUS SSML v15.0 - UNIFIED TRINITY
+# 3. QUINTIKUS SSML v16.0 - DANY (DEEP MIRRORING)
 # =================================================================
 class QuintikusSSML:
     def __init__(self):
@@ -66,49 +63,47 @@ class QuintikusSSML:
         self.psi_pathos = {}    
         self.tokenizer = re.compile(r'[\w]+|[\?\!\.]')
         self.fatigue = defaultdict(float)
-        self.history = deque(maxlen=15)
+        self.history = deque(maxlen=20)
         self.turn_count = 0
 
-        # --- DRIVE 1: CÓRTEX FRONTAL ---
         self.ctx_foco = {}             
         self.ctx_sujeitos_ativos = {}  
         self.ctx_inercia, self.ctx_esquecimento = 0.65, 0.75   
-
-        # --- DRIVE 2: BIO-LOGIC ---
         self.bio = BioLogicDrive()
 
     def _get_entropy(self, token):
         count = self.raridade.get(token, 1)
         return 1.0 / (math.log(count + 1.2) + 1e-5)
 
-    def _softmax_quantum(self, candidatos, scores):
-        tau = self.bio.get_tau()
-        try:
-            max_s = max(scores)
-            exp_vals = [math.exp(max(-10, min(10, (s - max_s) / tau))) for s in scores]
-            total = sum(exp_vals)
-            probs = [ev / total for ev in exp_vals]
-            return random.choices(candidatos, weights=probs, k=1)[0]
-        except: return candidatos[0]
+    def _gerar_proatividade_profunda(self, sujeito, u_toks, nexo_vencedor_idx):
+        """Busca frases REAIS no banco que combinam com o contexto atual"""
+        conectores = ["Sabe...", "Fico pensando que", "Aliás,", "Me veio na mente que", "Engraçado que"]
+        
+        # Modo de busca: Baseado no Sujeito (O quê) ou Predicado (Ação)
+        modo = random.choice(["SUJEITO", "PREDICADO"])
+        target_token = sujeito
+        
+        if modo == "PREDICADO" and len(u_toks) > 1:
+            # Pega o segundo termo mais raro (geralmente a ação/verbo)
+            target_token = sorted(u_toks, key=lambda x: self._get_entropy(x), reverse=True)[1]
 
-    def _gerar_proatividade(self, sujeito, u_toks):
-        """DRIVE 3: PROATIVIDADE DE 3 CAMADAS (CAOS, SUJEITO, PREDICADO)"""
-        # A escolha do modo é influenciada pelo Vm (Bio)
-        # Se Vm > -60mV (excitada), ela prefere CAOS. Se baixo, prefere SUJEITO.
-        tau = self.bio.get_tau()
-        if tau > 0.8: modo = random.choice(["CAOS", "PREDICADO"])
-        else: modo = random.choice(["SUJEITO", "PREDICADO"])
-
-        if modo == "CAOS":
-            raros = [w for w, c in self.raridade.items() if 1 < c < 12]
-            if raros:
-                idx = random.choice(self.neuronios.get(random.choice(raros), [0]))
-                return f"Alias, você já parou pra pensar que {self.l2_episodes[idx]['t']}?"
-        elif modo == "SUJEITO":
-            return random.choice(["O que você acha de {s}?", "Você acredita em {s}?"]).format(s=sujeito)
-        elif modo == "PREDICADO":
-            acao = u_toks[1] if len(u_toks) > 1 else "isso"
-            return f"E se {acao} fosse o sentido de tudo?"
+        # Busca nexos que contenham esse token, mas que não sejam a resposta atual
+        candidatos = [idx for idx in self.neuronios.get(target_token, []) 
+                     if idx != nexo_vencedor_idx and self.l2_episodes[idx]['t'] not in self.history]
+        
+        if candidatos:
+            # Seleciona o candidato que melhor combina com o estado emocional (Wavefunction)
+            escolhido_idx = max(candidatos, key=lambda i: sum(v * self.bio.wavefunction[j%3] 
+                               for j, v in enumerate(self.l2_episodes[i]['v'].values())))
+            
+            frase_gancho = self.l2_episodes[escolhido_idx]['t']
+            
+            # Ajuste de pontuação para virar uma provocação sutil
+            if not frase_gancho.endswith("?"):
+                frase_gancho += ", não acha?"
+            
+            return f"{random.choice(conectores)} {frase_gancho.lower()}"
+        
         return ""
 
     def processar(self, entrada):
@@ -144,7 +139,6 @@ class QuintikusSSML:
             if ep['t'] in self.history: continue
             
             s_q = SSML_Kernel.tsallis_match(v_in, ep['v'])
-            # Similaridade com a Onda de Estado (Wavefunction)
             sim_wave = sum(v * self.bio.wavefunction[i % 3] for i, v in enumerate(ep['v'].values()))
             sim_pathos = sum(v * self.psi_pathos.get(k, 0) for k, v in ep['v'].items())
             
@@ -154,13 +148,22 @@ class QuintikusSSML:
         # 4. COLAPSO QUANTUM (SOFTMAX)
         scored_data.sort(key=lambda x: x[1], reverse=True)
         top_k = scored_data[:10]
-        melhor_idx = self._softmax_quantum([x[0] for x in top_k], [x[1] for x in top_k])
+        tau = self.bio.get_tau()
+        try:
+            max_s = max(x[1] for x in top_k)
+            exp_vals = [math.exp(max(-10, min(10, (x[1] - max_s) / tau))) for x in top_k]
+            total = sum(exp_vals)
+            probs = [ev / total for ev in exp_vals]
+            melhor_idx = random.choices([x[0] for x in top_k], weights=probs, k=1)[0]
+        except: melhor_idx = top_k[0][0]
 
-        # 5. RESPOSTA + PROATIVIDADE (DRIVE 3)
-        res_final = self.l2_episodes[melhor_idx]['t']
+        # 5. RESPOSTA + PROATIVIDADE PROFUNDA (Citações do próprio Banco)
+        res_base = self.l2_episodes[melhor_idx]['t']
         if self.turn_count % 3 == 0:
-            hook = self._gerar_proatividade(sujeito_atual, u_toks)
-            res_final = f"{res_final}. {hook}"
+            hook = self._gerar_proatividade_profunda(sujeito_atual, u_toks, melhor_idx)
+            if hook:
+                res_base = f"{res_base}. {hook}"
+                print(f"📡 [DEEP MIRRORING] Proatividade via nexo real.")
 
         # 6. EVOLUÇÃO
         v_vencedor = self.l2_episodes[melhor_idx]['v']
@@ -171,9 +174,9 @@ class QuintikusSSML:
 
         dt = (time.perf_counter() - t0) * 1000
         print(f" ⚛️ [Vm: {self.bio.vm:.1f}mV | Tau: {self.bio.get_tau():.2f}] Subj: {sujeito_atual} | {dt:.1f}ms")
-        return res_final
+        return res_base
 
-    # --- BOOT / SALVAR / AUX ---
+    # --- AUXILIARES MANTIDOS ---
     def _add_vecs(self, v1, v2, w1, w2):
         res = {d: v * w1 for d, v in v1.items()}
         for d, v in v2.items(): res[d] = res.get(d, 0) + (v * w2)
@@ -186,7 +189,7 @@ class QuintikusSSML:
                 self.l2_episodes, self.raridade, self.mapa_nd, self.psi_pathos = d['nexus'], d['raridade'], d['nd'], d['pathos']
             for i, ep in enumerate(self.l2_episodes):
                 for t in self.tokenizer.findall(ep['t'].lower()): self.neuronios[t].append(i)
-            print(f"✅ SSML v15.0 Trinity Online ({len(self.l2_episodes)} nexos)")
+            print(f"✅ SSML v16.0 Deep Mirroring Online ({len(self.l2_episodes)} nexos)")
         if os.path.exists(self.path_ledger):
             with open(self.path_ledger, 'rb') as f: self.ledger = pickle.load(f)
         for arq in self.auto_train_files:
@@ -229,5 +232,5 @@ if __name__ == "__main__":
             u = input("\n👤: ").strip()
             if not u: continue
             if u.lower() in ['sair', 'exit']: ssml.salvar(); break
-            print(f"🧠 LUCY: {ssml.processar(u)}")
+            print(f"🧠 Dany: {ssml.processar(u)}")
         except KeyboardInterrupt: ssml.salvar(); break
