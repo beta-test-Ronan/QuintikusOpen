@@ -46,7 +46,7 @@ class BioLogicDrive:
         return ((self.vm - self.vm_min) / (self.vm_max - self.vm_min)) + 0.15
 
 # =================================================================
-# 3. QUINTIKUS SSML v16.0 - DANY (DEEP MIRRORING)
+# 3. QUINTIKUS SSML v16.5 - (HYPER-LINKER)
 # =================================================================
 class QuintikusSSML:
     def __init__(self):
@@ -75,36 +75,43 @@ class QuintikusSSML:
         count = self.raridade.get(token, 1)
         return 1.0 / (math.log(count + 1.2) + 1e-5)
 
-    def _gerar_proatividade_profunda(self, sujeito, u_toks, nexo_vencedor_idx):
-        """Busca frases REAIS no banco que combinam com o contexto atual"""
-        conectores = ["Sabe...", "Fico pensando que", "Aliás,", "Me veio na mente que", "Engraçado que"]
+    def _gerar_proatividade_triade(self, sujeito, u_toks, nexo_vencedor_idx):
+        """FUNDINDO v15 e v16: Proatividade de 3 Camadas com Nexos Reais"""
+        tau = self.bio.get_tau()
+        # Se Tau alto (Vm > -60), ela fica ousada (CAOS). Se baixo, fica focada (SUJEITO).
+        if tau > 0.8: modo = random.choice(["CAOS", "PREDICADO"])
+        else: modo = random.choice(["SUJEITO", "PREDICADO"])
         
-        # Modo de busca: Baseado no Sujeito (O quê) ou Predicado (Ação)
-        modo = random.choice(["SUJEITO", "PREDICADO"])
-        target_token = sujeito
-        
-        if modo == "PREDICADO" and len(u_toks) > 1:
-            # Pega o segundo termo mais raro (geralmente a ação/verbo)
-            target_token = sorted(u_toks, key=lambda x: self._get_entropy(x), reverse=True)[1]
+        hook = ""
+        conectores = ["Aliás,", "Sabe...", "Me veio na mente que", "Fico pensando que", "Mas olha,"]
 
-        # Busca nexos que contenham esse token, mas que não sejam a resposta atual
-        candidatos = [idx for idx in self.neuronios.get(target_token, []) 
-                     if idx != nexo_vencedor_idx and self.l2_episodes[idx]['t'] not in self.history]
+        if modo == "CAOS":
+            # Busca algo aleatório e raro que não tem a ver com o agora
+            palavras_raras = [w for w, c in self.raridade.items() if 1 < c < 15]
+            if palavras_raras:
+                pivo_caos = random.choice(palavras_raras)
+                candidatos = [i for i in self.neuronios.get(pivo_caos, []) if i != nexo_vencedor_idx]
+                if candidatos:
+                    idx = random.choice(candidatos)
+                    hook = f"{random.choice(conectores)} você já parou pra pensar que {self.l2_episodes[idx]['t'].lower()}?"
         
-        if candidatos:
-            # Seleciona o candidato que melhor combina com o estado emocional (Wavefunction)
-            escolhido_idx = max(candidatos, key=lambda i: sum(v * self.bio.wavefunction[j%3] 
-                               for j, v in enumerate(self.l2_episodes[i]['v'].values())))
-            
-            frase_gancho = self.l2_episodes[escolhido_idx]['t']
-            
-            # Ajuste de pontuação para virar uma provocação sutil
-            if not frase_gancho.endswith("?"):
-                frase_gancho += ", não acha?"
-            
-            return f"{random.choice(conectores)} {frase_gancho.lower()}"
-        
-        return ""
+        elif modo == "SUJEITO":
+            # Foca no sujeito atual usando o Deep Mirroring (Citação real)
+            candidatos = [i for i in self.neuronios.get(sujeito, []) if i != nexo_vencedor_idx]
+            if candidatos:
+                idx = max(candidatos, key=lambda i: SSML_Kernel.dot(self.psi_pathos, self.l2_episodes[i]['v']))
+                hook = f"Sobre {sujeito}, {self.l2_episodes[idx]['t'].lower()}, não acha?"
+            else:
+                hook = f"O que você realmente acredita sobre {sujeito}?"
+
+        elif modo == "PREDICADO":
+            # Foca na ação/verbo
+            sorted_toks = sorted(u_toks, key=lambda x: self._get_entropy(x), reverse=True)
+            acao = sorted_toks[1] if len(sorted_toks) > 1 else "isso"
+            templates = [f"E se {acao} fosse o segredo?", f"Como você lida com {acao} no dia a dia?"]
+            hook = random.choice(templates)
+
+        return modo, hook
 
     def processar(self, entrada):
         t0 = time.perf_counter()
@@ -145,7 +152,7 @@ class QuintikusSSML:
             score = (s_q * 0.5) + (sim_wave * 0.2) + (sim_pathos * 0.3) - self.fatigue[idx]
             scored_data.append((idx, score))
 
-        # 4. COLAPSO QUANTUM (SOFTMAX)
+        # 4. COLAPSO QUANTUM
         scored_data.sort(key=lambda x: x[1], reverse=True)
         top_k = scored_data[:10]
         tau = self.bio.get_tau()
@@ -157,26 +164,25 @@ class QuintikusSSML:
             melhor_idx = random.choices([x[0] for x in top_k], weights=probs, k=1)[0]
         except: melhor_idx = top_k[0][0]
 
-        # 5. RESPOSTA + PROATIVIDADE PROFUNDA (Citações do próprio Banco)
+        # 5. RESPOSTA + PROATIVIDADE TRIADE (v15 + v16)
         res_base = self.l2_episodes[melhor_idx]['t']
         if self.turn_count % 3 == 0:
-            hook = self._gerar_proatividade_profunda(sujeito_atual, u_toks, melhor_idx)
+            modo, hook = self._gerar_proatividade_triade(sujeito_atual, u_toks, melhor_idx)
             if hook:
                 res_base = f"{res_base}. {hook}"
-                print(f"📡 [DEEP MIRRORING] Proatividade via nexo real.")
+                print(f"📡 [PROATIVIDADE: {modo}]")
 
         # 6. EVOLUÇÃO
         v_vencedor = self.l2_episodes[melhor_idx]['v']
         self.psi_pathos = SSML_Kernel.normalize(self._add_vecs(self.psi_pathos, v_vencedor, 0.94, 0.06))
         self.history.append(self.l2_episodes[melhor_idx]['t'])
-        self.fatigue[melhor_idx] += 12.0
+        self.fatigue[melhor_idx] += 15.0 # Bloqueio de repetição
         for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.6
 
         dt = (time.perf_counter() - t0) * 1000
         print(f" ⚛️ [Vm: {self.bio.vm:.1f}mV | Tau: {self.bio.get_tau():.2f}] Subj: {sujeito_atual} | {dt:.1f}ms")
         return res_base
 
-    # --- AUXILIARES MANTIDOS ---
     def _add_vecs(self, v1, v2, w1, w2):
         res = {d: v * w1 for d, v in v1.items()}
         for d, v in v2.items(): res[d] = res.get(d, 0) + (v * w2)
@@ -189,7 +195,7 @@ class QuintikusSSML:
                 self.l2_episodes, self.raridade, self.mapa_nd, self.psi_pathos = d['nexus'], d['raridade'], d['nd'], d['pathos']
             for i, ep in enumerate(self.l2_episodes):
                 for t in self.tokenizer.findall(ep['t'].lower()): self.neuronios[t].append(i)
-            print(f"✅ SSML v16.0 Deep Mirroring Online ({len(self.l2_episodes)} nexos)")
+            print(f"✅ SSML v16.5 Trinity Fusion Online ({len(self.l2_episodes)} nexos)")
         if os.path.exists(self.path_ledger):
             with open(self.path_ledger, 'rb') as f: self.ledger = pickle.load(f)
         for arq in self.auto_train_files:
