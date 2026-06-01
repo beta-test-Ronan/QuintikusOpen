@@ -7,137 +7,114 @@ os.environ["MKL_NUM_THREADS"] = "1"
 os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 # ==================================================================
-# 🛰️ SPS CORE - Semantic Positioning System (LGM v24.0)
+# 🌐 LGM-SPS v25.0 - GEODESIC CORE (Refração Atmosférica)
 # ==================================================================
 
-class LGM_SPS:
-    """O primeiro GPS da Linguagem Universal"""
+class LGM_SPS_Geodesic:
     def __init__(self, dataset="conhecimento.txt"):
-        self.num_setores = 360  # Estilo Graus de uma Bússola
-        self.grid_res = 100     # Resolução por setor
-        self.mapa_global = defaultdict(lambda: defaultdict(list))
-        self.conhecimento = {}
-        
-        # Coordenadas GPS Semânticas
-        self.lat_long_alt = [0.0, 0.0, 0.0] # Latitude, Longitude, Altitude (Info)
-        self.setor_ativo = 0
-        self.memoria_epocal = deque(maxlen=30)
+        self.mapa = {}
+        self.posicao_gps = [0.0, 0.0, 0.0] # [Lat, Lon, Alt]
+        self.inercia_vetorial = [0.0, 0.0, 0.0]
+        self.memoria_rastro = deque(maxlen=20)
         self.cooler_delay = 0.005
-        
         self.triangular_universo(dataset)
 
-    def get_sps_coordinates(self, token):
-        """Triangulação Determinística: Token -> Latitude, Longitude, Altitude"""
+    def hash_sps(self, token):
+        """Mapeia o token para uma coordenada geodésica fixa"""
         h = hashlib.sha256(token.encode()).hexdigest()
-        # Latitude semântica (-90 a 90)
         lat = (int(h[:4], 16) % 181) - 90
-        # Longitude semântica (-180 a 180)
         lon = (int(h[4:8], 16) % 361) - 180
-        # Altitude de Informação (0 a 100)
         alt = int(h[8:12], 16) % 101
-        # Setor (0 a 359)
-        setor = int(h[12:16], 16) % self.num_setores
-        return setor, lat, lon, alt
+        return [float(lat), float(lon), float(alt)]
 
     def triangular_universo(self, path):
-        """Mapeia o Model para o Sistema de Posicionamento Global Semântico"""
         if not os.path.exists(path): return
         t0 = time.time()
         with open(path, "r", encoding="utf-8") as f:
-            tokens = f.read().lower().replace(".", " . ").split()
+            tokens = f.read().lower().replace(".", " . ").replace(",", " , ").split()
 
-        self.freq = Counter(tokens)
+        self.freq_global = Counter(tokens)
         total = len(tokens)
 
         for i in range(len(tokens) - 1):
             t1, t2 = tokens[i], tokens[i+1]
-            setor, lat, lon, alt = self.get_sps_coordinates(t1)
+            if t1 not in self.mapa:
+                coords = self.hash_sps(t1)
+                # Massa Geodésica: Raridade do token
+                massa = math.log(total / (self.freq_global[t1] + 1))
+                self.mapa[t1] = {"pos": coords, "links": Counter(), "massa": massa}
             
-            if t1 not in self.conhecimento:
-                # Massa Informativa (Altitude Geográfica)
-                massa = math.log(total / (self.freq[t1] + 1))
-                self.conhecimento[t1] = {
-                    "coords": [lat, lon, alt], "setor": setor, 
-                    "links": Counter(), "massa": massa
-                }
-                self.mapa_global[setor][(lat, lon)].append(t1)
-            
-            self.conhecimento[t1]["links"][t2] += 1
+            self.mapa[t1]["links"][t2] += 1
             if i % 10000 == 0: time.sleep(0.001)
 
-        print(f"🛰️ SPS: Satélites Semânticos Sincronizados em {(time.time()-t0)*1000:.2f}ms")
+        print(f"🌐 LGM-SPS: Geodésica Sincronizada em {(time.time()-t0)*1000:.2f}ms")
 
-    def navegar_sps(self, atual, entrada):
-        """Navegação por Triangulação de GPS Semântico"""
-        if atual not in self.conhecimento: return "."
+    def navegar_geodesica(self, atual, entrada):
+        """Navega pela superfície curva da linguagem usando gravidade e refração"""
+        if atual not in self.mapa: return "."
         time.sleep(self.cooler_delay)
         
-        # Pega dados da posição atual
-        dados_atuais = self.conhecimento[atual]
-        opcoes = dados_atuais["links"]
-        
+        opcoes = self.mapa[atual]["links"]
         candidatos, pesos = [], []
-        
+
         for prox, freq in opcoes.items():
-            if prox not in self.conhecimento: continue
-            dados_p = self.conhecimento[prox]
+            if prox not in self.mapa: continue
+            dados_p = self.mapa[prox]
             
-            # --- CÁLCULO DE DISTÂNCIA HAVERSINE (Simplificada para SPS) ---
-            # O quão longe o próximo token está do meu alvo mental?
-            d_lat = abs(self.lat_long_alt[0] - dados_p["coords"][0])
-            d_lon = abs(self.lat_long_alt[1] - dados_p["coords"][1])
-            dist_geografica = math.sqrt(d_lat**2 + d_lon**2)
+            # 1. Distância Euclidiana 3D (Distância Geográfica)
+            dist = math.sqrt(sum((a - b)**2 for a, b in zip(self.posicao_gps, dados_p["pos"])))
             
-            # --- ATRAÇÃO POR ALTITUDE (MASSA) ---
-            atracao_altitude = dados_p["coords"][2] / 100.0
+            # 2. Refração Atmosférica (Atenuação pelo Ar Semântico)
+            # Se a altitude for alta, a refração é menor (o sinal é mais claro)
+            refracao = dados_p["pos"][2] / 100.0
             
-            # --- RELEVÂNCIA DETERMINÍSTICA ---
-            foco = 30.0 if prox in entrada.lower() else 1.0
-            fadiga = 0.0001 if prox in self.memoria_epocal else 1.0
+            # 3. Bússola de Atenção
+            foco = 40.0 if prox in entrada.lower() else 1.0
+            fadiga = 0.0001 if prox in self.memoria_rastro else 1.0
             
-            # Equação SPS: (Frequência * Foco * Fadiga) / (Distância + Inércia)
-            prob = (freq * foco * fadiga * atracao_altitude) / (dist_geografica + 0.5)
-            
+            # EQUAÇÃO GEODÉSICA v25:
+            # (Frequência * Foco * Gravidade) / (Distância + Inércia)
+            # Aplicamos a refração para dar brilho a palavras raras
+            prob = (freq * foco * fadiga * (dados_p["massa"] ** 1.5)) / (dist + 0.5)
+            prob *= refracao
+
             candidatos.append(prox)
             pesos.append(prob)
 
         if not candidatos: return "."
         escolhido = random.choices(candidatos, weights=pesos, k=1)[0]
         
-        # Atualiza o Posicionamento Global (O pensamento 'se move' no mapa)
-        self.memoria_epocal.append(escolhido)
-        coords_esc = self.conhecimento[escolhido]["coords"]
+        # Atualização do GPS com Inércia Vetorial
+        coords_esc = self.mapa[escolhido]["pos"]
         for i in range(3):
-            self.lat_long_alt[i] = self.lat_long_alt[i] * 0.8 + coords_esc[i] * 0.2
+            # O sistema 'persegue' o sinal semântico (Inércia Geográfica)
+            self.posicao_gps[i] = self.posicao_gps[i] * 0.85 + coords_esc[i] * 0.15
             
+        self.memoria_rastro.append(escolhido)
         return escolhido
 
-    def localizar_intencao(self, entrada):
-        """Identifica onde a pergunta do usuário se localiza no mapa SPS"""
+    def pensar(self, entrada):
         palavras_in = entrada.lower().split()
-        conhecidas = [p for p in palavras_in if p in self.conhecimento]
+        conhecidas = [p for p in palavras_in if p in self.mapa]
         
         if conhecidas:
-            # Trava o GPS na coordenada da palavra de maior 'Altitude' (Massa)
-            alvo = max(conhecidas, key=lambda p: self.conhecimento[p]["coords"][2])
-            self.lat_long_alt = self.conhecimento[alvo]["coords"]
-            self.setor_ativo = self.conhecimento[alvo]["setor"]
-            return alvo
-        return random.choice(list(self.conhecimento.keys()))
+            # Fixa o GPS na palavra de maior 'Altitude' (Montanha de significado)
+            alvo = max(conhecidas, key=lambda p: self.mapa[p]["pos"][2])
+            self.posicao_gps = self.mapa[alvo]["pos"]
+            atual = alvo
+        else:
+            atual = random.choice(list(self.mapa.keys()))
 
-    def pensar(self, entrada):
-        atual = self.localizar_intencao(entrada)
         frase = [atual]
-        
-        for i in range(50): # Profundidade de exploração
-            atual = self.navegar_sps(atual, entrada)
-            if atual == "." and i > 10: break
+        for i in range(45):
+            atual = self.navegar_geodesica(atual, entrada)
+            if atual == "." and i > 8: break
             frase.append(atual)
             
         return " ".join(frase).capitalize()
 
 def typewriter(text):
-    sys.stdout.write("🤖 SPS-V24: ")
+    sys.stdout.write("🤖 LGM-V25: ")
     for word in text.split():
         for char in word:
             sys.stdout.write(char); sys.stdout.flush()
@@ -147,11 +124,11 @@ def typewriter(text):
     print("\n")
 
 if __name__ == "__main__":
-    sps = LGM_SPS()
+    sps = LGM_SPS_Geodesic()
     
-    print("\n" + "═"*70)
-    print("  SPS v24.0 | SEMANTIC POSITIONING SYSTEM | LANGUAGE GEOMETRIC MODEL")
-    print("═"*70)
+    print("\n" + "_"*70)
+    print("  LGM-SPS v25.0 | GEODESIC LANGUAGE MODEL | UNIVERSAL NAVIGATION")
+    print("_"*70)
     
     while True:
         try:
@@ -162,8 +139,8 @@ if __name__ == "__main__":
             res = sps.pensar(prompt)
             typewriter(res)
             
-            # Status do GPS Semântico
-            print(f" 🛰️ [Fix: Lat {sps.lat_long_alt[0]:.1f} | Lon {sps.lat_long_alt[1]:.1f} | Alt {sps.lat_long_alt[2]:.1f}]")
+            # Log Geodésico
+            print(f" 🛰️ [SPS FIX: {list(map(int, sps.posicao_gps))} | Rastro: {len(sps.memoria_rastro)}]")
             print("-" * 70)
             
         except KeyboardInterrupt: break
