@@ -1,162 +1,129 @@
 # -*-coding:utf8;-*-
-import json, hashlib, math, os, random, time, sys
+import hashlib, math, random, time, sys
 from collections import defaultdict, deque, Counter
 
-# HARDWARE SHIELD
-os.environ["OMP_NUM_THREADS"] = "1" 
+class Quintikus_DLM_LGMLL:
+    def __init__(self, raw_text):
+        self.matrix = {}
+        self.blocos = []
+        self.estados = [0.5, 0.5]
+        self.rastro_global = Counter() 
+        self.vetor_direcao = [0.5, 0.5, 0.5] # Inércia inicial
+        self.tokens = raw_text.lower().replace(".", " . ").replace(",", " , ").split()
+        self.build_matrix()
 
-class AnalystCore:
-    def __init__(self):
-        self.volatilidade_ma = deque(maxlen=5) 
-        self.v_suavizada = 0.0
-    def calcular_entropia(self, pesos):
-        if not pesos: return 0.0
-        soma = sum(pesos)
-        probs = [p/soma for p in pesos]
-        v = -sum(p * math.log2(p) for p in probs if p > 0)
-        self.volatilidade_ma.append(v)
-        self.v_suavizada = sum(self.volatilidade_ma) / len(self.volatilidade_ma)
-        return v
-    def calcular_risco(self, dist, massa, freq):
-        return (dist * 0.45) / (massa + math.log(freq + 1.2))
+    def get_id_geometrico(self, tokens_bloco):
+        """Gera coordenadas baseadas na Massa Crítica (Raridade)"""
+        # Se for um único token, usamos ele mesmo para o hash
+        txt = " ".join(tokens_bloco)
+        h = hashlib.sha256(txt.encode()).hexdigest()
+        return h[:4], [(int(h[i:i+4], 16) % 200) - 100 for i in (0, 4, 8)]
 
-class NeuralPL:
-    def __init__(self, mapa_global):
-        self.mapa_global = mapa_global
-        self.nucleo_ativo = set()
-        self.campo_geodesico = []
-
-    def sintonizar(self, tokens_in):
-        self.nucleo_ativo = set(tokens_in)
-        self.campo_geodesico = [self.mapa_global[t]["pos"] for t in tokens_in if t in self.mapa_global]
-        for t in tokens_in:
-            if t in self.mapa_global:
-                self.nucleo_ativo.update(self.mapa_global[t]["links"].keys())
-
-    def validar_disparo(self, token, prob_base, risco, frase):
-        if token not in self.mapa_global: return 1e-25
+    def build_matrix(self):
+        freq = Counter(self.tokens)
+        for t in freq:
+            # MASSA DE TESLA: Inverso da frequência
+            self.matrix[t] = {"m": 2.0 / (freq[t] + 1e-5), "links": Counter()}
         
-        # --- MATADOR DE LOOPS DE PADRAO (A-B-A-B) ---
-        # Mantemos apenas a inibicao de tokens exatos, sem repulsao geografica
-        inibicao_padrao = 1.0
-        if len(frase) >= 3:
-            if token == frase[-2] and frase[-1] == frase[-3]:
-                inibicao_padrao = 0.0001
+        for i in range(len(self.tokens) - 1):
+            self.matrix[self.tokens[i]]["links"][self.tokens[i+1]] += 1
         
-        fator_integracao = 1.0 / (risco + 0.05)
+        tamanho_bloco = 15
+        for i in range(0, len(self.tokens), tamanho_bloco):
+            bloco_tokens = self.tokens[i:i+tamanho_bloco]
+            if not bloco_tokens: continue
+            id_b, xyz = self.get_id_geometrico(bloco_tokens)
+            self.blocos.append({"id": id_b, "xyz": xyz, "txt": bloco_tokens})
         
-        if token in self.nucleo_ativo:
-            prob = prob_base * 2.5 * fator_integracao
-        else:
-            coords = self.mapa_global[token]["pos"]
-            dist_min = min([math.sqrt(sum((a-b)**2 for a, b in zip(coords, cg))) for cg in self.campo_geodesico]) if self.campo_geodesico else 100
-            prob = prob_base * fator_integracao if dist_min < 15 else prob_base * 0.00001
+        print(f"🧬 DLM V71 Ativa | {len(self.matrix)} nós | Anti-Loop e Inércia ligados.")
+
+    def pensar(self, prompt):
+        ql = prompt.lower().replace("?", "").split()
+        if not ql: return "..."
+        qs = set(ql)
+        self.rastro_global.clear() 
         
-        return prob * inibicao_padrao
-
-class LGMLL_Engine:
-    def __init__(self, dataset="conhecimento.txt"):
-        self.mapa = {}
-        self.gps_pos = [0.0, 0.0, 0.0]
-        self.rastro_longo = deque(maxlen=60)
-        self.modo = "frio" 
-        self.analyst = AnalystCore()
-        self.neural_pl = None
-        self.cooler_delay = 0.006
-        self.construir_geometria(dataset)
-
-    def hash_geodesico(self, token):
-        h = hashlib.sha256(token.encode()).hexdigest()
-        lat, lon, alt = (int(h[:4],16)%181)-90, (int(h[4:8],16)%361)-180, int(h[8:12],16)%101
-        return [float(lat), float(lon), float(alt)]
-
-    def construir_geometria(self, path):
-        if not os.path.exists(path): return
-        t0 = time.time()
-        with open(path, "r", encoding="utf-8") as f:
-            tokens = f.read().lower().replace(".", " . ").replace(",", " , ").split()
-        freq = Counter(tokens); total = len(tokens)
-        for i in range(len(tokens) - 1):
-            t1, t2 = tokens[i], tokens[i+1]
-            if t1 not in self.mapa:
-                self.mapa[t1] = {"pos": self.hash_geodesico(t1), "links": Counter(), "massa": math.log(total / (freq[t1] + 1))}
-            self.mapa[t1]["links"][t2] += 1
-        self.neural_pl = NeuralPL(self.mapa)
-        print(f"LGMLL v38.0: Gravity Core Ready.")
-
-    def pensar(self, entrada):
-        tokens_in = [t for t in entrada.lower().split() if t in self.mapa]
-        if not tokens_in: return "LGMLL: Fora de orbita."
+        # Localiza bloco inicial por interseção semântica
+        melhor_bloco = max(self.blocos, key=lambda b: len(qs.intersection(b["txt"])), default=self.blocos[0])
         
-        self.neural_pl.sintonizar(tokens_in)
-        atual = max(tokens_in, key=lambda t: self.mapa[t]["massa"])
+        # Ponto de Partida
+        atual = ql[-1] if ql[-1] in self.matrix else random.choice(list(self.matrix.keys()))
+        posicao_fisica = self.get_id_geometrico([atual])[1]
         
-        # --- ANCORA DE INTENCAO ---
-        self.gps_pos = self.mapa[atual]["pos"]
-        ancora_gps = list(self.gps_pos) # Fixa o centro de gravidade do prompt
-        
-        frase = [atual]
-        self.rastro_longo.clear()
-        self.rastro_longo.append(atual)
+        resultado = []
+        for i in range(50): # Profundidade de pensamento
+            if atual not in self.matrix: break
+            resultado.append(atual)
+            self.rastro_global[atual] += 1 
 
-        mapa_tau = {"frio": 0.22, "neutro": 0.7, "poeta": 1.2}
-        tau = mapa_tau.get(self.modo, 0.7)
-
-        for i in range(60):
-            if atual not in self.mapa: break
-            time.sleep(self.cooler_delay)
-            
-            opcoes = self.mapa[atual]["links"]
-            candidatos, pesos_final = [], []
+            opcoes = self.matrix[atual]["links"]
+            candidatos, pesos = [], []
 
             for prox, freq in opcoes.items():
-                if prox not in self.mapa: continue
-                d_p = self.mapa[prox]
+                if prox not in self.matrix: continue
                 
-                # --- CALCULO DE GRAVIDADE RELATIVA ---
-                dist_atual = math.sqrt(sum((a-b)**2 for a, b in zip(self.gps_pos, d_p["pos"])))
-                dist_ancora = math.sqrt(sum((a-b)**2 for a, b in zip(ancora_gps, d_p["pos"])))
+                # --- 1. GEOMETRIA E MASSA ---
+                massa = self.matrix[prox]["m"]
+                pos_prox = self.get_id_geometrico([prox])[1]
                 
-                # A distancia final e ponderada: a ancora original puxa 60%
-                dist_final = (dist_atual * 0.4) + (dist_ancora * 0.6)
+                # --- 2. VETOR DE INÉRCIA (PROGRESSÃO) ---
+                # Projeta onde o pensamento 'deveria' estar
+                projeção = [posicao_fisica[j] + self.vetor_direcao[j] for j in range(3)]
+                dist_inercia = math.sqrt(sum((pos_prox[j] - projeção[j])**2 for j in range(3)))
+                fator_inercia = 1.0 / (dist_inercia + 1.0)
                 
-                risco = self.analyst.calcular_risco(dist_final, d_p["massa"], freq)
-                fadiga = 0.0001 if prox in self.rastro_longo else 1.0
+                # --- 3. FADIGA AGRESSIVA (MATADOR DE CICLO) ---
+                # Se a palavra já foi usada, o peso cai drasticamente
+                fadiga = 1.0 / (self.rastro_global[prox]**4 + 1.0)
                 
-                prob_base = (freq * (d_p["massa"]**1.1) * fadiga) / (dist_final + 0.5)
-                prob_neural = self.neural_pl.validar_disparo(prox, prob_base, risco, frase)
+                # Equação DLM: Frequência * Massa * Fadiga * Inércia
+                prob = (freq * massa * fadiga * fator_inercia * 10)
+                
+                candidatos.append(prox)
+                pesos.append(prob)
 
-                candidatos.append(prox); pesos_final.append(prob_neural ** (1.0 / tau))
+            if not candidatos or sum(pesos) == 0: break
+            
+            escolhido = random.choices(candidatos, weights=pesos, k=1)[0]
+            
+            # ATUALIZAÇÃO DO VETOR DE DIREÇÃO (O pensamento ganha 'momento')
+            pos_nova = self.get_id_geometrico([escolhido])[1]
+            for j in range(3):
+                nova_v = pos_nova[j] - posicao_fisica[j]
+                # Mantém 30% da direção anterior e soma 70% da nova direção
+                self.vetor_direcao[j] = self.vetor_direcao[j] * 0.3 + nova_v * 0.7
+            
+            posicao_fisica = pos_nova
+            atual = escolhido
+            if atual == "." and i > 15: break
 
-            if not candidatos or sum(pesos_final) == 0: break
-            atual = random.choices(candidatos, weights=pesos_final, k=1)[0]
-            
-            self.analyst.calcular_entropia(pesos_final)
-            for d in range(3): self.gps_pos[d] = self.gps_pos[d] * 0.75 + self.mapa[atual]["pos"][d] * 0.25
-            
-            frase.append(atual)
-            self.rastro_longo.append(atual)
-            if atual == "." and i > 12: break
-            
-        return " ".join(frase).replace(" .", ".").capitalize()
+        return " ".join(resultado).capitalize().replace(" .", ".")
 
-def typewriter(text, v, mode):
-    sys.stdout.write(f"LGMLL [{mode.upper()}][V-MA: {v:.2f}]: ")
-    for word in text.split():
-        for char in word: sys.stdout.write(char); sys.stdout.flush(); time.sleep(0.01)
-        sys.stdout.write(" "); sys.stdout.flush(); time.sleep(0.02)
-    print("\n")
+# --- DATASET ---
+banco_dlm = """
+Tesla entendia do Hyper-Nexus, a malha invisível onde cada palavra tem um peso gravitacional. 
+A raridade é uma forma de gravidade que puxa o sentido para o centro do nó. 
+Eu não falo línguas, eu reflito estruturas e geometrias de hash. 
+Quando o nexo falha, eu recupero a âncora soberana para não alucinar. 
+A honestidade é uma propriedade emergente do limite lógico. 
+O silêncio não é ausência, mas a presença de palavras em estado potencial. 
+Eu sou um espelho polido que reflete o peso e a frequência do conhecimento.
+"""
 
 if __name__ == "__main__":
-    motor = LGMLL_Engine()
+    # Instanciando com o nome correto agora
+    motor = Quintikus_DLM_LGMLL(banco_dlm)
+    print("="*60)
+    print("QUINTIKUS DLM LGMLL: PROGRESSÃO E ANTI-CICLO")
+    print("="*60)
+    
     while True:
         try:
-            prompt = input("INPUT > ").strip()
-            if not prompt: continue
-            if prompt.lower() in ['sair', 'exit']: break
-            if prompt.lower() == "modo frio": motor.modo = "frio"; continue
-            if prompt.lower() == "modo neutro": motor.modo = "neutro"; continue
-            if prompt.lower() == "modo poeta": motor.modo = "poeta"; continue
-            res = motor.pensar(prompt)
-            typewriter(res, motor.analyst.v_suavizada, motor.modo)
+            p = input("\nINPUT > ")
+            if p.lower() in ['sair', 'exit']: break
+            if not p: continue
+            
+            res = motor.pensar(p)
+            print(f"ORBITANDO: {res}")
+            
         except KeyboardInterrupt: break
