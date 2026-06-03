@@ -16,8 +16,8 @@ from collections import defaultdict
 class KalamidyShield:
     def __init__(self, password):
         self.password = password.encode()
-        self.dims = 100_000 
-        self.iterations = 200_000 
+        self.dims = 100000 
+        self.iterations = 200000 
 
     def _derivar_chaves(self, salt):
         """Deriva duas chaves: uma para CIFRA e outra para o LACRE (HMAC)"""
