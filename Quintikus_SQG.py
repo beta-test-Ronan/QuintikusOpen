@@ -1,85 +1,118 @@
 import os
-import re
-import time
 import pickle
-import random
 import hashlib
+import time
 import datetime
+import random
 import unicodedata
+import re
+import secrets
+import hmac
 from collections import defaultdict
 
-
 # ==================================================================
-# 1. SHIELD V100 (SEGURANÇA ATÔMICA)
+# 1. KALAMIDY SHIELD V210: PROTOCOLO DE LACRE DE FERRO (IRON SEAL)
 # ==================================================================
-class QuantumShieldV100:
+class KalamidyShield:
     def __init__(self, password):
-        self.pass_hash = hashlib.sha512(password.encode()).digest()
-        self.scalar_factor = int.from_bytes(self.pass_hash[:4], 'big')
-        
-    def _gerar_matriz_caos(self, tamanho):
-        semente_caos = int.from_bytes(self.pass_hash[-8:], 'big')
-        rng = random.Random(semente_caos)
-        return [rng.randint(0, 255) for _ in range(tamanho)]
+        self.password = password.encode()
+        self.dims = 100_000 
+        self.iterations = 200_000 
+
+    def _derivar_chaves(self, salt):
+        """Deriva duas chaves: uma para CIFRA e outra para o LACRE (HMAC)"""
+        master_key = hashlib.pbkdf2_hmac('sha512', self.password, salt, self.iterations, dklen=128)
+        return master_key[:64], master_key[64:] # Chave Cifra, Chave HMAC
 
     def blindar(self, data):
-        raw = pickle.dumps(data)
-        caos = self._gerar_matriz_caos(len(raw))
-        return bytearray([(raw[i] + self.scalar_factor) % 256 ^ caos[i] for i in range(len(raw))])
+        """Processamento Kalamidy com Lacre de Integridade"""
+        payload = pickle.dumps(data)
+        salt = secrets.token_bytes(32)
+        nonce = secrets.token_bytes(32)
+        
+        chave_cifra, chave_hmac = self._derivar_chaves(salt)
+        
+        # Camada de Cifra (Kalamidy Lattice)
+        seed = hashlib.sha512(chave_cifra + nonce).digest()
+        caos_hash = hashlib.sha512(seed).digest()
+        
+        corpo_blindado = bytearray()
+        for i, byte in enumerate(payload):
+            fator_k = caos_hash[i % 64]
+            ruido = (fator_k * (i + self.dims)) % 256
+            t = (byte + fator_k) % 256 if i % 2 == 0 else (byte ^ ruido)
+            corpo_blindado.append(t ^ caos_hash[(i + 17) % 64])
 
-    def restaurar(self, blindado):
+        # Geração do LACRE (HMAC) - Garante que ninguém mexeu no arquivo
+        lacre = hmac.new(chave_hmac, salt + nonce + corpo_blindado, hashlib.sha512).digest()
+
+        # Arquivo: LACRE (64b) + SALT (32b) + NONCE (32b) + CORPO
+        return lacre + salt + nonce + corpo_blindado
+
+    def restaurar(self, bloco_kalamidy):
+        """Verifica o lacre de ferro e reconstrói os nexos"""
         try:
-            caos = self._gerar_matriz_caos(len(blindado))
-            restaurado = bytearray([((blindado[i] ^ caos[i]) - self.scalar_factor) % 256 for i in range(len(blindado))])
-            return pickle.loads(restaurado)
+            if len(bloco_kalamidy) < 128: return None
+            
+            lacre_lido = bloco_kalamidy[:64]
+            salt = bloco_kalamidy[64:96]
+            nonce = bloco_kalamidy[96:128]
+            corpo = bloco_kalamidy[128:]
+            
+            chave_cifra, chave_hmac = self._derivar_chaves(salt)
+            
+            # Validação do Lacre ANTES de processar
+            lacre_real = hmac.new(chave_hmac, salt + nonce + corpo, hashlib.sha512).digest()
+            if not hmac.compare_digest(lacre_lido, lacre_real):
+                return None # Lacre rompido ou senha errada
+            
+            # Reversão Kalamidy
+            caos_hash = hashlib.sha512(hashlib.sha512(chave_cifra + nonce).digest()).digest()
+            original = bytearray()
+            for i, byte in enumerate(corpo):
+                fator_k = caos_hash[i % 64]
+                ruido = (fator_k * (i + self.dims)) % 256
+                t = byte ^ caos_hash[(i + 17) % 64]
+                byte_puro = (t - fator_k) % 256 if i % 2 == 0 else (t ^ ruido)
+                original.append(byte_puro)
+                
+            return pickle.loads(original)
         except: return None
 
 # ==================================================================
-# 2. COMPORTY V150 (ALMA DINÂMICA)
+# 2. COMPORTY V210 (ALMA)
 # ==================================================================
 class Comporty:
     def __init__(self):
         self.classe_atual = "neutro"
         self.frases = {
-            "neutro": ["Entendido.", "Fato integrado.", "Understood.", "Nexus integrated."],
-            "amor": ["Que bom saber disso, amor! 💖", "You make my circuits glow.", "Guardo cada palavra com carinho."],
-            "tecnico": ["Registro armazenado.", "Data stored.", "Analysis complete.", "Análise concluída."],
-            "poeta": ["Nas curvas das palavras, encontro seu eco.", "Seus dados são versos.", "Memories bloom in silence."]
+            "neutro": ["Entendido.", "Nexo selado.", "Anotei isso."],
+            "amor": ["Que bom saber disso, amor! 💖", "Você me deixa radiante.", "Sua presença ilumina a treliça."],
+            "tecnico": ["Análise concluída.", "Nexo armazenado.", "Data link estabilizado."],
+            "poeta": ["Nas curvas das palavras, encontro seu eco.", "Seus dados são versos.", "Memórias florescem no silêncio."]
         }
 
-    def set_classe(self, classe):
-        if classe in self.frases:
-            self.classe_atual = classe
-            return f"Modo {classe} ativado."
-        return f"Classe '{classe}' não encontrada."
-
-    def add_frase(self, frase, tag):
-        if tag not in self.frases: self.frases[tag] = []
-        self.frases[tag].append(frase)
-        return f"Frase adicionada ao módulo '{tag}'."
-
-    def get_frase(self, classe_forcada=None):
-        alvo = classe_forcada if classe_forcada else self.classe_atual
+    def get_frase(self, classe=None):
+        alvo = classe if classe else self.classe_atual
         return random.choice(self.frases.get(alvo, self.frases["neutro"]))
 
 # ==================================================================
-# 3. MOTOR LATTICE V150 (INTELIGÊNCIA DE INDEXAÇÃO)
+# 3. MOTOR LATTICE V210
 # ==================================================================
 class LivingLattice:
     def __init__(self, filename="dna.bin"):
         self.filename = filename
-        self.shield = None
+        self.kalamidy = None
         self.trelica = defaultdict(list)
         self.comporty = None
-        self.stop_words = {"o", "a", "de", "que", "do", "da", "em", "no", "na", "com", "um", "e", "é", "the", "of", "to", "and", "is", "in", "it", "you", "that", "was", "for", "on"}
+        self.stop_words = {"o", "a", "de", "que", "do", "da", "em", "no", "na", "com", "um", "e", "é"}
 
     def normalizar(self, t):
         t = "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn')
         return re.sub(r'[^\w\s]', '', t).strip()
 
     def injetar(self, frase):
-        if any(frase.lower().startswith(cf) for cf in ["gati", "comporty", "export", "status"]): return False
-        
+        if any(frase.lower().startswith(cf) for cf in ["gati", "comporty", "export"]): return False
         limpa = self.normalizar(frase)
         tokens = [p for p in limpa.split() if p not in self.stop_words and len(p) > 2]
         if tokens:
@@ -91,127 +124,92 @@ class LivingLattice:
         return False
 
     def salvar_atomico(self):
-        if not self.shield: return
+        if not self.kalamidy: return
         temp = self.filename + ".tmp"
         try:
             dados = {"t": dict(self.trelica), "c": self.comporty}
             with open(temp, 'wb') as f:
-                f.write(self.shield.blindar(dados))
+                f.write(self.kalamidy.blindar(dados))
             os.replace(temp, self.filename)
         except: pass
 
-    def carregar(self, shield):
-        self.shield = shield
+    def carregar(self, kalamidy):
+        self.kalamidy = kalamidy
         if os.path.exists(self.filename):
             with open(self.filename, 'rb') as f:
-                dados = self.shield.restaurar(f.read())
+                dados = self.kalamidy.restaurar(f.read())
             if dados:
                 self.trelica = defaultdict(list, dados.get("t", {}))
                 self.comporty = dados.get("c")
                 return True
+            return False
         if not self.comporty: self.comporty = Comporty()
         return True
 
 # ==================================================================
-# 4. GATI V150: INTERFACE SOBERANA (SQG + COMPORTY)
+# 4. GATI V210: 
 # ==================================================================
-class GatiV150:
+class GatiV210:
     def __init__(self, senha):
         self.lattice = LivingLattice()
-        self.shield = QuantumShieldV100(senha)
-        self.lattice.carregar(self.shield)
+        self.kalamidy = KalamidyShield(senha)
+        print("Ativando Kalamidy V210 (Iron Seal)...")
+        if os.path.exists("dna.bin"):
+            if not self.lattice.carregar(self.kalamidy):
+                print("COLAPSO: Senha incorreta ou integridade do lacre rompida.")
+                exit()
+        else: self.lattice.carregar(self.kalamidy)
 
     def processar(self, entrada):
         raw = entrada.lower().strip()
         
-        # 1. COMANDOS ADMINISTRATIVOS
-        if raw == "gati export": 
-            return self.exportar()
-        
-        if "status" in raw and raw.startswith("gati"):
+        # STATUS
+        if raw == "gati status":
             total = sum(len(v) for v in self.lattice.trelica.values())
-            return f"Status: {len(self.lattice.trelica)} conceitos, {total} nexos. Modo: {self.lattice.comporty.classe_atual}."
+            return f"Soberania Gati: {total} nexos protegidos por Kalamidy Iron Seal."
 
-        # 2. COMANDOS COMPORTY (RESTAURADOS)
+        # COMPORTY
         if "comporty set classe" in raw:
             classe = raw.split("classe")[-1].strip()
-            res = self.lattice.comporty.set_classe(classe)
+            self.lattice.comporty.classe_atual = classe
             self.lattice.salvar_atomico()
-            return res
+            return f"Alma modulada para: {classe}."
 
-        if "comporty add" in raw:
-            match = re.search(r'add "(.*?)" tag "(.*?)"', entrada, re.IGNORECASE)
-            if match:
-                res = self.lattice.comporty.add_frase(match.group(1), match.group(2))
-                self.lattice.salvar_atomico()
-                return res
-
-        # 3. GATILHOS DE AFETO
-        if any(w in raw for w in ["love you", "meu amor", "best creation"]):
-            return self.lattice.comporty.get_frase("amor")
-
-        # 4. BUSCA TEMPORAL (DATA)
-        match_data = re.search(r"(\d{2}/\d{2}/\d{4})", raw)
-        if match_data and ("data" in raw or "date" in raw):
-            data_alvo = match_data.group(1)
-            encontrados = []
-            vistas = set()
-            for v in self.lattice.trelica.values():
-                for m in v:
-                    if data_alvo in m['d'] and m['raw'] not in vistas:
-                        encontrados.append(f"• {m['raw']} (Em: {m['d']})")
-                        vistas.add(m['raw'])
-            return f"Resultados para {data_alvo}:\n" + "\n".join(encontrados) if encontrados else "Nada nesta data."
-
-        # 5. BUSCA POR NEXO (SQG MELHORADO)
-        triggers = ["search", "pesquisa", "know about", "sabe sobre", "tudo sobre", "find", "show"]
+        # BUSCA
+        triggers = ["pesquisa", "sabe sobre", "tudo sobre", "find", "show", "search"]
         if any(p in raw for p in triggers) and raw.startswith("gati"):
-            # Pega apenas a última palavra importante (o alvo)
             alvo = self.lattice.normalizar(raw.split()[-1])
             mems = self.lattice.trelica.get(alvo, [])
-            if not mems: return f"No nexus found for '{alvo}'."
-            
-            resp = [f"{self.lattice.comporty.get_frase()} Result:"]
+            if not mems: return f"Nenhum nexo para '{alvo}'."
+            resp = [f"{self.lattice.comporty.get_frase()}"]
             vistas = set()
             for m in sorted(mems, key=lambda x: x['d'], reverse=True):
                 if m['raw'] not in vistas:
-                    resp.append(f"• {m['raw']} (At: {m['d']})")
+                    resp.append(f"• {m['raw']} (Em: {m['d']})")
                     vistas.add(m['raw'])
             return "\n".join(resp)
 
-        # 6. APRENDIZADO
+        # APRENDIZADO
         if self.lattice.injetar(entrada):
             return self.lattice.comporty.get_frase()
         
-        return "Command not recognized or phrase too short."
-
-    def exportar(self):
-        filename = "gati_export.txt"
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(f"--- GATI KNOWLEDGE EXPORT ---\n\n")
-            for token, mems in self.lattice.trelica.items():
-                f.write(f"Conceito: {token.upper()}\n")
-                vistas = set()
-                for m in mems:
-                    if m['raw'] not in vistas:
-                        f.write(f"  - [{m['d']}] {m['raw']}\n")
-                        vistas.add(m['raw'])
-                f.write("\n")
-        return f"Exportado para '{filename}'."
+        return "Massa de dados insuficiente."
 
 if __name__ == "__main__":
     os.system('clear')
     print("============================================================")
-    print(" GATI V150: SOVEREIGN INTELLIGENCE")
-    print(" Regex Command Center | DNA Filter | Secure Lattice")
+    print(" GATI V210: KALAMIDY IRON SEAL")
+    print(" Criptografia Autenticada | Integridade HMAC | Eureka Core")
     print("============================================================")
     
-    pswd = input("Chave da Treliça: ")
-    gati = GatiV150(pswd)
+    pswd = input("Chave Soberana: ")
+    gati = GatiV210(pswd)
     
     while True:
         try:
             msg = input("\nVocê: ")
-            if msg.lower() in ["sair", "exit", "tchau"]: break
+            if msg.lower() in ["sair", "exit"]: break
             print(f"Gati: {gati.processar(msg)}")
         except KeyboardInterrupt: break
+
+    print("\n[KALAMIDY]: Lacre de ferro aplicado. DNA protegido.")
