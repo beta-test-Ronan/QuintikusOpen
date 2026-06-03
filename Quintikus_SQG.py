@@ -1,12 +1,13 @@
 import os
-import pickle
-import hashlib
-import time
-import datetime
-import random
-import unicodedata
 import re
+import time
+import pickle
+import random
+import hashlib
+import datetime
+import unicodedata
 from collections import defaultdict
+
 
 # ==================================================================
 # 1. SHIELD V100 (SEGURANÇA ATÔMICA)
