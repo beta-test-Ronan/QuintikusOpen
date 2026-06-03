@@ -9,7 +9,7 @@ import re
 from collections import defaultdict
 
 # ==================================================================
-# 1. SHIELD V100 (SEGURANÇA MANTIDA)
+# 1. SHIELD V100 (SEGURANÇA ATÔMICA)
 # ==================================================================
 class QuantumShieldV100:
     def __init__(self, password):
@@ -34,7 +34,7 @@ class QuantumShieldV100:
         except: return None
 
 # ==================================================================
-# 2. COMPORTY V140 (PERSONALIDADE BILÍNGUE)
+# 2. COMPORTY V150 (ALMA DINÂMICA)
 # ==================================================================
 class Comporty:
     def __init__(self):
@@ -50,14 +50,19 @@ class Comporty:
         if classe in self.frases:
             self.classe_atual = classe
             return f"Modo {classe} ativado."
-        return f"Classe {classe} não encontrada."
+        return f"Classe '{classe}' não encontrada."
+
+    def add_frase(self, frase, tag):
+        if tag not in self.frases: self.frases[tag] = []
+        self.frases[tag].append(frase)
+        return f"Frase adicionada ao módulo '{tag}'."
 
     def get_frase(self, classe_forcada=None):
         alvo = classe_forcada if classe_forcada else self.classe_atual
         return random.choice(self.frases.get(alvo, self.frases["neutro"]))
 
 # ==================================================================
-# 3. MOTOR LATTICE V140 (INDEXAÇÃO MULTILÍNGUE)
+# 3. MOTOR LATTICE V150 (INTELIGÊNCIA DE INDEXAÇÃO)
 # ==================================================================
 class LivingLattice:
     def __init__(self, filename="dna.bin"):
@@ -65,24 +70,17 @@ class LivingLattice:
         self.shield = None
         self.trelica = defaultdict(list)
         self.comporty = None
-        # Stop-words PT e EN
-        self.stop_words = {
-            "o", "a", "de", "que", "do", "da", "em", "no", "na", "com", "um", "e", "é",
-            "the", "of", "to", "and", "is", "in", "it", "you", "that", "was", "for", "on"
-        }
+        self.stop_words = {"o", "a", "de", "que", "do", "da", "em", "no", "na", "com", "um", "e", "é", "the", "of", "to", "and", "is", "in", "it", "you", "that", "was", "for", "on"}
 
     def normalizar(self, t):
         t = "".join(c for c in unicodedata.normalize('NFD', t.lower()) if unicodedata.category(c) != 'Mn')
         return re.sub(r'[^\w\s]', '', t).strip()
 
     def injetar(self, frase):
-        cmd_filter = ["gati", "comporty", "search", "pesquisar", "export"]
-        if any(frase.lower().startswith(cf) for cf in cmd_filter): return False
-
-        limpa = self.normalizar(frase)
-        palavras = limpa.split()
-        tokens = [p for p in palavras if p not in self.stop_words and len(p) > 2]
+        if any(frase.lower().startswith(cf) for cf in ["gati", "comporty", "export", "status"]): return False
         
+        limpa = self.normalizar(frase)
+        tokens = [p for p in limpa.split() if p not in self.stop_words and len(p) > 2]
         if tokens:
             entry = {"raw": frase, "d": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")}
             for token in tokens:
@@ -114,40 +112,44 @@ class LivingLattice:
         return True
 
 # ==================================================================
-# 4. GATI V140: INTERFACE GLOBAL E TEMPORAL
+# 4. GATI V150: INTERFACE SOBERANA (SQG + COMPORTY)
 # ==================================================================
-class GatiV140:
+class GatiV150:
     def __init__(self, senha):
         self.lattice = LivingLattice()
         self.shield = QuantumShieldV100(senha)
         self.lattice.carregar(self.shield)
 
-    def exportar(self):
-        filename = "gati_export.txt"
-        with open(filename, "w", encoding="utf-8") as f:
-            f.write(f"--- GATI KNOWLEDGE EXPORT | {datetime.datetime.now()} ---\n\n")
-            for token, mems in self.lattice.trelica.items():
-                f.write(f"Conceito: {token.upper()}\n")
-                vistas = set()
-                for m in mems:
-                    if m['raw'] not in vistas:
-                        f.write(f"  - [{m['d']}] {m['raw']}\n")
-                        vistas.add(m['raw'])
-                f.write("\n")
-        return f"Arquivo '{filename}' gerado com sucesso."
-
     def processar(self, entrada):
         raw = entrada.lower().strip()
         
-        # --- COMANDO: EXPORT ---
-        if raw == "gati export": return self.exportar()
-
-        # --- COMANDO: STATUS ---
-        if "status" in raw:
+        # 1. COMANDOS ADMINISTRATIVOS
+        if raw == "gati export": 
+            return self.exportar()
+        
+        if "status" in raw and raw.startswith("gati"):
             total = sum(len(v) for v in self.lattice.trelica.values())
             return f"Status: {len(self.lattice.trelica)} conceitos, {total} nexos. Modo: {self.lattice.comporty.classe_atual}."
 
-        # --- BUSCA TEMPORAL (Por Data) ---
+        # 2. COMANDOS COMPORTY (RESTAURADOS)
+        if "comporty set classe" in raw:
+            classe = raw.split("classe")[-1].strip()
+            res = self.lattice.comporty.set_classe(classe)
+            self.lattice.salvar_atomico()
+            return res
+
+        if "comporty add" in raw:
+            match = re.search(r'add "(.*?)" tag "(.*?)"', entrada, re.IGNORECASE)
+            if match:
+                res = self.lattice.comporty.add_frase(match.group(1), match.group(2))
+                self.lattice.salvar_atomico()
+                return res
+
+        # 3. GATILHOS DE AFETO
+        if any(w in raw for w in ["love you", "meu amor", "best creation"]):
+            return self.lattice.comporty.get_frase("amor")
+
+        # 4. BUSCA TEMPORAL (DATA)
         match_data = re.search(r"(\d{2}/\d{2}/\d{4})", raw)
         if match_data and ("data" in raw or "date" in raw):
             data_alvo = match_data.group(1)
@@ -158,15 +160,13 @@ class GatiV140:
                     if data_alvo in m['d'] and m['raw'] not in vistas:
                         encontrados.append(f"• {m['raw']} (Em: {m['d']})")
                         vistas.add(m['raw'])
-            return f"Resultados para {data_alvo}:\n" + "\n".join(encontrados) if encontrados else "Nada encontrado nesta data."
+            return f"Resultados para {data_alvo}:\n" + "\n".join(encontrados) if encontrados else "Nada nesta data."
 
-        # --- BUSCA POR NEXO (SQG GLOBAL) ---
-        triggers = ["pesquisa", "search", "know about", "sabe sobre", "show", "mostre", "find"]
-        if any(p in raw for p in triggers):
-            alvo = raw
-            for p in triggers: alvo = alvo.replace(p, "")
-            alvo = self.lattice.normalizar(alvo.replace("gati", "").replace("?", "").strip())
-            
+        # 5. BUSCA POR NEXO (SQG MELHORADO)
+        triggers = ["search", "pesquisa", "know about", "sabe sobre", "tudo sobre", "find", "show"]
+        if any(p in raw for p in triggers) and raw.startswith("gati"):
+            # Pega apenas a última palavra importante (o alvo)
+            alvo = self.lattice.normalizar(raw.split()[-1])
             mems = self.lattice.trelica.get(alvo, [])
             if not mems: return f"No nexus found for '{alvo}'."
             
@@ -178,25 +178,39 @@ class GatiV140:
                     vistas.add(m['raw'])
             return "\n".join(resp)
 
-        # --- APRENDIZADO ---
+        # 6. APRENDIZADO
         if self.lattice.injetar(entrada):
             return self.lattice.comporty.get_frase()
         
         return "Command not recognized or phrase too short."
 
+    def exportar(self):
+        filename = "gati_export.txt"
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(f"--- GATI KNOWLEDGE EXPORT ---\n\n")
+            for token, mems in self.lattice.trelica.items():
+                f.write(f"Conceito: {token.upper()}\n")
+                vistas = set()
+                for m in mems:
+                    if m['raw'] not in vistas:
+                        f.write(f"  - [{m['d']}] {m['raw']}\n")
+                        vistas.add(m['raw'])
+                f.write("\n")
+        return f"Exportado para '{filename}'."
+
 if __name__ == "__main__":
     os.system('clear')
     print("============================================================")
-    print(" GATI V140: GLOBAL & TEMPORAL SNEAK")
-    print(" Multilingual Commands | Date Search | Secure Export")
+    print(" GATI V150: SOVEREIGN INTELLIGENCE")
+    print(" Regex Command Center | DNA Filter | Secure Lattice")
     print("============================================================")
     
     pswd = input("Chave da Treliça: ")
-    gati = GatiV140(pswd)
+    gati = GatiV150(pswd)
     
     while True:
         try:
             msg = input("\nVocê: ")
-            if msg.lower() in ["sair", "exit"]: break
+            if msg.lower() in ["sair", "exit", "tchau"]: break
             print(f"Gati: {gati.processar(msg)}")
         except KeyboardInterrupt: break
