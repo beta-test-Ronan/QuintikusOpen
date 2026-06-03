@@ -1,4 +1,4 @@
-// organismo_v31.js - Quintikus SSML v31.1 - Organismo Soberano
+// organismo_v31.1_refinado.js — Quintikus SSML v31.1 — Organismo Soberano (otimizado)
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
@@ -60,8 +60,10 @@ class KernelRessonante {
     }
 
     static normalize(v) {
+        const vals = Object.values(v);
+        if (vals.length === 0) return {};
         let norm = 0;
-        for (const val of Object.values(v)) norm += val * val;
+        for (const val of vals) norm += val * val;
         norm = Math.sqrt(norm) + 1e-9;
         const res = {};
         for (const [k, val] of Object.entries(v)) res[k] = val / norm;
@@ -70,7 +72,7 @@ class KernelRessonante {
 }
 
 // ==================================================================
-// 🧠 CÓRTEX COGNITIVO
+// 🧠 CÓRTEX COGNITIVO (pequena proteção contra NaN)
 // ==================================================================
 class CortexCognitivo {
     constructor(limite_confusao = 0.30) {
@@ -89,10 +91,16 @@ class CortexCognitivo {
         for (let i = 0; i < p.length; i++) {
             sum += p[i] * Math.log((p[i] + this.epsilon) / (q[i] + this.epsilon));
         }
-        return sum;
+        // Evita NaN/Infinito retornando um valor padrão
+        return isFinite(sum) ? sum : this.limite_confusao;
     }
 
     processar_reflexao(estado_real, estado_interno) {
+        // Garante tamanhos iguais e mínimos
+        if (!estado_real || !estado_interno || estado_real.length !== estado_interno.length) {
+            const pad = [0.25,0.25,0.25,0.25];
+            return { estado: pad, ciclos: 0, confusao: 0.30 };
+        }
         let p = this._norm(estado_real);
         let q = this._norm(estado_interno);
         let ciclos = 0;
@@ -110,7 +118,7 @@ class CortexCognitivo {
 }
 
 // ==================================================================
-// 🧠 SISTEMA NERVOSO CENTRAL (RNN + ADAM)
+// 🧠 SISTEMA NERVOSO CENTRAL (RNN + ADAM) – incremento garantido do t
 // ==================================================================
 class SistemaNervosoCentral {
     constructor(n_in = 6, n_hid = 10, n_out = 3, path_bin = "sistema_nervoso.bin") {
@@ -121,7 +129,6 @@ class SistemaNervosoCentral {
         this.t = 0;
         this.lr = 0.005;
 
-        // Inicializa pesos
         const initMatrix = (rows, cols) => Array.from({ length: rows }, () =>
             Array.from({ length: cols }, () => (Math.random() * 0.2 - 0.1))
         );
@@ -130,7 +137,6 @@ class SistemaNervosoCentral {
         this.B_h = Array(n_hid).fill(0);
         this.B_y = Array(n_out).fill(0);
 
-        // Adam
         this.adam_M_Wh = initMatrix(n_hid, n_in + n_hid);
         this.adam_V_Wh = initMatrix(n_hid, n_in + n_hid);
         this.adam_M_Wy = initMatrix(n_out, n_hid);
@@ -147,7 +153,10 @@ class SistemaNervosoCentral {
     }
 
     pulsar_vontade(x_atual) {
-        const inp = x_atual.concat(this.estado_anterior);
+        // Ajusta o tamanho da entrada para n_in (completa com zeros se necessário)
+        const entrada = x_atual.slice(0, this.n_in);
+        while (entrada.length < this.n_in) entrada.push(0);
+        const inp = entrada.concat(this.estado_anterior);
         const h = Array(this.n_hid).fill(0);
         for (let i = 0; i < this.n_hid; i++) {
             let sum = this.B_h[i];
@@ -167,16 +176,14 @@ class SistemaNervosoCentral {
 
     adaptar_realtime(alvo_ideal) {
         if (!this.cache) return;
-        this.t++;
+        this.t++;  // incrementa mesmo que o cache exista
         const { inp, h, y } = this.cache;
         const lr = this.lr;
         const beta1 = 0.9, beta2 = 0.999, eps = 1e-8;
-        const corr1 = 1 - Math.pow(beta1, this.t);
-        const corr2 = 1 - Math.pow(beta2, this.t);
+        const corr1 = Math.max(1 - Math.pow(beta1, this.t), 1e-8);
+        const corr2 = Math.max(1 - Math.pow(beta2, this.t), 1e-8);
 
-        // deltas de saída
-        const delta_y = y.map((yi, i) => (yi - alvo_ideal[i]) * yi * (1 - yi));
-        // deltas ocultos
+        const delta_y = y.map((yi, i) => (yi - (alvo_ideal[i] || 0)) * yi * (1 - yi));
         const delta_h = Array(this.n_hid).fill(0);
         for (let j = 0; j < this.n_hid; j++) {
             let sum = 0;
@@ -184,24 +191,22 @@ class SistemaNervosoCentral {
             delta_h[j] = sum * h[j] * (1 - h[j]);
         }
 
-        // Atualiza Wy, By
         for (let i = 0; i < this.n_out; i++) {
             for (let j = 0; j < this.n_hid; j++) {
                 const grad = delta_y[i] * h[j];
                 this.adam_M_Wy[i][j] = beta1 * this.adam_M_Wy[i][j] + (1 - beta1) * grad;
                 this.adam_V_Wy[i][j] = beta2 * this.adam_V_Wy[i][j] + (1 - beta2) * (grad * grad);
-                this.W_y[i][j] -= lr * (this.adam_M_Wy[i][j] / corr1) / (Math.sqrt(this.adam_V_Wy[i][j] / corr2) + eps);
+                this.W_y[i][j] -= lr * (this.adam_M_Wy[i][j] / corr1) / (Math.sqrt(Math.abs(this.adam_V_Wy[i][j]) / corr2) + eps);
             }
             this.B_y[i] -= lr * delta_y[i];
         }
 
-        // Atualiza Wh, Bh
         for (let i = 0; i < this.n_hid; i++) {
             for (let j = 0; j < inp.length; j++) {
                 const grad = delta_h[i] * inp[j];
                 this.adam_M_Wh[i][j] = beta1 * this.adam_M_Wh[i][j] + (1 - beta1) * grad;
                 this.adam_V_Wh[i][j] = beta2 * this.adam_V_Wh[i][j] + (1 - beta2) * (grad * grad);
-                this.W_h[i][j] -= lr * (this.adam_M_Wh[i][j] / corr1) / (Math.sqrt(this.adam_V_Wh[i][j] / corr2) + eps);
+                this.W_h[i][j] -= lr * (this.adam_M_Wh[i][j] / corr1) / (Math.sqrt(Math.abs(this.adam_V_Wh[i][j]) / corr2) + eps);
             }
             this.B_h[i] -= lr * delta_h[i];
         }
@@ -235,7 +240,7 @@ class SistemaNervosoCentral {
 }
 
 // ==================================================================
-// 🧬 DRIVE SOMÁTICO
+// 🧬 DRIVE SOMÁTICO (mantido igual)
 // ==================================================================
 class DriveSomático {
     constructor() {
@@ -266,7 +271,7 @@ class DriveSomático {
 }
 
 // ==================================================================
-// 🔍 SISTEMA DEEPY
+// 🔍 SISTEMA DEEPY (mantido igual)
 // ==================================================================
 class SistemaDeepy {
     constructor(raridade) {
@@ -305,7 +310,7 @@ class SistemaDeepy {
 }
 
 // ==================================================================
-// 🌿 ORGANISMO SOBERANO v31.1
+// 🌿 ORGANISMO SOBERANO v31.1 (refinado)
 // ==================================================================
 class OrganismoSoberano {
     constructor() {
@@ -315,7 +320,7 @@ class OrganismoSoberano {
 
         this.mapa_nd = {};
         this.l2_episodes = [];
-        this.neuronios = {}; // objeto com arrays
+        this.neuronios = {};
         this.raridade = new Map();
         this.history = [];
         this.fatigue = new Map();
@@ -356,9 +361,10 @@ class OrganismoSoberano {
 
         // 2. Córtex e SNC
         const chaves_emocao = ["amor", "prazer", "tristeza", "raiva"];
-        const p_real = chaves_emocao.map(k => this.soma.eixos[k]);
+        const p_real = chaves_emocao.map(k => this.soma.eixos[k] || 0.1);
         const q_int = this.snc.estado_anterior.slice(0, 4);
-        const { estado: estado_em, ciclos, confusao: dkl } = this.cortex.processar_reflexao(p_real, q_int);
+        const { estado: estado_em, ciclos, confusao } = this.cortex.processar_reflexao(p_real, q_int);
+        const dkl = confusao; // mantém nome original
         const entrada_snc = [...estado_em, impacto, (this.soma.vm + 90) / 45];
         const volicao = this.snc.pulsar_vontade(entrada_snc);
         const modo_idx = volicao.indexOf(Math.max(...volicao));
@@ -397,11 +403,11 @@ class OrganismoSoberano {
                 .slice(0, amostra);
         }
 
-        // 5. Scoring
+        // 5. Scoring (proteção adicional contra episódios sem vetor)
         const scored = [];
         for (const idx of candidatos) {
             const ep = this.l2_episodes[idx];
-            if (this.history.includes(ep.t)) continue;
+            if (!ep || !ep.v || this.history.includes(ep.t)) continue;
             const ressonancia = KernelRessonante.tsallis_match(v_in, ep.v);
             const foco = KernelRessonante.dot(this.ctx_foco, ep.v);
             const fadiga = this.fatigue.get(ep.t) || 0;
@@ -412,8 +418,8 @@ class OrganismoSoberano {
         const melhor = scored.length ? scored[0].idx : Math.floor(Math.random() * this.l2_episodes.length);
         const res = this.l2_episodes[melhor]?.t || "...";
 
-        // 6. Aprendizado SNC
-        if (dkl < 0.45) {
+        // 6. Aprendizado SNC (garante que dkl é um número)
+        if (isFinite(dkl) && dkl < 0.45) {
             const alvo = [0, 0, 0];
             alvo[modo_idx] = 1;
             this.snc.adaptar_realtime(alvo);
@@ -422,15 +428,17 @@ class OrganismoSoberano {
         this.history.push(res);
         if (this.history.length > 20) this.history.shift();
         this.fatigue.set(res, (this.fatigue.get(res) || 0) + 10);
-        for (const [k, v] of this.fatigue.entries()) this.fatigue.set(k, v * 0.65);
+        for (const [k, v] of this.fatigue.entries()) {
+            this.fatigue.set(k, v * 0.65);
+        }
 
         const dt = performance.now() - t0;
-        console.log(` ⚛️ [SNC t:${this.snc.t}] Pensou ${ciclos} Ciclos (DKL:${dkl.toFixed(2)}) | ${dt.toFixed(1)}ms`);
+        const dklDisplay = isFinite(dkl) ? dkl.toFixed(2) : "0.00";
+        console.log(` ⚛️ [SNC t:${this.snc.t}] Pensou ${ciclos} Ciclos (DKL:${dklDisplay}) | ${dt.toFixed(1)}ms`);
         return res;
     }
 
     boot() {
-        // Carrega modelo principal
         if (fs.existsSync(this.path_bin)) {
             try {
                 const data = JSON.parse(fs.readFileSync(this.path_bin, 'utf-8'));
@@ -447,7 +455,6 @@ class OrganismoSoberano {
                 this.ledger = new Set(JSON.parse(fs.readFileSync(this.path_ledger, 'utf-8')));
             } catch (e) { /* vazio */ }
         }
-        // Treinamento com arquivos
         for (const arq of this.auto_train_files) {
             if (fs.existsSync(arq)) {
                 const conteudo = fs.readFileSync(arq, 'utf-8');
@@ -459,7 +466,6 @@ class OrganismoSoberano {
                 }
             }
         }
-        // Reconstrói índices neuronais
         this.neuronios = {};
         for (let i = 0; i < this.l2_episodes.length; i++) {
             const ep = this.l2_episodes[i];
@@ -531,7 +537,7 @@ class OrganismoSoberano {
 // ==================================================================
 // EXECUÇÃO PRINCIPAL
 // ==================================================================
-console.log("🧬 Iniciando Organismo Soberano v31.1...");
+console.log("🧬 Iniciando Organismo Soberano v31.1 (refinado)...");
 const org = new OrganismoSoberano();
 org.boot();
 console.log(`🧠: ${org.despertar()}`);
