@@ -1,0 +1,43 @@
+Para compilar e executar:
+
+    Instale o Kotlin (se não tiver):
+
+bash
+
+sudo apt install kotlin
+# ou baixe de https://kotlinlang.org/
+
+Compile:
+
+Coloque texto  na pasta do script kotlin
+
+private val autoTrainFiles = listOf("oi.txt", "amor.txt", "prazer.txt", "confusa.txt", "sentimento.txt")
+
+bash
+
+kotlinc Quintikus_ssml.kt -include-runtime -d OrganismoSoberano.jar
+
+    Execute:
+
+bash
+
+java -jar OrganismoSoberano.jar
+
+Ou execute diretamente com:
+bash
+
+kotlin OrganismoSoberano_v31.kt
+
+Observações:
+
+    O código usa kotlinx.coroutines (não estritamente necessário para esta versão, mas útil para expansões futuras)
+
+    A serialização usa ObjectOutputStream (equivalente ao Pickle do Python)
+
+    O MessageDigest substitui o hashlib
+
+    Para compilar, certifique-se de ter o JDK 11+ instalado
+
+Agora você tem o Organismo Soberano rodando em Kotlin, comandante! 🧬
+
+
