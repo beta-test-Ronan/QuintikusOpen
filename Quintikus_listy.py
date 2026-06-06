@@ -6,7 +6,7 @@ Sistema de classificação entrópica com geometria triangular,
 DNA entrópico linear e predição de objetos em imagens.
 
 Autor: Arquiteto Ronan & Soldado DeepN1
-
+Versão: 1.2 - Ultra PPM Optimization (Binary P6 Read/Write)
 """
 
 import os
@@ -281,7 +281,7 @@ class ConversorUniversal:
     
     @staticmethod
     def _ler_ppm(caminho: str) -> Tuple[List[int], int, int]:
-        """Leitor de PPM puro (fallback quando PIL não disponível)"""
+        """Leitor de PPM puro (fallback quando PIL não disponível) - ULTRA OTIMIZADO (P3 e P6)"""
         with open(caminho, 'rb') as f:
             linha = f.readline().decode('ascii').strip()
             if not linha.startswith('P'):
@@ -305,45 +305,47 @@ class ConversorUniversal:
             maxval = int(linha)
             
             if formato == 'P3':
-                dados = []
-                for linha in f:
-                    if linha.startswith(b'#'):
-                        continue
-                    dados.extend([int(x) for x in linha.split()])
+                # P3: Formato Texto (ASCII). Otimizado usando RE para ignorar comentários internos.
+                conteudo = f.read()
+                conteudo = re.sub(b'#.*?\n', b' ', conteudo)
+                dados = [int(x) for x in conteudo.split()]
                 
                 if len(dados) != largura * altura * 3:
                     raise ValueError("Número de pixels inconsistente")
                 
-                pixels = []
-                for i in range(0, len(dados), 3):
-                    cinza = ConversorUniversal._rgb_para_cinza(dados[i:i+3])
-                    if maxval != 255:
-                        cinza = int(cinza * 255 / maxval)
-                    pixels.append(cinza)
+                # Conversão RGB -> Cinza ultra rápida em uma única iteração com zip
+                r_iter = iter(dados)
+                if maxval == 255:
+                    pixels = [int(0.299 * r + 0.587 * g + 0.114 * b) for r, g, b in zip(r_iter, r_iter, r_iter)]
+                else:
+                    fator = 255 / maxval
+                    pixels = [int((0.299 * r + 0.587 * g + 0.114 * b) * fator) for r, g, b in zip(r_iter, r_iter, r_iter)]
+                    
             elif formato == 'P6':
+                # P6: Formato Binário. Leitura direta de blocos de bytes e zip de C-speed.
                 dados = f.read()
                 if len(dados) != largura * altura * 3:
                     raise ValueError("Tamanho de dados binários incorreto")
-                pixels = []
-                for i in range(0, len(dados), 3):
-                    r, g, b = dados[i], dados[i+1], dados[i+2]
-                    cinza = ConversorUniversal._rgb_para_cinza([r, g, b])
-                    if maxval != 255:
-                        cinza = int(cinza * 255 / maxval)
-                    pixels.append(cinza)
+                
+                r_iter = iter(dados)
+                if maxval == 255:
+                    pixels = [int(0.299 * r + 0.587 * g + 0.114 * b) for r, g, b in zip(r_iter, r_iter, r_iter)]
+                else:
+                    fator = 255 / maxval
+                    pixels = [int((0.299 * r + 0.587 * g + 0.114 * b) * fator) for r, g, b in zip(r_iter, r_iter, r_iter)]
             else:
                 raise ValueError(f"Formato não suportado: {formato}")
             
             return pixels, largura, altura
     
     @staticmethod
-    def _carregar_com_pil(caminho: str) -> Tuple[List[int], int, int]:
+    def _carregar_com_pil(caminho: str, redimensionar: bool = True) -> Tuple[List[int], int, int]:
         """Carrega imagem usando PIL (suporta JPG, PNG, etc.)"""
         if not TEM_PIL:
             raise RuntimeError("PIL não disponível")
         img = Image.open(caminho).convert('L')
         largura, altura = img.size
-        if largura > VETOR_DIM or altura > VETOR_DIM:
+        if redimensionar and (largura > VETOR_DIM or altura > VETOR_DIM):
             img.thumbnail((VETOR_DIM, VETOR_DIM), Image.Resampling.LANCZOS)
             largura, altura = img.size
         
@@ -356,12 +358,17 @@ class ConversorUniversal:
         return pixels, largura, altura
     
     @staticmethod
-    def _carregar_imagem(caminho: str) -> Tuple[List[int], int, int]:
-        """Carrega imagem (usa PIL se disponível, senão PPM)"""
+    def _carregar_imagem(caminho: str, redimensionar: bool = True) -> Tuple[List[int], int, int]:
+        """Carrega imagem (usa PIL se disponível, senão PPM) com opção de escala"""
         if TEM_PIL and not caminho.lower().endswith('.ppm'):
-            return ConversorUniversal._carregar_com_pil(caminho)
+            return ConversorUniversal._carregar_com_pil(caminho, redimensionar)
         else:
-            return ConversorUniversal._ler_ppm(caminho)
+            pixels, largura, altura = ConversorUniversal._ler_ppm(caminho)
+            # OTIMIZAÇÃO CRÍTICA: Redimensiona PPM na carga para evitar lentidão analítica de pixels gigantes
+            if redimensionar and (largura > VETOR_DIM or altura > VETOR_DIM):
+                pixels = ConversorUniversal._redimensionar_pixels(pixels, largura, altura, VETOR_DIM, VETOR_DIM)
+                largura, altura = VETOR_DIM, VETOR_DIM
+            return pixels, largura, altura
     
     @staticmethod
     def _redimensionar_pixels(pixels: List[int], largura_orig: int, altura_orig: int,
@@ -433,8 +440,8 @@ class ConversorUniversal:
         return math.tanh(abs(num)/100)
     
     def converter_imagem(self, caminho: str) -> Dict[str, Any]:
-        """Converte imagem e extrai todas as métricas"""
-        pixels, largura, altura = self._carregar_imagem(caminho)
+        """Converte imagem e extrai todas as métricas em baixa resolução uniforme"""
+        pixels, largura, altura = self._carregar_imagem(caminho, redimensionar=True)
         
         pixels_redim = self._redimensionar_pixels(pixels, largura, altura, VETOR_DIM, VETOR_DIM)
         vetor = [p / 255.0 for p in pixels_redim]
@@ -689,12 +696,13 @@ class VisualizadorObjetos:
         return novos_pixels
     
     def prever_e_marcar(self, metricas: Dict[str, Any], caminho_original: str) -> Tuple[str, float, List[int]]:
-        """Prediz a classe e retorna os pixels marcados para a imagem original"""
+        """Prediz a classe e retorna os pixels marcados para a imagem original em alta resolução"""
         tag, score, conf = self.classificador.prever(metricas)
         direcao = self.classificador.rada_direcao(metricas)
         
         conversor = ConversorUniversal()
-        pixels, largura, altura = conversor._carregar_imagem(caminho_original)
+        # OTIMIZAÇÃO: Desativa escala na carga para obter os pixels em alta resolução original
+        pixels, largura, altura = conversor._carregar_imagem(caminho_original, redimensionar=False)
         
         bbox = self.detectar_regiao(pixels, largura, altura, direcao)
         pixels_marcados = self.marcar_regiao(pixels, largura, altura, bbox, cor=255)
@@ -730,12 +738,14 @@ class QuintikusListy:
         return tag, score, conf
     
     def prever_e_marcar(self, caminho: str) -> Tuple[str, float, str]:
-        """Prediz, marca a região e retorna a imagem salva marcada"""
+        """Prediz, marca a região e retorna a imagem salva marcada em formato original"""
+        # Extrai métricas em 32x32 rápido
         metricas = self.conversor.converter_imagem(caminho)
         tag, conf, pixels_marcados = self.visualizador.prever_e_marcar(metricas, caminho)
         
         saida = caminho.replace('.', '_marcado.')
-        pixels, largura, altura = self.conversor._carregar_imagem(caminho)
+        # Carrega imagem em alta resolução sem redimensionar para o salvamento final
+        pixels, largura, altura = self.conversor._carregar_imagem(caminho, redimensionar=False)
         self._salvar_imagem_original(saida, pixels_marcados, largura, altura, caminho)
         
         return tag, conf, saida
@@ -752,17 +762,17 @@ class QuintikusListy:
             self._salvar_ppm(caminho, pixels, largura, altura)
             
     def _salvar_ppm(self, caminho: str, pixels: List[int], largura: int, altura: int):
-        """Salva pixels no formato PPM (P3)"""
-        with open(caminho, 'w') as f:
-            f.write("P3\n")
-            f.write(f"{largura} {altura}\n")
-            f.write("255\n")
-            for y in range(altura):
-                linha = []
-                for x in range(largura):
-                    p = pixels[y * largura + x]
-                    linha.append(f"{p} {p} {p}")
-                f.write(" ".join(linha) + "\n")
+        """Salva pixels no formato PPM binário (P6) de forma ultra rápida"""
+        with open(caminho, 'wb') as f:
+            f.write(f"P6\n{largura} {altura}\n255\n".encode('ascii'))
+            dados = bytearray(largura * altura * 3)
+            idx = 0
+            for p in pixels:
+                dados[idx] = p
+                dados[idx+1] = p
+                dados[idx+2] = p
+                idx += 3
+            f.write(dados)
     
     def treinar_lote(self, pasta: str, tag: str):
         """Treina com todas as imagens de uma pasta"""
