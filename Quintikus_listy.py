@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quintikus Listy Perceptivo com RADA Militar
+Quintikus Listy Perceptivo com RADA Militar e LAMINY
 Sistema de classificação entrópica com geometria triangular, 
-DNA entrópico linear e predição de objetos em imagens.
+DNA entrópico linear, partição espacial de pixels e predição não-linear Laminy.
 
 Autor: Arquiteto Ronan & Soldado DeepN1
-Versão: 1.2 - Ultra PPM Optimization (Binary P6 Read/Write)
+Versão: 1.4 - Bug Fix & Non-Linear Integration
 """
 
 import os
@@ -47,12 +47,15 @@ class DNAEntropico:
     baseada em entropia, geometria e momentos estatísticos.
     """
     def __init__(self, entropia: float, geometria: float, momentos: List[float], 
-                 rada: List[float], linearidade: float):
+                 rada: List[float], linearidade: float,
+                 entropia_dentro: float = 0.0, entropia_fora: float = 0.0):
         self.entropia = entropia
         self.geometria = geometria
         self.momentos = momentos  # momentos de Hu simplificados
         self.rada = rada          # vetor RADA (12 ângulos)
         self.linearidade = linearidade
+        self.entropia_dentro = entropia_dentro
+        self.entropia_fora = entropia_fora
         self._hash = None
     
     def to_binario(self) -> str:
@@ -93,7 +96,7 @@ class DNAEntropico:
         return hex(int(bin_str, 2))[2:].upper()
     
     def distancia(self, outro: 'DNAEntropico') -> float:
-        """Distância de Hamming entre os DNAs binários"""
+        """Distância de Hamming entre os DNAs binários (fallback clássico)"""
         bin1 = self.to_binario()
         bin2 = outro.to_binario()
         max_len = max(len(bin1), len(bin2))
@@ -441,11 +444,31 @@ class ConversorUniversal:
     
     def converter_imagem(self, caminho: str) -> Dict[str, Any]:
         """Converte imagem e extrai todas as métricas em baixa resolução uniforme"""
+        # Sempre redimensionar ao extrair métricas de treino/predição para eficiência extrema
         pixels, largura, altura = self._carregar_imagem(caminho, redimensionar=True)
         
         pixels_redim = self._redimensionar_pixels(pixels, largura, altura, VETOR_DIM, VETOR_DIM)
         vetor = [p / 255.0 for p in pixels_redim]
         
+        # OTIMIZAÇÃO LAMINY: Divisão espacial entre pixels de dentro (Centro) e fora (Periferia)
+        pixels_dentro = []
+        pixels_fora = []
+        for y in range(VETOR_DIM):
+            for x in range(VETOR_DIM):
+                idx = y * VETOR_DIM + x
+                # Região Central 16x16 (entre índices 8 e 23 em x e y)
+                if 8 <= x < 24 and 8 <= y < 24:
+                    pixels_dentro.append(pixels_redim[idx])
+                else:
+                    pixels_fora.append(pixels_redim[idx])
+                    
+        hist_dentro = self._histograma(pixels_dentro)
+        entropia_dentro = self._entropia(hist_dentro, len(pixels_dentro))
+        
+        hist_fora = self._histograma(pixels_fora)
+        entropia_fora = self._entropia(hist_fora, len(pixels_fora))
+        
+        # Histograma e entropia globais
         hist = self._histograma(pixels)
         entropia = self._entropia(hist, len(pixels))
         
@@ -468,7 +491,9 @@ class ConversorUniversal:
             'momentos_tri': momentos_tri,
             'rada': rada,
             'linearidade': linearidade,
-            'dimensoes': (largura, altura)
+            'dimensoes': (largura, altura),
+            'entropia_dentro': entropia_dentro,
+            'entropia_fora': entropia_fora
         }
     
     def _calcular_linearidade_entropica(self, pixels: List[int], largura: int, altura: int) -> float:
@@ -512,6 +537,70 @@ class ConversorUniversal:
         return abs((n*sxy - sx*sy) / math.sqrt(denom))
 
 # ==================================================================
+# 📐 CLASSE: LAMINY (Predição Ponderada Não-Linear)
+# ==================================================================
+class Laminy:
+    """
+    Laminy Predictor: Realiza comparação de padrões geométrico-estatísticos
+    usando cologaritmo de penalidade exponencial para diferenças de entropia 
+    interna/externa (espaço dual) e normalização geométrica linear.
+    """
+    
+    @staticmethod
+    def cologaritmo_dist(a: float, b: float, eps: float = 1e-9) -> float:
+        """
+        Calcula a penalidade não-linear usando cologaritmo: -log2(1.0 - diff).
+        Aproxima-se de zero para valores idênticos e escala de forma não-linear
+        para variações maiores, agindo como um penalizador de alta sensibilidade.
+        """
+        diff = abs(a - b)
+        diff_clip = max(0.0, min(1.0, diff))
+        return -math.log2(1.0 - diff_clip + eps)
+
+    @classmethod
+    def comparar(cls, dna1: DNAEntropico, dna2: DNAEntropico) -> float:
+        """
+        Compara dois DNAs combinando a entropia interna/externa (espaço dual Laminy)
+        com as outras métricas usando cologaritmo e normalização geométrica.
+        Retorna a similaridade ponderada não-linear de 0.0 a 1.0.
+        """
+        # 1. Distâncias não-lineares da partição de pixels de dentro e de fora (Laminy Core)
+        # Normalização teórica dividindo por 8.0 (limite superior da entropia de Shannon de 256 tons)
+        d_dentro = cls.cologaritmo_dist(dna1.entropia_dentro / 8.0, dna2.entropia_dentro / 8.0)
+        d_fora = cls.cologaritmo_dist(dna1.entropia_fora / 8.0, dna2.entropia_fora / 8.0)
+        
+        # 2. Distâncias não-lineares dos atributos globais do DNA
+        d_entropia_global = cls.cologaritmo_dist(dna1.entropia / 8.0, dna2.entropia / 8.0)
+        d_linearidade = cls.cologaritmo_dist(dna1.linearidade, dna2.linearidade)
+        
+        # Distância média cologarítmica dos bins do RADA
+        d_rada = sum(cls.cologaritmo_dist(r1, r2) for r1, r2 in zip(dna1.rada, dna2.rada)) / len(dna1.rada)
+        
+        # Distância média dos momentos estatísticos/Hu
+        d_momentos = sum(cls.cologaritmo_dist(m1, m2) for m1, m2 in zip(dna1.momentos, dna2.momentos)) / len(dna1.momentos)
+        
+        # Soma ponderada não-linear (Dimensão Ponderada)
+        # Damos pesos maiores para o espaço dual de entropia que caracteriza o núcleo do Laminy
+        soma_penalidades = (
+            3.0 * d_dentro + 
+            3.0 * d_fora + 
+            1.0 * d_entropia_global + 
+            1.0 * d_linearidade + 
+            1.0 * d_rada + 
+            1.0 * d_momentos
+        )
+        
+        # 3. Normalização Geométrica Linear
+        # O fator geométrico linear baseado no aspecto do quadro suaviza ou acentua a similaridade final
+        fator_geometrico_linear = 1.0 + abs(dna1.geometria - dna2.geometria)
+        
+        # Mapeamento do cologaritmo acumulado de volta ao espaço contínuo [0, 1]
+        # Usando decaimento exponencial amortecido pelo fator geométrico
+        similaridade = math.exp(-soma_penalidades / (10.0 * fator_geometrico_linear))
+        
+        return similaridade
+
+# ==================================================================
 # 🧬 CLASSIFICADOR COM DNA ENTÓPICO
 # ==================================================================
 class ClassificadorDNA:
@@ -531,7 +620,9 @@ class ClassificadorDNA:
             geometria=metricas['geometria'],
             momentos=momentos,
             rada=metricas.get('rada', [0]*12),
-            linearidade=metricas.get('linearidade', 0)
+            linearidade=metricas.get('linearidade', 0),
+            entropia_dentro=metricas.get('entropia_dentro', 0.0),
+            entropia_fora=metricas.get('entropia_fora', 0.0)
         )
     
     def adicionar(self, tag: str, metricas: Dict[str, Any]):
@@ -541,7 +632,7 @@ class ClassificadorDNA:
     
     def prever(self, metricas: Dict[str, Any]) -> Tuple[str, float, float]:
         """
-        Prediz a classe da imagem usando RADA + DNA.
+        Prediz a classe da imagem usando similaridade não-linear contínua LAMINY.
         Retorna (tag, similaridade_max, confianca_softmax)
         """
         dna_entrada = self.criar_dna(metricas)
@@ -550,9 +641,9 @@ class ClassificadorDNA:
         for tag, exemplos in self.classes.items():
             if not exemplos:
                 continue
-            dist_media = sum(dna_entrada.distancia(ex) for ex in exemplos) / len(exemplos)
-            similaridade = 1.0 - dist_media
-            scores.append((tag, similaridade))
+            # Utiliza o motor LAMINY de comparação de espaço dual não-linear
+            sim_media = sum(Laminy.comparar(dna_entrada, ex) for ex in exemplos) / len(exemplos)
+            scores.append((tag, sim_media))
         
         if not scores:
             return "desconhecido", 0.0, 0.0
@@ -560,7 +651,8 @@ class ClassificadorDNA:
         scores.sort(key=lambda x: x[1], reverse=True)
         tag_melhor, melhor_score = scores[0]
         
-        exp_scores = [math.exp(s*5) for _, s in scores]
+        # Softmax ajustado para a escala de similaridade contínua do Laminy (fator 10)
+        exp_scores = [math.exp(s*10) for _, s in scores]
         total = sum(exp_scores)
         confianca = exp_scores[0] / total if total > 0 else 0
         
@@ -580,9 +672,9 @@ class ClassificadorDNA:
         return angulos[idx_max]
     
     def salvar(self, path: str):
-        """Salva o classificador em disco"""
+        """Salva o classificador em disco com as novas métricas dual-space"""
         dados = {
-            'classes': {tag: [(dna.entropia, dna.geometria, dna.momentos, dna.rada, dna.linearidade) 
+            'classes': {tag: [(dna.entropia, dna.geometria, dna.momentos, dna.rada, dna.linearidade, dna.entropia_dentro, dna.entropia_fora) 
                               for dna in exemplos] 
                         for tag, exemplos in self.classes.items()},
             'historico': self.historico
@@ -591,15 +683,22 @@ class ClassificadorDNA:
             pickle.dump(dados, f)
     
     def carregar(self, path: str):
-        """Carrega o classificador do disco"""
+        """Carrega o classificador do disco com retrocompatibilidade para bases antigas"""
         if os.path.exists(path):
             try:
                 with open(path, 'rb') as f:
                     dados = pickle.load(f)
                 self.classes.clear()
                 for tag, exemplos in dados.get('classes', {}).items():
-                    for (ent, geo, mom, rada, lin) in exemplos:
-                        dna = DNAEntropico(ent, geo, mom, rada, lin)
+                    for ex in exemplos:
+                        if len(ex) == 7:
+                            (ent, geo, mom, rada, lin, ent_d, ent_f) = ex
+                        else:
+                            # Retrocompatibilidade com dados de 5 atributos
+                            (ent, geo, mom, rada, lin) = ex[:5]
+                            ent_d, ent_f = 0.0, 0.0
+                        
+                        dna = DNAEntropico(ent, geo, mom, rada, lin, ent_d, ent_f)
                         self.classes[tag].append(dna)
                 self.historico = dados.get('historico', [])
             except Exception as e:
@@ -810,10 +909,9 @@ class QuintikusListy:
 # ==================================================================
 def main():
     print("=" * 60)
-    print("QUINTIKUS LISTY PERCEPTIVO com RADA Militar")
+    print("QUINTIKUS LISTY PERCEPTIVO com RADA Militar e LAMINY")
     print("Classificação por DNA Entrópico + Geometria Triangular")
-    print("=" * 60)
-    print()
+    print("============================================================\n")
     
     sistema = QuintikusListy()
     
