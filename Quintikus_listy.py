@@ -6,7 +6,7 @@ Sistema de classificação entrópica com geometria triangular,
 DNA entrópico linear e predição de objetos em imagens.
 
 Autor: Arquiteto Ronan & Soldado DeepN1
-Versão: 1.0 - RADA Integration
+
 """
 
 import os
@@ -57,7 +57,6 @@ class DNAEntropico:
     
     def to_binario(self) -> str:
         """Converte DNA para string binária (DNA map bin)"""
-        # Normaliza cada componente para 0-255 e depois para 8 bits
         partes = []
         
         # Entropia normalizada (0-8) -> 8 bits
@@ -89,7 +88,6 @@ class DNAEntropico:
     def to_hex(self) -> str:
         """Converte DNA para hexadecimal (para visualização)"""
         bin_str = self.to_binario()
-        # Padding para múltiplo de 4
         if len(bin_str) % 4 != 0:
             bin_str += "0" * (4 - len(bin_str) % 4)
         return hex(int(bin_str, 2))[2:].upper()
@@ -98,7 +96,6 @@ class DNAEntropico:
         """Distância de Hamming entre os DNAs binários"""
         bin1 = self.to_binario()
         bin2 = outro.to_binario()
-        # Pad para mesmo tamanho
         max_len = max(len(bin1), len(bin2))
         bin1 = bin1.ljust(max_len, '0')
         bin2 = bin2.ljust(max_len, '0')
@@ -121,21 +118,18 @@ class GeometriaTriangular:
         if len(pixels) < n_pontos:
             return [(0, 0)] * n_pontos
         
-        # Calcular entropia local por bloco
         bloco_w = max(1, largura // 8)
         bloco_h = max(1, altura // 8)
         
         pontos = []
         for y in range(0, altura - bloco_h + 1, bloco_h):
             for x in range(0, largura - bloco_w + 1, bloco_w):
-                # Extrair bloco
                 bloco = []
                 for j in range(bloco_h):
                     for i in range(bloco_w):
                         idx = (y + j) * largura + (x + i)
                         if idx < len(pixels):
                             bloco.append(pixels[idx])
-                # Entropia do bloco
                 if bloco:
                     hist = [0] * 256
                     for p in bloco:
@@ -148,7 +142,6 @@ class GeometriaTriangular:
                             ent -= p * math.log2(p)
                     pontos.append((ent, x + bloco_w//2, y + bloco_h//2))
         
-        # Ordena por entropia e pega os N maiores
         pontos.sort(reverse=True, key=lambda p: p[0])
         return [(p[1], p[2]) for p in pontos[:n_pontos]]
     
@@ -188,15 +181,13 @@ class GeometriaTriangular:
         if len(pontos) < 3:
             return [0.0, 0.0, 0.0, 0.0]
         
-        # Usa os primeiros 3 pontos
         p1, p2, p3 = pontos[0], pontos[1], pontos[2]
         
         area = GeometriaTriangular.area_triangulo(p1, p2, p3)
         perimetro = GeometriaTriangular.perimetro_triangulo(p1, p2, p3)
         angulos = GeometriaTriangular.angulos_triangulo(p1, p2, p3)
         
-        # Momentos: área normalizada, perímetro normalizado, ângulos
-        max_area = 1024 * 768  # área máxima imaginável
+        max_area = 1024 * 768
         return [area / max_area, perimetro / max(perimetro, 1), angulos[0], angulos[1]]
 
 # ==================================================================
@@ -233,18 +224,15 @@ class RADAMilitar:
         angulo = math.degrees(math.atan2(gy, gx)) % 360
         mag = math.sqrt(gx*gx + gy*gy)
         
-        # Encontra dois ângulos mais próximos
         idx = int((angulo / (360 / self.n_angulos)) % self.n_angulos)
         idx_next = (idx + 1) % self.n_angulos
         
         ang_centro = self.angulos[idx]
         ang_centro_next = self.angulos[idx_next] if idx_next > 0 else 360
         
-        # Distância angular
         dist = abs(angulo - ang_centro)
         dist_total = abs(ang_centro_next - ang_centro) or 1
         
-        # Distribuição bilinear
         peso1 = 1 - (dist / dist_total)
         peso2 = dist / dist_total
         
@@ -252,10 +240,7 @@ class RADAMilitar:
     
     def calcular(self, pixels: List[int], largura: int, altura: int) -> List[float]:
         """Calcula vetor RADA completo para a imagem"""
-        # Acumuladores para cada ângulo
         acumuladores = [0.0] * self.n_angulos
-        
-        # Amostragem densa (cada 5 pixels)
         step = max(1, min(largura, altura) // 20)
         
         for y in range(1, altura-1, step):
@@ -265,7 +250,6 @@ class RADAMilitar:
                 for idx, mag in contrib.items():
                     acumuladores[idx] += mag
         
-        # Aplica softmax para normalização
         return self._softmax(acumuladores)
     
     def _softmax(self, vetor: List[float]) -> List[float]:
@@ -299,13 +283,11 @@ class ConversorUniversal:
     def _ler_ppm(caminho: str) -> Tuple[List[int], int, int]:
         """Leitor de PPM puro (fallback quando PIL não disponível)"""
         with open(caminho, 'rb') as f:
-            # Ler cabeçalho
             linha = f.readline().decode('ascii').strip()
             if not linha.startswith('P'):
                 raise ValueError("Formato PPM inválido")
             formato = linha
             
-            # Pular comentários
             linha = f.readline().decode('ascii').strip()
             while linha.startswith('#'):
                 linha = f.readline().decode('ascii').strip()
@@ -317,13 +299,11 @@ class ConversorUniversal:
             
             largura, altura = int(dimensoes[0]), int(dimensoes[1])
             
-            # Máximo valor
             linha = f.readline().decode('ascii').strip()
             while linha.startswith('#'):
                 linha = f.readline().decode('ascii').strip()
             maxval = int(linha)
             
-            # Ler dados
             if formato == 'P3':
                 dados = []
                 for linha in f:
@@ -363,11 +343,16 @@ class ConversorUniversal:
             raise RuntimeError("PIL não disponível")
         img = Image.open(caminho).convert('L')
         largura, altura = img.size
-        # Redimensionar para VETOR_DIM (opcional)
         if largura > VETOR_DIM or altura > VETOR_DIM:
             img.thumbnail((VETOR_DIM, VETOR_DIM), Image.Resampling.LANCZOS)
             largura, altura = img.size
-        pixels = list(img.getdata())
+        
+        # SUPORTE MODERNO DO PILLOW: Remove o Warning do getdata()
+        if hasattr(img, 'get_flattened_data'):
+            pixels = list(img.get_flattened_data())
+        else:
+            pixels = list(img.getdata())
+            
         return pixels, largura, altura
     
     @staticmethod
@@ -449,31 +434,23 @@ class ConversorUniversal:
     
     def converter_imagem(self, caminho: str) -> Dict[str, Any]:
         """Converte imagem e extrai todas as métricas"""
-        # Carregar
         pixels, largura, altura = self._carregar_imagem(caminho)
         
-        # Redimensionar para vetor
         pixels_redim = self._redimensionar_pixels(pixels, largura, altura, VETOR_DIM, VETOR_DIM)
         vetor = [p / 255.0 for p in pixels_redim]
         
-        # Histograma e entropia
         hist = self._histograma(pixels)
         entropia = self._entropia(hist, len(pixels))
         
-        # Geometria: proporção largura/altura
         geometria = min(largura/altura, altura/largura)
         
-        # Momentos estatísticos
         momentos = self._momentos_estatisticos(pixels)
         
-        # Geometria triangular (pontos de alta entropia)
         pontos = GeometriaTriangular.encontrar_pontos_entropia(pixels, largura, altura, 3)
         momentos_tri = GeometriaTriangular.momentos_geometricos(pontos)
         
-        # RADA Militar
         rada = RADAMilitar().calcular(pixels, largura, altura)
         
-        # Linearidade entrópica (variação da entropia por bloco)
         linearidade = self._calcular_linearidade_entropica(pixels, largura, altura)
         
         return {
@@ -514,7 +491,6 @@ class ConversorUniversal:
         if len(entropias) < 2:
             return 0.0
         
-        # Correlação linear entre índice e entropia
         n = len(entropias)
         x = list(range(n))
         sx = sum(x)
@@ -540,7 +516,6 @@ class ClassificadorDNA:
     
     def criar_dna(self, metricas: Dict[str, Any]) -> DNAEntropico:
         """Cria DNA entrópico a partir das métricas da imagem"""
-        # Combina momentos estatísticos e triangulares
         momentos = metricas.get('momentos', [0,0,0,0])[:2]
         momentos += metricas.get('momentos_tri', [0,0,0,0])[:2]
         
@@ -568,7 +543,6 @@ class ClassificadorDNA:
         for tag, exemplos in self.classes.items():
             if not exemplos:
                 continue
-            # Similaridade média com todos os exemplos da classe (distância invertida)
             dist_media = sum(dna_entrada.distancia(ex) for ex in exemplos) / len(exemplos)
             similaridade = 1.0 - dist_media
             scores.append((tag, similaridade))
@@ -576,16 +550,13 @@ class ClassificadorDNA:
         if not scores:
             return "desconhecido", 0.0, 0.0
         
-        # Ordena por similaridade
         scores.sort(key=lambda x: x[1], reverse=True)
         tag_melhor, melhor_score = scores[0]
         
-        # Softmax para confiança
-        exp_scores = [math.exp(s*5) for _, s in scores]  # temperatura 0.2
+        exp_scores = [math.exp(s*5) for _, s in scores]
         total = sum(exp_scores)
         confianca = exp_scores[0] / total if total > 0 else 0
         
-        # Registrar no histórico
         self.historico.append((tag_melhor, melhor_score))
         if len(self.historico) > 100:
             self.historico.pop(0)
@@ -636,18 +607,17 @@ class VisualizadorObjetos:
     def __init__(self, classificador: ClassificadorDNA):
         self.classificador = classificador
     
-    def detectar_regiao(self, pixels: List[int], largura: int, altura: int, 
+    def detectar_regiao(self, pixels: List[int], largura: int, height: int, 
                          direcao_rada: float) -> Tuple[int, int, int, int]:
         """
         Detecta a região do objeto baseado na direção RADA e entropia.
         Retorna (x, y, largura, altura) da bounding box.
         """
-        # Calcula mapa de entropia local
         bloco_w = max(1, largura // 10)
-        bloco_h = max(1, altura // 10)
+        bloco_h = max(1, height // 10)
         
         mapa_entropia = []
-        for y in range(0, altura - bloco_h + 1, bloco_h):
+        for y in range(0, height - bloco_h + 1, bloco_h):
             linha = []
             for x in range(0, largura - bloco_w + 1, bloco_w):
                 bloco = []
@@ -671,7 +641,6 @@ class VisualizadorObjetos:
                     linha.append(0)
             mapa_entropia.append(linha)
         
-        # Encontra região de maior entropia (onde provavelmente está o objeto)
         melhor_ent = -1
         melhor_pos = (0, 0)
         for y in range(len(mapa_entropia)):
@@ -680,8 +649,6 @@ class VisualizadorObjetos:
                     melhor_ent = mapa_entropia[y][x]
                     melhor_pos = (x * bloco_w, y * bloco_h)
         
-        # Ajusta bounding box baseado na direção RADA
-        # Converte direção para vetor
         rad = math.radians(direcao_rada)
         dx = int(math.cos(rad) * bloco_w * 2)
         dy = int(math.sin(rad) * bloco_h * 2)
@@ -689,7 +656,7 @@ class VisualizadorObjetos:
         x = max(0, melhor_pos[0] - abs(dx)//2)
         y = max(0, melhor_pos[1] - abs(dy)//2)
         w = min(largura - x, bloco_w * 3 + abs(dx))
-        h = min(altura - y, bloco_h * 3 + abs(dy))
+        h = min(height - y, bloco_h * 3 + abs(dy))
         
         return (x, y, w, h)
     
@@ -699,7 +666,6 @@ class VisualizadorObjetos:
         x, y, w, h = bbox
         novos_pixels = pixels.copy()
         
-        # Desenha borda (simples)
         for i in range(w):
             if y < altura and x+i < largura:
                 idx = y * largura + (x + i)
@@ -723,21 +689,14 @@ class VisualizadorObjetos:
         return novos_pixels
     
     def prever_e_marcar(self, metricas: Dict[str, Any], caminho_original: str) -> Tuple[str, float, List[int]]:
-        """Prediz a classe e retorna a imagem marcada"""
-        # Predição
+        """Prediz a classe e retorna os pixels marcados para a imagem original"""
         tag, score, conf = self.classificador.prever(metricas)
-        
-        # Direção RADA
         direcao = self.classificador.rada_direcao(metricas)
         
-        # Carregar pixels originais
         conversor = ConversorUniversal()
         pixels, largura, altura = conversor._carregar_imagem(caminho_original)
         
-        # Detectar região
         bbox = self.detectar_regiao(pixels, largura, altura, direcao)
-        
-        # Marcar região (cor 255 = branco)
         pixels_marcados = self.marcar_regiao(pixels, largura, altura, bbox, cor=255)
         
         return tag, conf, pixels_marcados
@@ -771,17 +730,27 @@ class QuintikusListy:
         return tag, score, conf
     
     def prever_e_marcar(self, caminho: str) -> Tuple[str, float, str]:
-        """Prediz, marca a região e retorna os pixels marcados"""
+        """Prediz, marca a região e retorna a imagem salva marcada"""
         metricas = self.conversor.converter_imagem(caminho)
         tag, conf, pixels_marcados = self.visualizador.prever_e_marcar(metricas, caminho)
         
-        # Salva imagem marcada (formato PPM)
         saida = caminho.replace('.', '_marcado.')
         pixels, largura, altura = self.conversor._carregar_imagem(caminho)
-        self._salvar_ppm(saida, pixels_marcados, largura, altura)
+        self._salvar_imagem_original(saida, pixels_marcados, largura, altura, caminho)
         
         return tag, conf, saida
     
+    def _salvar_imagem_original(self, caminho: str, pixels: List[int], 
+                                largura: int, altura: int, original: str):
+        """Salva a imagem marcada no mesmo formato da original (suporta JPG/PNG via PIL)"""
+        if TEM_PIL and not original.lower().endswith('.ppm'):
+            from PIL import Image
+            img_bytes = bytes(pixels)
+            img = Image.frombytes('L', (largura, altura), img_bytes)
+            img.save(caminho)
+        else:
+            self._salvar_ppm(caminho, pixels, largura, altura)
+            
     def _salvar_ppm(self, caminho: str, pixels: List[int], largura: int, altura: int):
         """Salva pixels no formato PPM (P3)"""
         with open(caminho, 'w') as f:
