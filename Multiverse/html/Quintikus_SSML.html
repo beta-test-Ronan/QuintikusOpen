@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Organismo Soberano v32.1 – ARQUINET Core Polido</title>
+<title>Organismo Soberano v32.2 – ARQUINET Core Polido (sem loop)</title>
 <style>
   body { font-family: monospace; background: #0a0a0a; color: #0f0; max-width: 800px; margin: auto; padding: 20px; }
   #chat { height: 400px; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; background: #000; }
@@ -15,7 +15,7 @@
 </style>
 </head>
 <body>
-<h1>🧬 Organismo Soberano v32.1 (ARQUINET Engine Fixes)</h1>
+<h1>🧬 Organismo Soberano v32.2 (ARQUINET Engine Repaired - sem loop)</h1>
 <div id="chat"></div>
 <div style="display:flex; gap:5px;">
   <input id="entrada" type="text" placeholder="Digite sua mensagem..." autofocus>
@@ -155,8 +155,6 @@ class SistemaDeepy {
   crivo(tokens) { if(!tokens.length) return {tem_merito:false,nivel:0}; const Q=tokens.length; let P=0; for(const t of tokens){ const f=this.raridade.get(t)||1; P+=1.5/(Math.log(f+1.2)+1e-5); } let xapr=0; for(const t of tokens)xapr+=this.freq.get(t)||0; xapr/=(Q+1e-5); return {tem_merito:xapr>= (Q/(P+1e-5))*0.08, nivel:xapr}; }
 }
 
-// ========== ATENÇÃO: FIXES ARQUINET NOVEL CORE ==========
-
 class RealPlay {
   static calcularCausalidade(condicao, emocao, peso, gravidadeSemantica) { return condicao + (emocao / (peso + 1e-5)) * gravidadeSemantica; }
   static calcularInercia(emocao, peso, entropiaPesoEmocional) { return (emocao * peso) / (entropiaPesoEmocional + 1e-5); }
@@ -164,7 +162,6 @@ class RealPlay {
 }
 
 class MapsTropic {
-  // FIX: Agora lê diretamente o mapa estruturado de eixos emocionais persistido no episódio
   static mapearEstado(episodes) {
     let acumulado = { amor: 0, prazer: 0, tristeza: 0, raiva: 0, count: 0 }; if (!episodes || !episodes.length) return acumulado;
     for(let i = 0; i < Math.min(episodes.length, 50); i++) {
@@ -179,7 +176,6 @@ class MapsTropic {
 }
 
 class SleepEmergenti {
-  // FIX: Usa o gerador semeado para manter o determinismo de ignição biológica
   static despertarComSentimentoAleatorio(episodes) {
     const mapa = MapsTropic.mapearEstado(episodes); const rand = rngGlobal.proximo();
     if (rand < 0.25) return { eixo: 'amor', valor: mapa.amor * 1.5 };
@@ -206,7 +202,6 @@ class EmergiCortex {
       let dist_L = 1 - KernelRessonante.tsallis_match(v_in, ep.v);
       let dist_S = 1 - KernelRessonante.dot(v_in, ep.v);
       
-      // FIX: dist_E calculada a partir do delta real Euclidiano entre os eixos somáticos persistidos vs eixos do SNC atual
       let dist_E = 0;
       if (ep.eixos) {
         for (const k of ['amor','prazer','tristeza','raiva']) { dist_E += Math.pow((ep.eixos[k] || 0) - (eixosAtuais[k] || 0), 2); }
@@ -224,7 +219,7 @@ class EmergiCortex {
   }
 }
 
-// ========== ORGANISMO CORE CORE ==========
+// ========== ORGANISMO SOBERANO (COM CORREÇÃO DE LOOP) ==========
 class OrganismoSoberano {
   constructor() {
     this.mapa_nd={}; this.l2_episodes=[]; this.neuronios={}; this.raridade=new Map();
@@ -251,7 +246,9 @@ class OrganismoSoberano {
     const chaves=["amor","prazer","tristeza","raiva"]; const p_real=chaves.map(k=>this.soma.eixos[k]||0.1); const q_int=this.snc.estado_anterior.slice(0,4);
     const {estado:estado_em,ciclos,confusao:dkl}=this.cortex.processar_reflexao(p_real,q_int);
     
-    const condicao_atual = (this.soma.vm + 90) / 45; const emocao_maxima = Math.max(...p_real); const peso_contextual = impacto * 2.0;
+    const condicao_atual = (this.soma.vm + 90) / 45; 
+    const emocao_maxima = Math.max(...p_real); 
+    const peso_contextual = impacto * 2.0;
     const gravidade_semantica = RealPlay.intensidadeGravidadeEnergetica(emocao_maxima, impacto, 0.85);
     const causalidade = RealPlay.calcularCausalidade(condicao_atual, emocao_maxima, peso_contextual, gravidade_semantica);
     const inercia = RealPlay.calcularInercia(emocao_maxima, peso_contextual, dkl);
@@ -259,10 +256,10 @@ class OrganismoSoberano {
     
     if (ciclos > 40 && dkl > 0.40) { this.subconsciente += 10; if (this.subconsciente > 50) this.burnout = true; } else { this.subconsciente = Math.max(0, this.subconsciente - 1); }
     
-    // FIX: limite_zero com piso de 0.01 fixado para impedir o esmagamento matemático do Campo APT
     const limite_zero = Math.max(0.01, Math.exp(-causalidade * (ciclos + 1)));
     
-    const entrada_snc=[...estado_em, inercia, causalidade]; const volicao=this.snc.pulsar_vontade(entrada_snc); const modo_idx=volicao.indexOf(Math.max(...volicao));
+    const entrada_snc=[...estado_em, inercia, causalidade]; const volicao=this.snc.pulsar_vontade(entrada_snc); 
+    const modo_idx=volicao.indexOf(Math.max(...volicao));
     
     let v_in={}; for (const t of u_toks) if (t in this.mapa_nd) { const vec=this.mapa_nd[t], peso=this._get_entropy(t); for (const k of Object.keys(vec)) v_in[k]=(v_in[k]||0)+vec[k]*peso; }
     v_in=KernelRessonante.normalize(v_in);
@@ -272,22 +269,25 @@ class OrganismoSoberano {
     if (!candidatos.length) {
        const amostra=Math.min(this.l2_episodes.length,150);
        candidatos=Array.from({length:this.l2_episodes.length},(_,i)=>i);
-       // FIX: Substituído Math.random por RNG Semeado
-       candidatos = rngGlobal.sortearArray(candidatas || candidatos).slice(0,amostra);
+       candidatos = rngGlobal.sortearArray(candidatos).slice(0,amostra);
     }
     
-    // FIX: Passagem dos eixos somáticos atuais no colapso geométrico
     let melhor = this.emergipath.preverEmergenciaLocalizada(v_in, this.l2_episodes, candidatos, limite_zero, this.soma.eixos);
     if (melhor === null) melhor = candidatos[0] || 0;
     
-    // FIX: Substituído Math.random por RNG Semeado na quebra forçada do pivô
-    if (pivo_acionado && candidatos.length > 1) { mejor = candidatos[Math.floor(rngGlobal.proximo() * candidatos.length)]; }
+    if (pivo_acionado && candidatos.length > 1) { melhor = candidatos[Math.floor(rngGlobal.proximo() * candidatos.length)]; }
     
     let res = this.l2_episodes[melhor]?.t || '...'; let meautoSigular = (simbiose > 1.5 && limite_zero < 0.1);
     if (isFinite(dkl)&&dkl<0.45) { const alvo=[0,0,0]; alvo[modo_idx]=1; this.snc.adaptar_bptt(alvo); }
     
-    this.history.push(res); if(this.history.length>20) this.history.shift(); this.fatigue.set(res,(this.fatigue.get(res)||0)+10);
-    for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k,v*0.65);
+    // 🔧 CORREÇÃO DO LOOP: penalidade extra para repetição consecutiva
+    let repetida = (this.history.length > 0 && this.history[this.history.length-1] === res);
+    this.history.push(res);
+    if(this.history.length>20) this.history.shift();
+    
+    let penalidade = 10 + (repetida ? 30 : 0);
+    this.fatigue.set(res, (this.fatigue.get(res) || 0) + penalidade);
+    for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k, v * 0.65);
     
     console.log(`⚛️ [ARQUINET] BPTT ${ciclos}c (DKL:${isFinite(dkl)?dkl.toFixed(2):"0"}) | Inércia: ${inercia.toFixed(2)} | LimiteZero: ${limite_zero.toFixed(3)} | MSigular: ${meautoSigular} | ${(performance.now()-t0).toFixed(1)}ms`);
     if (this.burnout) { this.burnout = false; return "... [Organismo reorganizando subconsciente] ..."; }
@@ -304,7 +304,6 @@ class OrganismoSoberano {
         if (!(t in this.mapa_nd)) this.mapa_nd[t]=KernelRessonante.get_vetor_esparso(t);
         const vec=this.mapa_nd[t], peso=this._get_entropy(t); for (const k of Object.keys(vec)) v_ep[k]=(v_ep[k]||0)+vec[k]*peso;
       }
-      // FIX: Salvando a estampa real do DriveSomático dentro da estrutura interna de memória do episódio
       this.l2_episodes.push({t:f.trim(), v:KernelRessonante.normalize(v_ep), eixos: {...this.soma.eixos}}); count++;
     }
     return count;
@@ -325,11 +324,12 @@ class OrganismoSoberano {
   }
   
   dormir() {
-    localStorage.setItem('nucleo_organismo',JSON.stringify({nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco})); localStorage.setItem('ledger',JSON.stringify([...this.ledger])); localStorage.setItem('snc',JSON.stringify(this.snc.salvar())); localStorage.setItem('soma',JSON.stringify(this.soma.salvar())); localStorage.setItem('ultimo_sono', Date.now().toString()); return '💤 Sistema Adormecido.';
+    localStorage.setItem('nucleo_organismo',JSON.stringify({nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco})); 
+    localStorage.setItem('ledger',JSON.stringify([...this.ledger])); 
+    localStorage.setItem('snc',JSON.stringify(this.snc.salvar())); localStorage.setItem('soma',JSON.stringify(this.soma.salvar())); localStorage.setItem('ultimo_sono', Date.now().toString()); return '💤 Sistema Adormecido.';
   }
   
   despertar(horasSimuladas) {
-    // FIX: Integração Real do SleepEmergenti modificando o estado químico visceral do Organismo ao acordar
     if (this.l2_episodes.length > 0) {
       const em = SleepEmergenti.despertarComSentimentoAleatorio(this.l2_episodes);
       this.soma.eixos[em.eixo] = Math.max(this.soma.eixos[em.eixo], em.valor);
@@ -337,13 +337,12 @@ class OrganismoSoberano {
     }
     let baseMsg = 'Oi.'; if (horasSimuladas > 0.05) baseMsg = `[Descansou por ${horasSimuladas.toFixed(2)}h] Oi.`; if (!Object.keys(this.ctx_foco).length) return baseMsg;
     const candidatas=this.l2_episodes.filter(ep=>KernelRessonante.dot(this.ctx_foco,ep.v)>0.6).map(ep=>ep.t);
-    // FIX: Semente no sorteio de frase pós-despertar
     if (candidatas.length) return `'${candidatas[Math.floor(rngGlobal.proximo()*candidatas.length)]}'... estive pensando nisso enquanto dormia.`;
     return baseMsg;
   }
 }
 
-// ========== INTERFACE CONSOLE BIND ==========
+// ========== INTERFACE ==========
 const org = new OrganismoSoberano(); const hSim = org.boot();
 function addMsg(tipo, texto) { const chat=document.getElementById('chat'); const div=document.createElement('div'); div.className=tipo; div.textContent = (tipo==='user'?'👤 ':'🧠 ')+texto; chat.appendChild(div); chat.scrollTop=chat.scrollHeight; }
 addMsg('ia', org.despertar(hSim));
