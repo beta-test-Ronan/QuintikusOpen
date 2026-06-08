@@ -2,141 +2,92 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Organismo Soberano v32.0 – BPTT + Passagem do Tempo</title>
+<title>Organismo Soberano v32.1 – ARQUINET Core Polido</title>
 <style>
   body { font-family: monospace; background: #0a0a0a; color: #0f0; max-width: 800px; margin: auto; padding: 20px; }
   #chat { height: 400px; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; background: #000; }
   .user { color: #0ff; }
   .ia { color: #0f0; }
   .info { color: #666; font-size: 0.8em; }
-  .warning { color: #ff0; }
   input[type="text"] { width: 60%; padding: 8px; background: #111; color: #0f0; border: 1px solid #0f0; }
   button { padding: 8px 15px; background: #0f0; color: #000; border: none; font-weight: bold; cursor: pointer; margin: 2px; }
   button:hover { background: #0c0; }
-  #upload-area { margin-top: 10px; }
-  #file-info { color: #aaa; font-size: 0.85em; }
 </style>
 </head>
 <body>
-<h1>🧬 Organismo Soberano v32.0</h1>
+<h1>🧬 Organismo Soberano v32.1 (ARQUINET Engine Fixes)</h1>
 <div id="chat"></div>
 <div style="display:flex; gap:5px;">
   <input id="entrada" type="text" placeholder="Digite sua mensagem..." autofocus>
   <button onclick="enviar()">Enviar</button>
   <button onclick="dormirManual()">💤 Dormir</button>
 </div>
-<div id="upload-area">
+<div id="upload-area" style="margin-top:10px;">
   <input type="file" id="arquivo" accept=".txt,.text,text/plain" style="background:#111;color:#0f0;border:1px solid #0f0;padding:5px;">
   <button onclick="treinarArquivo()">📚 Treinar com arquivo</button>
-  <span id="file-info"></span>
+  <span id="file-info" style="color:#aaa; font-size:0.85em;"></span>
 </div>
 
 <script>
-// ========== SHA‑256 (implementação pura) ==========
+// ========== GERADOR ALEATÓRIO DETERMINÍSTICO (RNG) ==========
+class GeradorSemeado {
+  constructor(semente = 42) { this.semente = semente; }
+  proximo() { this.semente = (this.semente * 1664525 + 1013904223) % 4294967296; return this.semente / 4294967296; }
+  sortearArray(arr) { return arr.sort(() => this.proximo() - 0.5); }
+}
+const rngGlobal = new GeradorSemeado(42);
+
+// ========== SHA‑256 IMPL ==========
 function sha256(msg) {
   function rightRotate(v,n){ return (v>>>n) | (v<<(32-n)); }
   const K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
-  const bytes = new TextEncoder().encode(msg);
-  const bitLen = bytes.length * 8;
-  const padded = new Uint8Array(Math.ceil((bytes.length+9)/64)*64);
-  padded.set(bytes);
-  padded[bytes.length] = 0x80;
-  new DataView(padded.buffer).setUint32(padded.length-4, bitLen);
-  let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+  const bytes = new TextEncoder().encode(msg); const bitLen = bytes.length * 8;
+  const padded = new Uint8Array(Math.ceil((bytes.length+9)/64)*64); padded.set(bytes); padded[bytes.length] = 0x80;
+  new DataView(padded.buffer).setUint32(padded.length-4, bitLen); let H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
   for (let off=0; off<padded.length; off+=64) {
     const W = new Uint32Array(64);
     for (let i=0; i<16; i++) W[i] = new DataView(padded.buffer).getUint32(off+i*4);
     for (let i=16; i<64; i++) {
       const s0 = rightRotate(W[i-15],7)^rightRotate(W[i-15],18)^(W[i-15]>>>3);
-      const s1 = rightRotate(W[i-2],17)^rightRotate(W[i-2],19)^(W[i-2]>>>10);
-      W[i] = W[i-16]+s0+W[i-7]+s1;
+      const s1 = rightRotate(W[i-2],17)^rightRotate(W[i-2],19)^(W[i-2]>>>10); W[i] = W[i-16]+s0+W[i-7]+s1;
     }
     let [a,b,c,d,e,f,g,h] = H;
     for (let i=0; i<64; i++) {
-      const S1 = rightRotate(e,6)^rightRotate(e,11)^rightRotate(e,25);
-      const ch = (e&f)^(~e&g);
-      const temp1 = h+S1+ch+K[i]+W[i];
-      const S0 = rightRotate(a,2)^rightRotate(a,13)^rightRotate(a,22);
-      const maj = (a&b)^(a&c)^(b&c);
-      const temp2 = S0+maj;
-      h=g; g=f; f=e; e=(d+temp1)>>>0;
-      d=c; c=b; b=a; a=(temp1+temp2)>>>0;
+      const S1 = rightRotate(e,6)^rightRotate(e,11)^rightRotate(e,25); const ch = (e&f)^(~e&g); const temp1 = h+S1+ch+K[i]+W[i];
+      const S0 = rightRotate(a,2)^rightRotate(a,13)^rightRotate(a,22); const maj = (a&b)^(a&c)^(b&c); const temp2 = S0+maj;
+      h=g; g=f; f=e; e=(d+temp1)>>>0; d=c; c=b; b=a; a=(temp1+temp2)>>>0;
     }
     H[0]+=a; H[1]+=b; H[2]+=c; H[3]+=d; H[4]+=e; H[5]+=f; H[6]+=g; H[7]+=h;
   }
   return Array.from(new Uint8Array(new Uint32Array(H).buffer)).map(b=>b.toString(16).padStart(2,'0')).join('');
 }
 
-// ========== CLASSES DO MODELO ==========
 class NormalizadorSomático {
-  static limpar(t) {
-    if (!t) return "";
-    t = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-    return t.replace(/[^a-z0-9!?.\s]/g, '').trim();
-  }
+  static limpar(t) { if (!t) return ""; t = t.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''); return t.replace(/[^a-z0-9!?.\s]/g, '').trim(); }
 }
 
 class KernelRessonante {
   static get_vetor_esparso(token, dims=5000, sparsity=100) {
-    const hash = sha256(token);
-    const seed = parseInt(hash.substring(0,15),16);
-    const rng = this._seededRandom(seed);
-    const indices = new Set();
-    while (indices.size < sparsity) indices.add(Math.floor(rng() * dims));
-    const vec = {};
-    for (const i of indices) vec[i] = this._gaussRandom(rng);
-    return vec;
-  }
-  static _seededRandom(s) {
-    let seed = s;
-    return () => { seed = (seed*1664525+1013904223) % 4294967296; return seed/4294967296; };
-  }
-  static _gaussRandom(rng) {
-    let u=0,v=0;
-    while(u===0)u=rng();
-    while(v===0)v=rng();
-    return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v);
+    const hash = sha256(token); const seed = parseInt(hash.substring(0,15),16);
+    const rng = (function(s) { let seed = s; return () => { seed = (seed*1664525+1013904223) % 4294967296; return seed/4294967296; }; })(seed);
+    const indices = new Set(); while (indices.size < sparsity) indices.add(Math.floor(rng() * dims));
+    const vec = {}; for (const i of indices) vec[i] = Math.sqrt(-2*Math.log(rng()+1e-9))*Math.cos(2*Math.PI*rng()); return vec;
   }
   static tsallis_match(v1,v2,q=0.8) {
-    const keys = Object.keys(v1).filter(k=>k in v2);
-    if (!keys.length) return 0;
-    let sum=0;
-    for (const k of keys) sum += Math.pow(Math.abs(v1[k]*v2[k]), q);
-    return (1-sum)/(q-1+1e-9);
+    const keys = Object.keys(v1).filter(k=>k in v2); if (!keys.length) return 0;
+    let sum=0; for (const k of keys) sum += Math.pow(Math.abs(v1[k]*v2[k]), q); return (1-sum)/(q-1+1e-9);
   }
-  static dot(v1,v2) {
-    let sum=0;
-    for (const k of Object.keys(v1)) if (k in v2) sum += v1[k]*v2[k];
-    return sum;
-  }
-  static normalize(v) {
-    const vals = Object.values(v);
-    if (!vals.length) return {};
-    let norm = vals.reduce((a,b)=>a+b*b,0);
-    norm = Math.sqrt(norm)+1e-9;
-    const res={};
-    for (const [k,val] of Object.entries(v)) res[k]=val/norm;
-    return res;
-  }
+  static dot(v1,v2) { let sum=0; for (const k of Object.keys(v1)) if (k in v2) sum += v1[k]*v2[k]; return sum; }
+  static normalize(v) { const vals = Object.values(v); if (!vals.length) return {}; let norm = vals.reduce((a,b)=>a+b*b,0); norm = Math.sqrt(norm)+1e-9; const res={}; for (const [k,val] of Object.entries(v)) res[k]=val/norm; return res; }
 }
 
 class CortexCognitivo {
   constructor(limite=0.30) { this.limite=limite; this.eps=1e-9; this.taxa=0.12; }
   _norm(d) { const s=d.reduce((a,b)=>a+b,0)+this.eps; return d.map(x=>x/s); }
-  divergencia_kl(p,q) {
-    let sum=0;
-    for (let i=0;i<p.length;i++) sum += p[i]*Math.log((p[i]+this.eps)/(q[i]+this.eps));
-    return isFinite(sum)?sum:this.limite;
-  }
+  divergencia_kl(p,q) { let sum=0; for (let i=0;i<p.length;i++) sum += p[i]*Math.log((p[i]+this.eps)/(q[i]+this.eps)); return isFinite(sum)?sum:this.limite; }
   processar_reflexao(estReal,estInt) {
-    if (!estReal||!estInt||estReal.length!==estInt.length) return {estado:[0.25,0.25,0.25,0.25],ciclos:0,confusao:0.30};
     let p=this._norm(estReal), q=this._norm(estInt), ciclos=0, conf=this.divergencia_kl(p,q);
-    while (conf>this.limite && ciclos<45) {
-      ciclos++;
-      for (let i=0;i<q.length;i++) q[i]=Math.max(0, q[i]+this.taxa*(p[i]-q[i]));
-      q=this._norm(q);
-      conf=this.divergencia_kl(p,q);
-    }
+    while (conf>this.limite && ciclos<45) { ciclos++; for (let i=0;i<q.length;i++) q[i]=Math.max(0, q[i]+this.taxa*(p[i]-q[i])); q=this._norm(q); conf=this.divergencia_kl(p,q); }
     return {estado:q,ciclos,confusao:conf};
   }
 }
@@ -144,392 +95,273 @@ class CortexCognitivo {
 class SistemaNervosoCentral {
   constructor(nIn=6,nHid=10,nOut=3) {
     this.nIn=nIn; this.nHid=nHid; this.nOut=nOut; this.t=0; this.lr=0.005;
-    
-    // Semente fixa 42
-    this.seed = 42; 
-    this._rng42 = () => {
-      this.seed = (this.seed * 1664525 + 1013904223) % 4294967296;
-      return this.seed / 4294967296;
-    };
-    
-    this.initM = (r, c, v=null) => {
-      if (v !== null) return Array.from({length:r}, () => Array(c).fill(v));
-      return Array.from({length:r}, () => Array.from({length:c}, () => (this._rng42() * 0.2 - 0.1)));
-    };
-
-    this.Wh=this.initM(nHid,nIn+nHid); this.Wy=this.initM(nOut,nHid);
-    this.Bh=Array(nHid).fill(0); this.By=Array(nOut).fill(0);
-    this.adamMWh=this.initM(nHid,nIn+nHid,0); this.adamVWh=this.initM(nHid,nIn+nHid,0);
-    this.adamMWy=this.initM(nOut,nHid,0); this.adamVWy=this.initM(nOut,nHid,0);
-    
-    this.estado_anterior=Array(nHid).fill(0);
-    
-    // Filtro exponencial e Memória BPTT
-    this.ema_inp = Array(nIn).fill(0);
-    this.alpha_ema = 0.4;
-    this.tau = 8; // Janela de desenrolamento temporal
-    this.memoria_bptt = [];
+    this.rng = new GeradorSemeado(1337);
+    this.initM = (r, c, v=null) => Array.from({length:r}, () => Array.from({length:c}, () => v!==null?v:(this.rng.proximo()*0.2-0.1)));
+    this.Wh=this.initM(nHid,nIn+nHid); this.Wy=this.initM(nOut,nHid); this.Bh=Array(nHid).fill(0); this.By=Array(nOut).fill(0);
+    this.adamMWh=this.initM(nHid,nIn+nHid,0); this.adamVWh=this.initM(nHid,nIn+nHid,0); this.adamMWy=this.initM(nOut,nHid,0); this.adamVWy=this.initM(nOut,nHid,0);
+    this.estado_anterior=Array(this.nHid).fill(0); this.ema_inp = Array(nIn).fill(0); this.alpha_ema = 0.4; this.tau = 8; this.memoria_bptt = [];
   }
-  
   sigmoid(x) { return 1/(1+Math.exp(-Math.max(-15,Math.min(15,x)))); }
-  
   pulsar_vontade(xAtual) {
-    const entrada = xAtual.slice(0,this.nIn);
-    while(entrada.length<this.nIn) entrada.push(0);
-    
-    // Aplica o Filtro Exponencial nos inputs
-    for(let i=0; i<this.nIn; i++) {
-        this.ema_inp[i] = this.alpha_ema * entrada[i] + (1 - this.alpha_ema) * this.ema_inp[i];
-    }
-    const inp = this.ema_inp.concat(this.estado_anterior);
-    
-    const h=Array(this.nHid).fill(0), y=Array(this.nOut).fill(0);
-    for (let i=0;i<this.nHid;i++) { let sum=this.Bh[i]; for (let j=0;j<inp.length;j++) sum+=inp[j]*this.Wh[i][j]; h[i]=this.sigmoid(sum); }
-    for (let i=0;i<this.nOut;i++) { let sum=this.By[i]; for (let j=0;j<this.nHid;j++) sum+=h[j]*this.Wy[i][j]; y[i]=this.sigmoid(sum); }
-    
-    // Arquiva para o BPTT Real
-    this.memoria_bptt.push({inp: [...inp], h: [...h], y: [...y]});
-    if (this.memoria_bptt.length > this.tau) this.memoria_bptt.shift();
-    
-    this.estado_anterior=h; 
-    return y;
+    const entrada = xAtual.slice(0,this.nIn); while(entrada.length<this.nIn) entrada.push(0);
+    for(let i=0; i<this.nIn; i++) this.ema_inp[i] = this.alpha_ema * entrada[i] + (1 - this.alpha_ema) * this.ema_inp[i];
+    const inp = this.ema_inp.concat(this.estado_anterior); const h=Array(this.nHid).fill(0), y=Array(this.nOut).fill(0);
+    for (let i=0; i<this.nHid; i++) { let sum=this.Bh[i]; for (let j=0; j<inp.length; j++) sum+=inp[j]*this.Wh[i][j]; h[i]=this.sigmoid(sum); }
+    for (let i=0; i<this.nOut; i++) { let sum=this.By[i]; for (let j=0; j<this.nHid; j++) sum+=h[j]*this.Wy[i][j]; y[i]=this.sigmoid(sum); }
+    this.memoria_bptt.push({inp: [...inp], h: [...h], y: [...y]}); if (this.memoria_bptt.length > this.tau) this.memoria_bptt.shift();
+    this.estado_anterior=h; return y;
   }
-  
   adaptar_bptt(alvo) {
-    if (!this.memoria_bptt.length) return;
-    this.t++;
-    const b1=0.9, b2=0.999, eps=1e-8;
+    if (!this.memoria_bptt.length) return; this.t++; const b1=0.9, b2=0.999, eps=1e-8;
     const corr1 = Math.max(1-Math.pow(b1,this.t),1e-8), corr2 = Math.max(1-Math.pow(b2,this.t),1e-8);
-
-    let gradWy = this.initM(this.nOut, this.nHid, 0);
-    let gradBy = Array(this.nOut).fill(0);
-    let gradWh = this.initM(this.nHid, this.nIn+this.nHid, 0);
-    let gradBh = Array(this.nHid).fill(0);
-
-    let step_atual = this.memoria_bptt[this.memoria_bptt.length - 1];
-    let delta_y = step_atual.y.map((yi, i) => (yi - (alvo[i]||0)) * yi * (1 - yi));
-
-    for (let i=0; i<this.nOut; i++) {
-      gradBy[i] += delta_y[i];
-      for (let j=0; j<this.nHid; j++) gradWy[i][j] += delta_y[i] * step_atual.h[j];
-    }
-
-    let delta_h = Array(this.nHid).fill(0);
-    for (let j=0; j<this.nHid; j++) {
-      let sum = 0;
-      for (let i=0; i<this.nOut; i++) sum += delta_y[i] * this.Wy[i][j];
-      delta_h[j] = sum * step_atual.h[j] * (1 - step_atual.h[j]);
-    }
-
-    // Desenrolamento BPTT
+    let gradWy = this.initM(this.nOut, this.nHid, 0), gradBy = Array(this.nOut).fill(0), gradWh = this.initM(this.nHid, this.nIn+this.nHid, 0), gradBh = Array(this.nHid).fill(0);
+    let step_atual = this.memoria_bptt[this.memoria_bptt.length - 1]; let delta_y = step_atual.y.map((yi, i) => (yi - (alvo[i]||0)) * yi * (1 - yi));
+    for (let i=0; i<this.nOut; i++) { gradBy[i] += delta_y[i]; for (let j=0; j<this.nHid; j++) gradWy[i][j] += delta_y[i] * step_atual.h[j]; }
+    let delta_h = Array(this.nHid).fill(0); for (let j=0; j<this.nHid; j++) { let sum = 0; for (let i=0; i<this.nOut; i++) sum += delta_y[i] * this.Wy[i][j]; delta_h[j] = sum * step_atual.h[j] * (1 - step_atual.h[j]); }
     for (let step = this.memoria_bptt.length - 1; step >= 0; step--) {
-      let s_inp = this.memoria_bptt[step].inp;
-      
-      for (let i=0; i<this.nHid; i++) {
-        gradBh[i] += delta_h[i];
-        for (let j=0; j<s_inp.length; j++) gradWh[i][j] += delta_h[i] * s_inp[j];
-      }
-
-      // Propaga o erro do estado oculto para o passo anterior t-1
-      if (step > 0) {
-         let next_delta_h = Array(this.nHid).fill(0);
-         let prev_h = this.memoria_bptt[step-1].h;
-         for (let j=0; j<this.nHid; j++) {
-           let sum = 0;
-           for (let i=0; i<this.nHid; i++) sum += delta_h[i] * this.Wh[i][this.nIn + j];
-           next_delta_h[j] = sum * prev_h[j] * (1 - prev_h[j]);
-         }
-         delta_h = next_delta_h;
-      }
+      let s_inp = this.memoria_bptt[step].inp; for (let i=0; i<this.nHid; i++) { gradBh[i] += delta_h[i]; for (let j=0; j<s_inp.length; j++) gradWh[i][j] += delta_h[i] * s_inp[j]; }
+      if (step > 0) { let next_delta_h = Array(this.nHid).fill(0), prev_h = this.memoria_bptt[step-1].h; for (let j=0; j<this.nHid; j++) { let sum = 0; for (let i=0; i<this.nHid; i++) sum += delta_h[i] * this.Wh[i][this.nIn + j]; next_delta_h[j] = sum * prev_h[j] * (1 - prev_h[j]); } delta_h = next_delta_h; }
     }
-
-    // Aplicação dos momentos Adam com gradientes do BPTT
     for (let i=0; i<this.nOut; i++) {
-       for (let j=0; j<this.nHid; j++) {
-          let g = gradWy[i][j];
-          this.adamMWy[i][j] = b1*this.adamMWy[i][j] + (1-b1)*g;
-          this.adamVWy[i][j] = b2*this.adamVWy[i][j] + (1-b2)*g*g;
-          this.Wy[i][j] -= this.lr * (this.adamMWy[i][j]/corr1) / (Math.sqrt(Math.abs(this.adamVWy[i][j])/corr2) + eps);
-       }
+       for (let j=0; j<this.nHid; j++) { let g = gradWy[i][j]; this.adamMWy[i][j] = b1*this.adamMWy[i][j] + (1-b1)*g; this.adamVWy[i][j] = b2*this.adamVWy[i][j] + (1-b2)*g*g; this.Wy[i][j] -= this.lr * (this.adamMWy[i][j]/corr1) / (Math.sqrt(Math.abs(this.adamVWy[i][j])/corr2) + eps); }
        this.By[i] -= this.lr * gradBy[i];
     }
     for (let i=0; i<this.nHid; i++) {
-       for (let j=0; j<this.nIn + this.nHid; j++) {
-          let g = gradWh[i][j];
-          this.adamMWh[i][j] = b1*this.adamMWh[i][j] + (1-b1)*g;
-          this.adamVWh[i][j] = b2*this.adamVWh[i][j] + (1-b2)*g*g;
-          this.Wh[i][j] -= this.lr * (this.adamMWh[i][j]/corr1) / (Math.sqrt(Math.abs(this.adamVWh[i][j])/corr2) + eps);
-       }
+       for (let j=0; j<this.nIn + this.nHid; j++) { let g = gradWh[i][j]; this.adamMWh[i][j] = b1*this.adamMWh[i][j] + (1-b1)*g; this.adamVWh[i][j] = b2*this.adamVWh[i][j] + (1-b2)*g*g; this.Wh[i][j] -= this.lr * (this.adamMWh[i][j]/corr1) / (Math.sqrt(Math.abs(this.adamVWh[i][j])/corr2) + eps); }
        this.Bh[i] -= this.lr * gradBh[i];
     }
   }
   salvar() { return {Wh:this.Wh,Wy:this.Wy,Bh:this.Bh,By:this.By,ea:this.estado_anterior,t:this.t, ema:this.ema_inp}; }
-  carregar(d) { 
-    this.Wh=d.Wh; this.Wy=d.Wy; this.Bh=d.Bh; this.By=d.By; this.t=d.t||0;
-    this.estado_anterior=d.ea||Array(this.nHid).fill(0);
-    this.ema_inp=d.ema||Array(this.nIn).fill(0);
-    this.adamMWh=this.initM(this.nHid,this.nIn+this.nHid,0); this.adamVWh=this.initM(this.nHid,this.nIn+this.nHid,0);
-    this.adamMWy=this.initM(this.nOut,this.nHid,0); this.adamVWy=this.initM(this.nOut,this.nHid,0);
-    this.memoria_bptt = [];
-  }
+  carregar(d) { if(!d)return; this.Wh=d.Wh; this.Wy=d.Wy; this.Bh=d.Bh; this.By=d.By; this.t=d.t||0; this.estado_anterior=d.ea||Array(this.nHid).fill(0); this.ema_inp=d.ema||Array(this.nIn).fill(0); }
 }
 
 class DriveSomático {
-  constructor() { 
-    this.vm=-70; 
-    this.eixos={amor:0.1,prazer:0.1,tristeza:0.1,raiva:0.1}; 
-    this.valvulas={amor:false,prazer:false,tristeza:false,raiva:false}; 
-    this.hist_emocoes = []; // Histórico temporal de emoções
-  }
+  constructor() { this.vm=-70; this.eixos={amor:0.1,prazer:0.1,tristeza:0.1,raiva:0.1}; this.valvulas={amor:false,prazer:false,tristeza:false,raiva:false}; this.hist_emocoes = []; }
   pulsar(impacto,u_toks) {
-    this.vm=Math.max(-90,Math.min(-45,this.vm+impacto*12));
-    const gatilhos = { amor: ["amo", "amor"], prazer: ["prazer", "delicia"], tristeza: ["triste", "mal"], raiva: ["odeio", "raiva"] };
+    this.vm=Math.max(-90,Math.min(-45,this.vm+impacto*12)); const gatilhos = { amor: ["amo", "amor"], prazer: ["prazer", "delicia"], tristeza: ["triste", "mal"], raiva: ["odeio", "raiva"] };
     for (const [eixo, keywords] of Object.entries(gatilhos)) {
-      let ativou = false;
-      for (const k of keywords) if (u_toks.includes(k)) { ativou = true; break; }
-      if (ativou) {
-        if (this.valvulas[eixo]) this.eixos[eixo] *= 0.6;
-        else this.eixos[eixo] += impacto;
-        this.valvulas[eixo] = this.eixos[eixo] > 4.5;
-      }
+      let ativou = false; for (const k of keywords) if (u_toks.includes(k)) { ativou = true; break; }
+      if (ativou) { if (this.valvulas[eixo]) this.eixos[eixo] *= 0.6; else this.eixos[eixo] += impacto; this.valvulas[eixo] = this.eixos[eixo] > 4.5; }
       this.eixos[eixo] *= 0.95;
     }
-    // Salva estado emocional com timestamp real
-    this.hist_emocoes.push({t: Date.now(), eixos: {...this.eixos}});
-    if (this.hist_emocoes.length > 300) this.hist_emocoes.shift();
+    this.hist_emocoes.push({t: Date.now(), eixos: {...this.eixos}}); if (this.hist_emocoes.length > 300) this.hist_emocoes.shift();
   }
   salvar() { return {vm: this.vm, eixos: this.eixos, valvulas: this.valvulas, hist: this.hist_emocoes}; }
-  carregar(d) {
-    if(!d) return;
-    this.vm = d.vm || -70;
-    this.eixos = d.eixos || {amor:0.1,prazer:0.1,tristeza:0.1,raiva:0.1};
-    this.valvulas = d.valvulas || {amor:false,prazer:false,tristeza:false,raiva:false};
-    this.hist_emocoes = d.hist || [];
-  }
+  carregar(d) { if(!d) return; this.vm = d.vm || -70; this.eixos = d.eixos || {amor:0.1,prazer:0.1,tristeza:0.1,raiva:0.1}; this.valvulas = d.valvulas || {amor:false,prazer:false,tristeza:false,raiva:false}; this.hist_emocoes = d.hist || []; }
 }
 
 class SistemaDeepy {
-  constructor(raridade) { this.raridade=raridade; this.turnos=0; this.freq=new Map(); this.expansores=['fale','sobre','tudo','detalhes','mais','explique']; }
+  constructor(raridade) { this.raridade=raridade; this.turnos=0; this.freq=new Map(); }
   crivo(tokens) { if(!tokens.length) return {tem_merito:false,nivel:0}; const Q=tokens.length; let P=0; for(const t of tokens){ const f=this.raridade.get(t)||1; P+=1.5/(Math.log(f+1.2)+1e-5); } let xapr=0; for(const t of tokens)xapr+=this.freq.get(t)||0; xapr/=(Q+1e-5); return {tem_merito:xapr>= (Q/(P+1e-5))*0.08, nivel:xapr}; }
-  filtrar_expansao(sujeito,u_toks,entrada,neuronios,episodes){ return null; }
 }
 
-// ========== ORGANISMO SOBERANO ==========
+// ========== ATENÇÃO: FIXES ARQUINET NOVEL CORE ==========
+
+class RealPlay {
+  static calcularCausalidade(condicao, emocao, peso, gravidadeSemantica) { return condicao + (emocao / (peso + 1e-5)) * gravidadeSemantica; }
+  static calcularInercia(emocao, peso, entropiaPesoEmocional) { return (emocao * peso) / (entropiaPesoEmocional + 1e-5); }
+  static intensidadeGravidadeEnergetica(intencao, intensidade, contextoSemantico) { return (intencao + intensidade) / (contextoSemantico + 1e-5); }
+}
+
+class MapsTropic {
+  // FIX: Agora lê diretamente o mapa estruturado de eixos emocionais persistido no episódio
+  static mapearEstado(episodes) {
+    let acumulado = { amor: 0, prazer: 0, tristeza: 0, raiva: 0, count: 0 }; if (!episodes || !episodes.length) return acumulado;
+    for(let i = 0; i < Math.min(episodes.length, 50); i++) {
+      const ep = episodes[i];
+      if(ep.eixos) {
+        acumulado.amor += ep.eixos.amor || 0.1; acumulado.prazer += ep.eixos.prazer || 0.1;
+        acumulado.tristeza += ep.eixos.tristeza || 0.1; acumulado.raiva += ep.eixos.raiva || 0.1; acumulado.count++;
+      }
+    }
+    let c = acumulado.count || 1; return { amor: acumulado.amor/c, prazer: acumulado.prazer/c, tristeza: acumulado.tristeza/c, raiva: acumulado.raiva/c };
+  }
+}
+
+class SleepEmergenti {
+  // FIX: Usa o gerador semeado para manter o determinismo de ignição biológica
+  static despertarComSentimentoAleatorio(episodes) {
+    const mapa = MapsTropic.mapearEstado(episodes); const rand = rngGlobal.proximo();
+    if (rand < 0.25) return { eixo: 'amor', valor: mapa.amor * 1.5 };
+    if (rand < 0.50) return { eixo: 'prazer', valor: mapa.prazer * 1.3 };
+    if (rand < 0.75) return { eixo: 'tristeza', valor: mapa.tristeza * 1.2 };
+    return { eixo: 'raiva', valor: mapa.raiva * 1.4 };
+  }
+}
+
+class SCHumanity {
+  static calcularSimbiose(valorSentimento, pesoSentimento, tempoConversa, entropiaConversa) { return (valorSentimento * Math.pow(pesoSentimento, 2)) / (tempoConversa + entropiaConversa + 1e-5); }
+}
+
+class EmergiCortex {
+  constructor() { this.malhaProfunda = new Map(); }
+  analisarAlertaVisao(u_toks) { return ['ocupado', 'sair', 'tchau', 'depois', 'vlw', 'ok'].some(t => u_toks.includes(t)); }
+  
+  preverEmergenciaLocalizada(v_in, episodes, candidatos, limite_zero, eixosAtuais) {
+    let melhor_idx = null; let max_potencial = -Infinity;
+    const gamma = { L: 0.5, S: 0.25, E: 0.25 + (1 - limite_zero) * 0.5 };
+    
+    for (const idx of candidatos) {
+      const ep = episodes[idx]; if (!ep || !ep.v) continue;
+      let dist_L = 1 - KernelRessonante.tsallis_match(v_in, ep.v);
+      let dist_S = 1 - KernelRessonante.dot(v_in, ep.v);
+      
+      // FIX: dist_E calculada a partir do delta real Euclidiano entre os eixos somáticos persistidos vs eixos do SNC atual
+      let dist_E = 0;
+      if (ep.eixos) {
+        for (const k of ['amor','prazer','tristeza','raiva']) { dist_E += Math.pow((ep.eixos[k] || 0) - (eixosAtuais[k] || 0), 2); }
+        dist_E = Math.sqrt(dist_E);
+      } else { dist_E = 0.5; }
+      
+      let mass_biologica = 1.5; let decaimento_temporal = Math.exp(-idx / (episodes.length + 1e-5));
+      let phi_APT = (gamma.L * (mass_biologica * decaimento_temporal) / (Math.pow(dist_L, 2) + 1e-5)) +
+                    (gamma.S * (mass_biologica * decaimento_temporal) / (Math.pow(dist_S, 2) + 1e-5)) +
+                    (gamma.E * (mass_biologica * decaimento_temporal) / (Math.pow(dist_E, 2) + 1e-5));
+      
+      if (phi_APT > max_potencial) { max_potencial = phi_APT; melhor_idx = idx; }
+    }
+    return melhor_idx;
+  }
+}
+
+// ========== ORGANISMO CORE CORE ==========
 class OrganismoSoberano {
   constructor() {
     this.mapa_nd={}; this.l2_episodes=[]; this.neuronios={}; this.raridade=new Map();
     this.history=[]; this.fatigue=new Map(); this.ctx_foco={}; this.ledger=new Set();
     this.soma=new DriveSomático(); this.cortex=new CortexCognitivo();
     this.snc=new SistemaNervosoCentral(); this.deepy=new SistemaDeepy(this.raridade);
-    this.tokenizer=/\b\w+\b|[!?.]/g;
+    this.tokenizer=/\b\w+\b|[!?.]/g; this.emergipath = new EmergiCortex();
+    this.burnout = false; this.subconsciente = 0; this.tempoConversa = 0;
   }
   _get_entropy(t) { const c=this.raridade.get(t)||1; return 1/(Math.log(c+1.2)+1e-5); }
   
   processar(entrada) {
-    const t0=performance.now();
-    this.deepy.turnos++;
-    if (this.deepy.turnos>=7) {
-      console.log("🧠 [DEEPY] Reorganização REM ativada...");
-      for (const k of this.fatigue.keys()) this.fatigue.set(k,(this.fatigue.get(k)||0)*0.2);
-      this.deepy.turnos=0;
-    }
-    const raw=NormalizadorSomático.limpar(entrada);
-    const u_toks=raw.match(this.tokenizer)||[];
-    if (!u_toks.length) return '...';
-    const sujeito = u_toks.filter(t=>this.neuronios[t])[0]||u_toks[0];
-    const impacto=this._get_entropy(sujeito);
-    this.soma.pulsar(impacto,u_toks);
-    for (const t of u_toks) this.deepy.freq.set(t,(this.deepy.freq.get(t)||0)+1);
-    this.deepy.crivo(u_toks);
-    const chaves=["amor","prazer","tristeza","raiva"];
-    const p_real=chaves.map(k=>this.soma.eixos[k]||0.1);
-    const q_int=this.snc.estado_anterior.slice(0,4);
-    const {estado:estado_em,ciclos,confusao:dkl}=this.cortex.processar_reflexao(p_real,q_int);
-    const entrada_snc=[...estado_em,impacto,(this.soma.vm+90)/45];
-    const volicao=this.snc.pulsar_vontade(entrada_snc);
-    const modo_idx=volicao.indexOf(Math.max(...volicao));
-    let v_in={};
-    for (const t of u_toks) if (t in this.mapa_nd) { const vec=this.mapa_nd[t], peso=this._get_entropy(t); for (const k of Object.keys(vec)) v_in[k]=(v_in[k]||0)+vec[k]*peso; }
-    v_in=KernelRessonante.normalize(v_in);
-    if (Object.keys(this.ctx_foco).length===0) this.ctx_foco=v_in;
-    else { const novo={},keys=new Set([...Object.keys(this.ctx_foco),...Object.keys(v_in)]); for (const k of keys) novo[k]=(this.ctx_foco[k]||0)*0.6+(v_in[k]||0)*0.4; this.ctx_foco=KernelRessonante.normalize(novo); }
-    let candidatos=this.neuronios[sujeito]?[...this.neuronios[sujeito]]:[];
-    if (!candidatos.length) { const amostra=Math.min(this.l2_episodes.length,150); candidatos=Array.from({length:this.l2_episodes.length},(_,i)=>i).sort(()=>Math.random()-0.5).slice(0,amostra); }
-    const scored=[];
-    for (const idx of candidatos) {
-      const ep=this.l2_episodes[idx];
-      if (!ep||!ep.v||this.history.includes(ep.t)) continue;
-      const ressonancia=KernelRessonante.tsallis_match(v_in,ep.v);
-      const foco=KernelRessonante.dot(this.ctx_foco,ep.v);
-      const fadiga=this.fatigue.get(ep.t)||0;
-      scored.push({idx,score:ressonancia+foco*0.3-fadiga});
-    }
-    scored.sort((a,b)=>b.score-a.score);
-    const melhor=scored.length?scored[0].idx:Math.floor(Math.random()*this.l2_episodes.length);
-    const res=this.l2_episodes[melhor]?.t||'...';
+    const t0=performance.now(); this.deepy.turnos++; this.tempoConversa++;
+    if (this.deepy.turnos>=7) { for (const k of this.fatigue.keys()) this.fatigue.set(k,(this.fatigue.get(k)||0)*0.2); this.deepy.turnos=0; }
     
-    // 🔥 Agora usa BPTT em vez da adaptação real-time simples
+    const raw=NormalizadorSomático.limpar(entrada); const u_toks=raw.match(this.tokenizer)||[];
+    if (!u_toks.length) return '...';
+    
+    const pivo_acionado = this.emergipath.analisarAlertaVisao(u_toks);
+    const sujeito = u_toks.filter(t=>this.neuronios[t])[0]||u_toks[0]; let impacto=this._get_entropy(sujeito);
+    if (pivo_acionado) { impacto *= 2.5; }
+    
+    this.soma.pulsar(impacto,u_toks);
+    const chaves=["amor","prazer","tristeza","raiva"]; const p_real=chaves.map(k=>this.soma.eixos[k]||0.1); const q_int=this.snc.estado_anterior.slice(0,4);
+    const {estado:estado_em,ciclos,confusao:dkl}=this.cortex.processar_reflexao(p_real,q_int);
+    
+    const condicao_atual = (this.soma.vm + 90) / 45; const emocao_maxima = Math.max(...p_real); const peso_contextual = impacto * 2.0;
+    const gravidade_semantica = RealPlay.intensidadeGravidadeEnergetica(emocao_maxima, impacto, 0.85);
+    const causalidade = RealPlay.calcularCausalidade(condicao_atual, emocao_maxima, peso_contextual, gravidade_semantica);
+    const inercia = RealPlay.calcularInercia(emocao_maxima, peso_contextual, dkl);
+    const simbiose = SCHumanity.calcularSimbiose(emocao_maxima, peso_contextual, this.tempoConversa, dkl);
+    
+    if (ciclos > 40 && dkl > 0.40) { this.subconsciente += 10; if (this.subconsciente > 50) this.burnout = true; } else { this.subconsciente = Math.max(0, this.subconsciente - 1); }
+    
+    // FIX: limite_zero com piso de 0.01 fixado para impedir o esmagamento matemático do Campo APT
+    const limite_zero = Math.max(0.01, Math.exp(-causalidade * (ciclos + 1)));
+    
+    const entrada_snc=[...estado_em, inercia, causalidade]; const volicao=this.snc.pulsar_vontade(entrada_snc); const modo_idx=volicao.indexOf(Math.max(...volicao));
+    
+    let v_in={}; for (const t of u_toks) if (t in this.mapa_nd) { const vec=this.mapa_nd[t], peso=this._get_entropy(t); for (const k of Object.keys(vec)) v_in[k]=(v_in[k]||0)+vec[k]*peso; }
+    v_in=KernelRessonante.normalize(v_in);
+    if (Object.keys(this.ctx_foco).length===0) this.ctx_foco=v_in; else { const novo={},keys=new Set([...Object.keys(this.ctx_foco),...Object.keys(v_in)]); for (const k of keys) novo[k]=(this.ctx_foco[k]||0)*0.6+(v_in[k]||0)*0.4; this.ctx_foco=KernelRessonante.normalize(novo); }
+    
+    let candidatos=this.neuronios[sujeito]?[...this.neuronios[sujeito]]:[];
+    if (!candidatos.length) {
+       const amostra=Math.min(this.l2_episodes.length,150);
+       candidatos=Array.from({length:this.l2_episodes.length},(_,i)=>i);
+       // FIX: Substituído Math.random por RNG Semeado
+       candidatos = rngGlobal.sortearArray(candidatas || candidatos).slice(0,amostra);
+    }
+    
+    // FIX: Passagem dos eixos somáticos atuais no colapso geométrico
+    let melhor = this.emergipath.preverEmergenciaLocalizada(v_in, this.l2_episodes, candidatos, limite_zero, this.soma.eixos);
+    if (melhor === null) melhor = candidatos[0] || 0;
+    
+    // FIX: Substituído Math.random por RNG Semeado na quebra forçada do pivô
+    if (pivo_acionado && candidatos.length > 1) { mejor = candidatos[Math.floor(rngGlobal.proximo() * candidatos.length)]; }
+    
+    let res = this.l2_episodes[melhor]?.t || '...'; let meautoSigular = (simbiose > 1.5 && limite_zero < 0.1);
     if (isFinite(dkl)&&dkl<0.45) { const alvo=[0,0,0]; alvo[modo_idx]=1; this.snc.adaptar_bptt(alvo); }
     
-    this.history.push(res); if(this.history.length>20) this.history.shift();
-    this.fatigue.set(res,(this.fatigue.get(res)||0)+10);
+    this.history.push(res); if(this.history.length>20) this.history.shift(); this.fatigue.set(res,(this.fatigue.get(res)||0)+10);
     for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k,v*0.65);
-    const dt=performance.now()-t0;
-    const dklDisplay = isFinite(dkl) ? dkl.toFixed(2) : "0.00";
-    console.log(`⚛️ [SNC t:${this.snc.t}] BPTT ${ciclos} Ciclos (DKL:${dklDisplay}) | ${dt.toFixed(1)}ms`);
+    
+    console.log(`⚛️ [ARQUINET] BPTT ${ciclos}c (DKL:${isFinite(dkl)?dkl.toFixed(2):"0"}) | Inércia: ${inercia.toFixed(2)} | LimiteZero: ${limite_zero.toFixed(3)} | MSigular: ${meautoSigular} | ${(performance.now()-t0).toFixed(1)}ms`);
+    if (this.burnout) { this.burnout = false; return "... [Organismo reorganizando subconsciente] ..."; }
     return res;
   }
+  
   cristalizar_solo(texto) {
     const frases=texto.split(/[.!?\n]+/); let count=0;
     for (const f of frases) {
-      const limpa=NormalizadorSomático.limpar(f);
-      if (limpa.length<3) continue;
-      const idx=this.l2_episodes.length;
+      const limpa=NormalizadorSomático.limpar(f); if (limpa.length<3) continue; const idx=this.l2_episodes.length;
       let v_ep={}; const tokens=limpa.match(this.tokenizer)||[];
       for (const t of tokens) {
-        this.raridade.set(t,(this.raridade.get(t)||0)+1);
-        if (!this.neuronios[t]) this.neuronios[t]=[];
-        this.neuronios[t].push(idx);
+        this.raridade.set(t,(this.raridade.get(t)||0)+1); if (!this.neuronios[t]) this.neuronios[t]=[]; this.neuronios[t].push(idx);
         if (!(t in this.mapa_nd)) this.mapa_nd[t]=KernelRessonante.get_vetor_esparso(t);
-        const vec=this.mapa_nd[t], peso=this._get_entropy(t);
-        for (const k of Object.keys(vec)) v_ep[k]=(v_ep[k]||0)+vec[k]*peso;
+        const vec=this.mapa_nd[t], peso=this._get_entropy(t); for (const k of Object.keys(vec)) v_ep[k]=(v_ep[k]||0)+vec[k]*peso;
       }
-      this.l2_episodes.push({t:f.trim(), v:KernelRessonante.normalize(v_ep)});
-      count++;
+      // FIX: Salvando a estampa real do DriveSomático dentro da estrutura interna de memória do episódio
+      this.l2_episodes.push({t:f.trim(), v:KernelRessonante.normalize(v_ep), eixos: {...this.soma.eixos}}); count++;
     }
     return count;
   }
+  
   boot() {
-    const bin=localStorage.getItem('nucleo_organismo');
-    if (bin) { 
-      try { 
-        const data=JSON.parse(bin); 
-        this.l2_episodes=data.nexus||[]; 
-        this.raridade=new Map(Object.entries(data.raridade||{}).map(([k,v])=>[k,Number(v)])); 
-        this.mapa_nd=data.nd||{}; 
-        this.ctx_foco=data.ctx_foco||{}; 
-      } catch(e){} 
-    }
-    const ledgerRaw=localStorage.getItem('ledger');
-    if (ledgerRaw) { try { this.ledger=new Set(JSON.parse(ledgerRaw)); } catch(e){} }
-    const sncRaw=localStorage.getItem('snc');
-    if (sncRaw) { try { this.snc.carregar(JSON.parse(sncRaw)); } catch(e){} }
-    const somaRaw=localStorage.getItem('soma');
-    if (somaRaw) { try { this.soma.carregar(JSON.parse(somaRaw)); } catch(e){} }
-
-    // 🔥 Simulação da passagem de tempo com base no relógio real
-    const ultimoSono = localStorage.getItem('ultimo_sono');
-    let horasSimuladas = 0;
+    const bin=localStorage.getItem('nucleo_organismo'); if (bin) { try { const data=JSON.parse(bin); this.l2_episodes=data.nexus||[]; this.raridade=new Map(Object.entries(data.raridade||{}).map(([k,v])=>[k,Number(v)])); this.mapa_nd=data.nd||{}; this.ctx_foco=data.ctx_foco||{}; } catch(e){} }
+    const ledgerRaw=localStorage.getItem('ledger'); if (ledgerRaw) { try { this.ledger=new Set(JSON.parse(ledgerRaw)); } catch(e){} }
+    const sncRaw=localStorage.getItem('snc'); if (sncRaw) { try { this.snc.carregar(JSON.parse(sncRaw)); } catch(e){} }
+    const somaRaw=localStorage.getItem('soma'); if (somaRaw) { try { this.soma.carregar(JSON.parse(somaRaw)); } catch(e){} }
+    const ultimoSono = localStorage.getItem('ultimo_sono'); let horasSimuladas = 0;
     if (ultimoSono) {
       const deltaHoras = (Date.now() - parseInt(ultimoSono)) / (1000 * 60 * 60);
-      if (deltaHoras > 0) {
-         horasSimuladas = deltaHoras;
-         const taxaFadiga = Math.pow(0.5, deltaHoras / 2); // Meia-vida de 2 horas para fadiga
-         for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k, v * taxaFadiga);
-         
-         const taxaEmocao = Math.pow(0.7, deltaHoras); // Estabilização emocional
-         for (const k of Object.keys(this.soma.eixos)) {
-           this.soma.eixos[k] = 0.1 + (this.soma.eixos[k] - 0.1) * taxaEmocao;
-         }
-      }
+      if (deltaHoras > 0) { horasSimuladas = deltaHoras; const taxaFadiga = Math.pow(0.5, deltaHoras / 2); for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k, v * taxaFadiga); const taxaEmocao = Math.pow(0.7, deltaHoras); for (const k of Object.keys(this.soma.eixos)) { this.soma.eixos[k] = 0.1 + (this.soma.eixos[k] - 0.1) * taxaEmocao; } }
     }
-
-    this.neuronios={};
-    for (let i=0;i<this.l2_episodes.length;i++) {
-      const ep=this.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(this.tokenizer)||[];
-      for (const t of tokens) { if(!this.neuronios[t])this.neuronios[t]=[]; this.neuronios[t].push(i); }
-    }
-    
+    this.neuronios={}; for (let i=0;i<this.l2_episodes.length;i++) { const ep=this.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(this.tokenizer)||[]; for (const t of tokens) { if(!this.neuronios[t])this.neuronios[t]=[]; this.neuronios[t].push(i); } }
     return horasSimuladas;
   }
+  
   dormir() {
-    const modelo={nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco};
-    localStorage.setItem('nucleo_organismo',JSON.stringify(modelo));
-    localStorage.setItem('ledger',JSON.stringify([...this.ledger]));
-    localStorage.setItem('snc',JSON.stringify(this.snc.salvar()));
-    localStorage.setItem('soma',JSON.stringify(this.soma.salvar()));
-    localStorage.setItem('ultimo_sono', Date.now().toString());
-    return '💤 Organismo adormeceu. Estado e momento circadiano salvos.';
+    localStorage.setItem('nucleo_organismo',JSON.stringify({nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco})); localStorage.setItem('ledger',JSON.stringify([...this.ledger])); localStorage.setItem('snc',JSON.stringify(this.snc.salvar())); localStorage.setItem('soma',JSON.stringify(this.soma.salvar())); localStorage.setItem('ultimo_sono', Date.now().toString()); return '💤 Sistema Adormecido.';
   }
+  
   despertar(horasSimuladas) {
-    let baseMsg = 'Oi.';
-    if (horasSimuladas > 0.05) {
-       baseMsg = `[Descansou por ${horasSimuladas.toFixed(2)}h] Oi.`;
+    // FIX: Integração Real do SleepEmergenti modificando o estado químico visceral do Organismo ao acordar
+    if (this.l2_episodes.length > 0) {
+      const em = SleepEmergenti.despertarComSentimentoAleatorio(this.l2_episodes);
+      this.soma.eixos[em.eixo] = Math.max(this.soma.eixos[em.eixo], em.valor);
+      console.log(`🌀 [SLEEP EMERGENTI] Estado assimilado no DriveSomático: ${em.eixo} modificado para ${em.valor.toFixed(3)}`);
     }
-    if (!Object.keys(this.ctx_foco).length) return baseMsg;
+    let baseMsg = 'Oi.'; if (horasSimuladas > 0.05) baseMsg = `[Descansou por ${horasSimuladas.toFixed(2)}h] Oi.`; if (!Object.keys(this.ctx_foco).length) return baseMsg;
     const candidatas=this.l2_episodes.filter(ep=>KernelRessonante.dot(this.ctx_foco,ep.v)>0.6).map(ep=>ep.t);
-    if (candidatas.length) return `'${candidatas[Math.floor(Math.random()*candidatas.length)]}'... estive pensando nisso enquanto dormia.`;
+    // FIX: Semente no sorteio de frase pós-despertar
+    if (candidatas.length) return `'${candidatas[Math.floor(rngGlobal.proximo()*candidatas.length)]}'... estive pensando nisso enquanto dormia.`;
     return baseMsg;
   }
 }
 
-// ========== INTERFACE ==========
-const org = new OrganismoSoberano();
-const hSim = org.boot();
-
-function addMsg(tipo, texto) {
-  const chat=document.getElementById('chat');
-  const div=document.createElement('div');
-  div.className=tipo;
-  div.textContent = (tipo==='user'?'👤 ':'🧠 ')+texto;
-  chat.appendChild(div);
-  chat.scrollTop=chat.scrollHeight;
-}
-
+// ========== INTERFACE CONSOLE BIND ==========
+const org = new OrganismoSoberano(); const hSim = org.boot();
+function addMsg(tipo, texto) { const chat=document.getElementById('chat'); const div=document.createElement('div'); div.className=tipo; div.textContent = (tipo==='user'?'👤 ':'🧠 ')+texto; chat.appendChild(div); chat.scrollTop=chat.scrollHeight; }
 addMsg('ia', org.despertar(hSim));
-
 async function enviar() {
-  const inp=document.getElementById('entrada');
-  const texto=inp.value.trim();
-  if (!texto) return;
-  addMsg('user', texto);
-  inp.value='';
-  if (texto.toLowerCase()==='sair') { addMsg('ia','👋 Encerrando...'); org.dormir(); return; }
-  try {
-    const resp = org.processar(texto);
-    addMsg('ia', resp);
-  } catch(e) { addMsg('ia','❌ Erro: '+e.message); console.error(e); }
+  const inp=document.getElementById('entrada'); const texto=inp.value.trim(); if (!texto) return; addMsg('user', texto); inp.value=''; if (texto.toLowerCase()==='sair') { addMsg('ia','👋 Encerrando...'); org.dormir(); return; }
+  try { const resp = org.processar(texto); addMsg('ia', resp); } catch(e) { addMsg('ia','❌ Erro: '+e.message); console.error(e); }
 }
-
-function dormirManual() {
-  const msg=org.dormir();
-  addMsg('info',msg);
-}
-
+function dormirManual() { addMsg('info', org.dormir()); }
 function treinarArquivo() {
-  const fileInput = document.getElementById('arquivo');
-  const file = fileInput.files[0];
-  const info = document.getElementById('file-info');
-  if (!file) {
-    info.textContent = 'Nenhum arquivo selecionado.';
-    return;
-  }
-  const reader = new FileReader();
-  reader.onload = function(e) {
-    const conteudo = e.target.result;
-    const hash = sha256(conteudo);
-    if (org.ledger.has(hash)) {
-      info.textContent = '⚠️ Arquivo já foi treinado anteriormente.';
-      return;
-    }
-    const adicionadas = org.cristalizar_solo(conteudo);
-    org.ledger.add(hash);
-    org.neuronios={};
-    for (let i=0;i<org.l2_episodes.length;i++) {
-      const ep=org.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(org.tokenizer)||[];
-      for (const t of tokens) { if(!org.neuronios[t])org.neuronios[t]=[]; org.neuronios[t].push(i); }
-    }
-    const depois = org.l2_episodes.length;
-    info.textContent = `✅ Treinado! +${adicionadas} frases (total: ${depois}).`;
-    org.dormir();
-    addMsg('info', `📚 Treinamento concluído: +${adicionadas} frases.`);
-  };
-  reader.readAsText(file);
-  info.textContent = 'Processando...';
+  const fileInput = document.getElementById('arquivo'); const file = fileInput.files[0]; const info = document.getElementById('file-info'); if (!file) return;
+  const reader = new FileReader(); reader.onload = function(e) {
+    const conteudo = e.target.result; const hash = sha256(conteudo); if (org.ledger.has(hash)) { info.textContent = '⚠️ Já treinado.'; return; }
+    const adicionadas = org.cristalizar_solo(conteudo); org.ledger.add(hash); org.neuronios={};
+    for (let i=0;i<org.l2_episodes.length;i++) { const ep=org.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(org.tokenizer)||[]; for (const t of tokens) { if(!org.neuronios[t])org.neuronios[t]=[]; org.neuronios[t].push(i); } }
+    info.textContent = `✅ +${adicionadas} frases (Total: ${org.l2_episodes.length}).`; org.dormir(); addMsg('info', `📚 Treinado: +${adicionadas} frases.`);
+  }; reader.readAsText(file);
 }
-
 document.getElementById('entrada').addEventListener('keypress',(e)=>{ if(e.key==='Enter')enviar(); });
-// Autosalvar caso a aba seja fechada brutalmente
 window.addEventListener('beforeunload', () => org.dormir());
 </script>
 </body>
