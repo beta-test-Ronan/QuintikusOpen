@@ -1,0 +1,501 @@
+%PDF-1.7
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /AcroForm 5 0 R /Names 6 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents 4 0 R 
+   /Annots [7 0 R 8 0 R 14 0 R 15 0 R] >>
+endobj
+4 0 obj
+<< /Length 78 >>
+stream
+BT /F1 16 Tf 50 750 Td (Lucy – Organismo Soberano v31.1) Tj ET
+endstream
+endobj
+5 0 obj
+<< /Fields [14 0 R 7 0 R 8 0 R 15 0 R] /DA (/Helv 12 Tf 0 g) >>
+endobj
+6 0 obj
+<< /JavaScript 9 0 R >>
+endobj
+7 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [50 630 562 670] /F 4
+   /FT /Tx /Ff 4097 /T (chat) /V (Lucy: Ola.\r) /DA (/Cour 10 Tf 0 g) >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [50 590 400 620] /F 4
+   /FT /Tx /Ff 1 /T (input) /DA (/Helv 12 Tf 0 g) >>
+endobj
+9 0 obj
+<< /Names [ (docOpen) 11 0 R (sendClick) 10 0 R ] >>
+endobj
+10 0 obj
+<< /S /JavaScript /JS 12 0 R >>
+endobj
+11 0 obj
+<< /S /JavaScript /JS 13 0 R >>
+endobj
+12 0 obj
+<< /Length 300 >>
+stream
+(function() {
+    var inp = this.getField("input");
+    var chat = this.getField("chat");
+    var entrada = inp.value.trim();
+    if (entrada === "") return;
+    var resp = org.processar(entrada);
+    chat.value += "Voce: " + entrada + "\rLucy: " + resp + "\r";
+    inp.value = "";
+})();
+endstream
+endobj
+13 0 obj
+<< /Length 14500 >>
+stream
+/* ========== CLASSES COMPLETAS ========== */
+var NormalizadorSomatico = {
+    limpar: function (t) {
+        if (!t) return "";
+        t = t.toLowerCase();
+        t = t.replace(/[áàâãä]/g, "a").replace(/[éèêë]/g, "e")
+             .replace(/[íìîï]/g, "i").replace(/[óòôõö]/g, "o")
+             .replace(/[úùûü]/g, "u").replace(/[ç]/g, "c")
+             .replace(/[^a-z0-9!?. ]/g, "");
+        return t.trim();
+    }
+};
+
+var KernelRessonante = (function () {
+    function sha256(msg) {
+        function rightRotate(v,n){ return (v>>>n) | (v<<(32-n)); }
+        var K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+        var bytes = new TextEncoder().encode(msg);
+        var bitLen = bytes.length * 8;
+        var padded = new Uint8Array(Math.ceil((bytes.length+9)/64)*64);
+        padded.set(bytes);
+        padded[bytes.length] = 0x80;
+        new DataView(padded.buffer).setUint32(padded.length-4, bitLen);
+        var H = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+        for (var off=0; off<padded.length; off+=64) {
+            var W = new Uint32Array(64);
+            for (var i=0; i<16; i++) W[i] = new DataView(padded.buffer).getUint32(off+i*4);
+            for (var i=16; i<64; i++) {
+                var s0 = rightRotate(W[i-15],7)^rightRotate(W[i-15],18)^(W[i-15]>>>3);
+                var s1 = rightRotate(W[i-2],17)^rightRotate(W[i-2],19)^(W[i-2]>>>10);
+                W[i] = W[i-16]+s0+W[i-7]+s1;
+            }
+            var a=H[0],b=H[1],c=H[2],d=H[3],e=H[4],f=H[5],g=H[6],h=H[7];
+            for (var i=0; i<64; i++) {
+                var S1 = rightRotate(e,6)^rightRotate(e,11)^rightRotate(e,25);
+                var ch = (e&f)^(~e&g);
+                var temp1 = h+S1+ch+K[i]+W[i];
+                var S0 = rightRotate(a,2)^rightRotate(a,13)^rightRotate(a,22);
+                var maj = (a&b)^(a&c)^(b&c);
+                var temp2 = S0+maj;
+                h=g; g=f; f=e; e=(d+temp1)>>>0;
+                d=c; c=b; b=a; a=(temp1+temp2)>>>0;
+            }
+            H[0]+=a; H[1]+=b; H[2]+=c; H[3]+=d; H[4]+=e; H[5]+=f; H[6]+=g; H[7]+=h;
+        }
+        var hex = Array.from(new Uint8Array(new Uint32Array(H).buffer)).map(function(b){return b.toString(16).padStart(2,'0')}).join('');
+        return hex;
+    }
+    function seededRandom(seed) {
+        return function () {
+            seed = (seed * 1664525 + 1013904223) % 4294967296;
+            return seed / 4294967296;
+        };
+    }
+    function gaussRandom(rng) {
+        var u = 0, v = 0;
+        while (u === 0) u = rng();
+        while (v === 0) v = rng();
+        return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+    }
+    return {
+        get_vetor_esparso: function (token, dims, sparsity) {
+            dims = dims || 5000; sparsity = sparsity || 100;
+            var hash = sha256(token);
+            var seed = parseInt(hash.substring(0, 15), 16);
+            var rng = seededRandom(seed);
+            var indices = {};
+            var vec = {};
+            while (Object.keys(indices).length < sparsity) {
+                var idx = Math.floor(rng() * dims);
+                indices[idx] = true;
+            }
+            for (var k in indices) {
+                vec[k] = gaussRandom(rng);
+            }
+            return vec;
+        },
+        tsallis_match: function (v1, v2, q) {
+            q = q || 0.8;
+            var sum = 0, count = 0;
+            for (var k in v1) {
+                if (k in v2) {
+                    sum += Math.pow(Math.abs(v1[k] * v2[k]), q);
+                    count++;
+                }
+            }
+            if (!count) return 0;
+            return (1 - sum) / (q - 1 + 1e-9);
+        },
+        dot: function (v1, v2) {
+            var sum = 0;
+            for (var k in v1) {
+                if (k in v2) sum += v1[k] * v2[k];
+            }
+            return sum;
+        },
+        normalize: function (v) {
+            var vals = [];
+            for (var k in v) vals.push(v[k]);
+            if (!vals.length) return {};
+            var norm = 0;
+            for (var i = 0; i < vals.length; i++) norm += vals[i] * vals[i];
+            norm = Math.sqrt(norm) + 1e-9;
+            var res = {};
+            for (var k in v) res[k] = v[k] / norm;
+            return res;
+        }
+    };
+})();
+
+function CortexCognitivo(limite) {
+    this.limite = limite || 0.30;
+    this.eps = 1e-9;
+    this.taxa = 0.12;
+}
+CortexCognitivo.prototype._norm = function (d) {
+    var s = 0;
+    for (var i = 0; i < d.length; i++) s += d[i];
+    s += this.eps;
+    return d.map(function (x) { return x / s; });
+};
+CortexCognitivo.prototype.divergencia_kl = function (p, q) {
+    var sum = 0;
+    for (var i = 0; i < p.length; i++) {
+        sum += p[i] * Math.log((p[i] + this.eps) / (q[i] + this.eps));
+    }
+    return isFinite(sum) ? sum : this.limite;
+};
+CortexCognitivo.prototype.processar_reflexao = function (estReal, estInt) {
+    if (!estReal || !estInt || estReal.length !== estInt.length)
+        return { estado: [0.25,0.25,0.25,0.25], ciclos: 0, confusao: 0.30 };
+    var p = this._norm(estReal), q = this._norm(estInt);
+    var ciclos = 0, conf = this.divergencia_kl(p, q);
+    while (conf > this.limite && ciclos < 45) {
+        ciclos++;
+        for (var i = 0; i < q.length; i++) {
+            q[i] = Math.max(0, q[i] + this.taxa * (p[i] - q[i]));
+        }
+        q = this._norm(q);
+        conf = this.divergencia_kl(p, q);
+    }
+    return { estado: q, ciclos: ciclos, confusao: conf };
+};
+
+function SistemaNervosoCentral(nIn, nHid, nOut) {
+    nIn = nIn || 6; nHid = nHid || 10; nOut = nOut || 3;
+    this.nIn = nIn; this.nHid = nHid; this.nOut = nOut;
+    this.t = 0; this.lr = 0.005;
+    var initM = function (r, c) {
+        var m = [];
+        for (var i = 0; i < r; i++) {
+            m[i] = [];
+            for (var j = 0; j < c; j++) {
+                m[i][j] = Math.random() * 0.2 - 0.1;
+            }
+        }
+        return m;
+    };
+    this.Wh = initM(nHid, nIn + nHid);
+    this.Wy = initM(nOut, nHid);
+    this.Bh = []; for (var i = 0; i < nHid; i++) this.Bh[i] = 0;
+    this.By = []; for (var i = 0; i < nOut; i++) this.By[i] = 0;
+    this.adamMWh = initM(nHid, nIn + nHid);
+    this.adamVWh = initM(nHid, nIn + nHid);
+    this.adamMWy = initM(nOut, nHid);
+    this.adamVWy = initM(nOut, nHid);
+    this.estado_anterior = []; for (var i = 0; i < nHid; i++) this.estado_anterior[i] = 0;
+    this.cache = null;
+}
+SistemaNervosoCentral.prototype.sigmoid = function (x) {
+    return 1 / (1 + Math.exp(-Math.max(-15, Math.min(15, x))));
+};
+SistemaNervosoCentral.prototype.pulsar_vontade = function (xAtual) {
+    var entrada = xAtual.slice(0, this.nIn);
+    while (entrada.length < this.nIn) entrada.push(0);
+    var inp = entrada.concat(this.estado_anterior);
+    var h = [], y = [];
+    for (var i = 0; i < this.nHid; i++) {
+        var sum = this.Bh[i];
+        for (var j = 0; j < inp.length; j++) sum += inp[j] * this.Wh[i][j];
+        h[i] = this.sigmoid(sum);
+    }
+    for (var i = 0; i < this.nOut; i++) {
+        var sum = this.By[i];
+        for (var j = 0; j < this.nHid; j++) sum += h[j] * this.Wy[i][j];
+        y[i] = this.sigmoid(sum);
+    }
+    this.cache = { inp: inp, h: h, y: y };
+    this.estado_anterior = h;
+    return y;
+};
+SistemaNervosoCentral.prototype.adaptar_realtime = function (alvo) {
+    if (!this.cache) return;
+    this.t++;
+    var inp = this.cache.inp, h = this.cache.h, y = this.cache.y;
+    var b1 = 0.9, b2 = 0.999, eps = 1e-8;
+    var corr1 = Math.max(1 - Math.pow(b1, this.t), 1e-8);
+    var corr2 = Math.max(1 - Math.pow(b2, this.t), 1e-8);
+    var delta_y = [];
+    for (var i = 0; i < this.nOut; i++) {
+        delta_y[i] = (y[i] - alvo[i]) * y[i] * (1 - y[i]);
+    }
+    var delta_h = [];
+    for (var j = 0; j < this.nHid; j++) {
+        var sumErr = 0;
+        for (var i = 0; i < this.nOut; i++) sumErr += delta_y[i] * this.Wy[i][j];
+        delta_h[j] = sumErr * h[j] * (1 - h[j]);
+    }
+    for (var i = 0; i < this.nOut; i++) {
+        for (var j = 0; j < this.nHid; j++) {
+            var grad = delta_y[i] * h[j];
+            this.adamMWy[i][j] = b1 * this.adamMWy[i][j] + (1 - b1) * grad;
+            this.adamVWy[i][j] = b2 * this.adamVWy[i][j] + (1 - b2) * grad * grad;
+            this.Wy[i][j] -= this.lr * (this.adamMWy[i][j] / corr1) / (Math.sqrt(Math.abs(this.adamVWy[i][j]) / corr2) + eps);
+        }
+        this.By[i] -= this.lr * delta_y[i];
+    }
+    for (var i = 0; i < this.nHid; i++) {
+        for (var j = 0; j < inp.length; j++) {
+            var grad = delta_h[i] * inp[j];
+            this.adamMWh[i][j] = b1 * this.adamMWh[i][j] + (1 - b1) * grad;
+            this.adamVWh[i][j] = b2 * this.adamVWh[i][j] + (1 - b2) * grad * grad;
+            this.Wh[i][j] -= this.lr * (this.adamMWh[i][j] / corr1) / (Math.sqrt(Math.abs(this.adamVWh[i][j]) / corr2) + eps);
+        }
+        this.Bh[i] -= this.lr * delta_h[i];
+    }
+};
+SistemaNervosoCentral.prototype.salvar = function () {
+    return { Wh: this.Wh, Wy: this.Wy, Bh: this.Bh, By: this.By, ea: this.estado_anterior, t: this.t };
+};
+SistemaNervosoCentral.prototype.carregar = function (d) {
+    this.Wh = d.Wh; this.Wy = d.Wy; this.Bh = d.Bh; this.By = d.By;
+    this.t = d.t || 0; this.estado_anterior = d.ea || [];
+};
+
+function DriveSomatico() {
+    this.vm = -70;
+    this.eixos = { amor: 0.1, prazer: 0.1, tristeza: 0.1, raiva: 0.1 };
+    this.valvulas = { amor: false, prazer: false, tristeza: false, raiva: false };
+}
+DriveSomatico.prototype.pulsar = function (impacto, u_toks) {
+    this.vm = Math.max(-90, Math.min(-45, this.vm + impacto * 12));
+};
+
+function SistemaDeepy(raridade) {
+    this.raridade = raridade;
+    this.turnos = 0;
+    this.freq = new Map();
+    this.expansores = ['fale','sobre','tudo','detalhes','mais','explique'];
+}
+SistemaDeepy.prototype.crivo = function (tokens) {
+    if (!tokens.length) return { tem_merito: false, nivel: 0 };
+    var Q = tokens.length;
+    var P = 0;
+    for (var i = 0; i < tokens.length; i++) {
+        var f = this.raridade.get(tokens[i]) || 1;
+        P += 1.5 / (Math.log(f + 1.2) + 1e-5);
+    }
+    var xapr = 0;
+    for (var i = 0; i < tokens.length; i++) {
+        xapr += this.freq.get(tokens[i]) || 0;
+    }
+    xapr /= (Q + 1e-5);
+    var xnec = Q / (P + 1e-5);
+    return { tem_merito: xapr >= xnec * 0.08, nivel: xapr };
+};
+
+function OrganismoSoberano() {
+    this.mapa_nd = {};
+    this.l2_episodes = [];
+    this.neuronios = {};
+    this.raridade = new Map();
+    this.history = [];
+    this.fatigue = new Map();
+    this.ctx_foco = {};
+    this.ledger = new Set();
+    this.soma = new DriveSomatico();
+    this.cortex = new CortexCognitivo();
+    this.snc = new SistemaNervosoCentral();
+    this.deepy = new SistemaDeepy(this.raridade);
+    this.tokenizer = /\b\w+\b|[!?.]/g;
+}
+OrganismoSoberano.prototype._get_entropy = function (t) {
+    var c = this.raridade.get(t) || 1;
+    return 1 / (Math.log(c + 1.2) + 1e-5);
+};
+OrganismoSoberano.prototype.processar = function (entrada) {
+    var t0 = Date.now();
+    this.deepy.turnos++;
+    if (this.deepy.turnos >= 7) {
+        var keys = this.fatigue.keys();
+        for (var k in keys) this.fatigue.set(k, (this.fatigue.get(k) || 0) * 0.2);
+        this.deepy.turnos = 0;
+    }
+    var raw = NormalizadorSomatico.limpar(entrada);
+    var u_toks = raw.match(this.tokenizer) || [];
+    if (!u_toks.length) return '...';
+    var sujeito = null;
+    for (var i = 0; i < u_toks.length; i++) {
+        if (this.neuronios[u_toks[i]]) { sujeito = u_toks[i]; break; }
+    }
+    if (!sujeito) sujeito = u_toks[0];
+    var impacto = this._get_entropy(sujeito);
+    this.soma.pulsar(impacto, u_toks);
+    for (var i = 0; i < u_toks.length; i++) {
+        this.deepy.freq.set(u_toks[i], (this.deepy.freq.get(u_toks[i]) || 0) + 1);
+    }
+    var crivoRes = this.deepy.crivo(u_toks);
+    var chaves = ["amor","prazer","tristeza","raiva"];
+    var p_real = [];
+    for (var i = 0; i < chaves.length; i++) p_real.push(this.soma.eixos[chaves[i]] || 0.1);
+    var q_int = this.snc.estado_anterior.slice(0,4);
+    var reflexao = this.cortex.processar_reflexao(p_real, q_int);
+    var estado_em = reflexao.estado, ciclos = reflexao.ciclos, dkl = reflexao.confusao;
+    var entrada_snc = estado_em.concat([impacto, (this.soma.vm + 90) / 45]);
+    var volicao = this.snc.pulsar_vontade(entrada_snc);
+    var modo_idx = 0, maxVal = volicao[0];
+    for (var i = 1; i < volicao.length; i++) {
+        if (volicao[i] > maxVal) { maxVal = volicao[i]; modo_idx = i; }
+    }
+    var v_in = {};
+    for (var i = 0; i < u_toks.length; i++) {
+        var t = u_toks[i];
+        if (t in this.mapa_nd) {
+            var vec = this.mapa_nd[t];
+            var peso = this._get_entropy(t);
+            for (var k in vec) {
+                v_in[k] = (v_in[k] || 0) + vec[k] * peso;
+            }
+        }
+    }
+    v_in = KernelRessonante.normalize(v_in);
+    if (Object.keys(this.ctx_foco).length === 0) {
+        this.ctx_foco = v_in;
+    } else {
+        var novo = {}, keys = {};
+        for (var k in this.ctx_foco) keys[k] = true;
+        for (var k in v_in) keys[k] = true;
+        for (var k in keys) {
+            novo[k] = (this.ctx_foco[k] || 0) * 0.6 + (v_in[k] || 0) * 0.4;
+        }
+        this.ctx_foco = KernelRessonante.normalize(novo);
+    }
+    var candidatos = [];
+    if (this.neuronios[sujeito]) {
+        candidatos = this.neuronios[sujeito].slice();
+    } else {
+        var amostra = Math.min(this.l2_episodes.length, 150);
+        var arr = [];
+        for (var i = 0; i < this.l2_episodes.length; i++) arr.push(i);
+        arr.sort(function() { return Math.random() - 0.5; });
+        candidatos = arr.slice(0, amostra);
+    }
+    var scored = [];
+    for (var i = 0; i < candidatos.length; i++) {
+        var idx = candidatos[i];
+        var ep = this.l2_episodes[idx];
+        if (!ep || !ep.v || this.history.indexOf(ep.t) !== -1) continue;
+        var ressonancia = KernelRessonante.tsallis_match(v_in, ep.v);
+        var foco = KernelRessonante.dot(this.ctx_foco, ep.v);
+        var fadiga = this.fatigue.get(ep.t) || 0;
+        var score = ressonancia + foco * 0.3 - fadiga;
+        scored.push({ idx: idx, score: score });
+    }
+    scored.sort(function (a, b) { return b.score - a.score; });
+    var melhorIdx;
+    if (scored.length) melhorIdx = scored[0].idx;
+    else melhorIdx = Math.floor(Math.random() * this.l2_episodes.length);
+    var res = (this.l2_episodes[melhorIdx] && this.l2_episodes[melhorIdx].t) || '...';
+    if (isFinite(dkl) && dkl < 0.45) {
+        var alvo = [0, 0, 0];
+        alvo[modo_idx] = 1;
+        this.snc.adaptar_realtime(alvo);
+    }
+    this.history.push(res);
+    if (this.history.length > 20) this.history.shift();
+    this.fatigue.set(res, (this.fatigue.get(res) || 0) + 10);
+    var fkeys = this.fatigue.keys();
+    for (var k in fkeys) {
+        this.fatigue.set(k, this.fatigue.get(k) * 0.65);
+    }
+    return res;
+};
+OrganismoSoberano.prototype.boot = function () {
+    // Vazio – carregamento feito no docOpen se necessário
+};
+OrganismoSoberano.prototype.despertar = function () {
+    if (Object.keys(this.ctx_foco).length === 0) return "Ola.";
+    var candidatas = [];
+    for (var i = 0; i < this.l2_episodes.length; i++) {
+        var ep = this.l2_episodes[i];
+        if (KernelRessonante.dot(this.ctx_foco, ep.v) > 0.6) {
+            candidatas.push(ep.t);
+        }
+    }
+    if (candidatas.length) {
+        return "'" + candidatas[Math.floor(Math.random() * candidatas.length)] + "'... estive pensando nisso enquanto dormia.";
+    }
+    return "Oi.";
+};
+
+var org = new OrganismoSoberano();
+// org.boot(); // não faz nada, mas mantido por compatibilidade
+var chat = this.getField("chat");
+chat.value = "Lucy: " + org.despertar() + "\r";
+endstream
+endobj
+
+14 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [50 680 562 750] /F 4
+   /FT /Tx /Ff 4097 /T (instructions) /DA (/Helv 10 Tf 0 0 1 rg)
+   /V (COMO USAR: Digite no campo abaixo e clique ENVIAR.\rHOW TO USE: Type and click SEND.\rES: Escriba y haga clic en ENVIAR.\rZH: 输入并点击发送。) >>
+endobj
+
+15 0 obj
+<< /Type /Annot /Subtype /Widget /Rect [410 590 560 620] /F 4
+   /FT /Btn /Ff 65536 /T (sendBtn) /DA (/Helv 12 Tf 0 g) /V (Enviar)
+   /AA << /PO 10 0 R >> >>
+endobj
+
+xref
+0 16
+0000000000 65535 f 
+0000000015 00000 n 
+0000000122 00000 n 
+0000000186 00000 n 
+0000000340 00000 n 
+0000000460 00000 n 
+0000000570 00000 n 
+0000000660 00000 n 
+0000000818 00000 n 
+0000000970 00000 n 
+0000001092 00000 n 
+0000001202 00000 n 
+0000001312 00000 n 
+00000014200 00000 n 
+00000029000 00000 n 
+00000029400 00000 n 
+
+trailer
+<< /Size 16 /Root 1 0 R >>
+startxref
+29550
+%%EOF
