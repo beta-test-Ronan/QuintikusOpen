@@ -254,8 +254,22 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 <pre><code>python3 quintikus-model.py
 </code></pre>
 
-<p>Versão:Topological DLM: Dynamic Linguistic Modular Model.<br>
 
+    
+<h2>Novidade</h2>
+<pre><code>
+    Sobre multiverso
+    Agora tem Quintikus ssml em:
+   
+    c++
+    nodejs
+    kotlin
+    hml+js
+</code>
+</pre>
+
+<p>Versão:Topological DLM: Dynamic Linguistic Modular Model.<br>
+    
 ## 💸 Se o Quintikus rodou no seu J2
 Esse projeto me custou 3 anos, 
 café e paciência.<br> 
