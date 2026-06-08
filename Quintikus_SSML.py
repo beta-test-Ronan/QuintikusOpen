@@ -2,9 +2,11 @@ import os, math, time, random, re, pickle, hashlib, tempfile, cmath, unicodedata
 from collections import defaultdict, Counter, deque
 
 # ==================================================================
-# ❄️ HARDWARE SHIELD & NORMALIZAÇÃO
+# ❄️ HARDWARE SHIELD
 # ==================================================================
 os.environ["OMP_NUM_THREADS"] = "1" 
+os.environ["MKL_NUM_THREADS"] = "1" 
+os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 class NormalizadorSomático:
     @staticmethod
@@ -48,11 +50,15 @@ class CortexCognitivo:
         self.taxa_pensamento = 0.12
 
     def _norm(self, d):
-        s = sum(d) + self.epsilon
-        return [x / s for x in d]
+        s = sum(abs(x) for x in d) + self.epsilon # Proteção contra negativos
+        return [abs(x) / s for x in d]
 
     def divergencia_kl(self, p, q):
-        return sum(p[i] * math.log((p[i] + self.epsilon) / (q[i] + self.epsilon)) for i in range(len(p)))
+        pn, qn = self._norm(p), self._norm(q)
+        dkl = 0.0
+        for i in range(len(pn)):
+            dkl += pn[i] * math.log((pn[i] + self.epsilon) / (qn[i] + self.epsilon))
+        return dkl
 
     def processar_reflexao(self, estado_real, estado_interno):
         p, q = self._norm(estado_real), self._norm(estado_interno)
@@ -65,7 +71,7 @@ class CortexCognitivo:
         return q, ciclos, confusao
 
 # ==================================================================
-# 🧠 SISTEMA NERVOSO CENTRAL (SNC - RNN + ADAM)
+# 🧠 SISTEMA NERVOSO CENTRAL (RNN + ADAM)
 # ==================================================================
 class SistemaNervosoCentral:
     def __init__(self, n_in=6, n_hid=10, n_out=3, path="sistema_nervoso.bin"):
@@ -102,20 +108,21 @@ class SistemaNervosoCentral:
         for j in range(self.n_hid):
             soma_err = sum(delta_y[i] * self.W_y[i][j] for i in range(self.n_out))
             delta_h[j] = soma_err * (h[j] * (1.0 - h[j]))
+        
         c_b1, c_b2 = 1 - b1**self.t, 1 - b2**self.t
         for i in range(self.n_out):
             for j in range(self.n_hid):
                 grad = delta_y[i] * h[j]
                 self.adam_M_Wy[i][j] = b1*self.adam_M_Wy[i][j] + (1-b1)*grad
                 self.adam_V_Wy[i][j] = b2*self.adam_V_Wy[i][j] + (1-b2)*(grad**2)
-                self.W_y[i][j] -= lr * (self.adam_M_Wy[i][j]/c_b1) / (math.sqrt(self.adam_V_Wy[i][j]/c_b2) + eps)
+                self.W_y[i][j] -= lr * (self.adam_M_Wy[i][j]/c_b1) / (math.sqrt(abs(self.adam_V_Wy[i][j])/c_b2) + eps)
             self.B_y[i] -= lr * delta_y[i]
         for i in range(self.n_hid):
             for j in range(len(inp)):
                 grad = delta_h[i] * inp[j]
                 self.adam_M_Wh[i][j] = b1*self.adam_M_Wh[i][j] + (1-b1)*grad
                 self.adam_V_Wh[i][j] = b2*self.adam_V_Wh[i][j] + (1-b2)*(grad**2)
-                self.W_h[i][j] -= lr * (self.adam_M_Wh[i][j]/c_b1) / (math.sqrt(self.adam_V_Wh[i][j]/c_b2) + eps)
+                self.W_h[i][j] -= lr * (self.adam_M_Wh[i][j]/c_b1) / (math.sqrt(abs(self.adam_V_Wh[i][j])/c_b2) + eps)
             self.B_h[i] -= lr * delta_h[i]
 
     def _salvar(self):
@@ -129,10 +136,10 @@ class SistemaNervosoCentral:
             self.W_h, self.W_y, self.B_h, self.B_y, self.t = d['Wh'], d['Wy'], d['Bh'], d['By'], d.get('t', 0)
             self.adam_M_Wh, self.adam_V_Wh = d.get('MWh', self.adam_M_Wh), d.get('VWh', self.adam_V_Wh)
             self.adam_M_Wy, self.adam_V_Wy = d.get('MWy', self.adam_M_Wy), d.get('VWy', self.adam_V_Wy)
-            self.estado_anterior = d.get('ea', self.estado_anterior)
+            self.estado_anterior = d.get('ea', [0.0]*self.n_hid)
 
 # ==================================================================
-# 🧬 DRIVE SOMÁTICO & SISTEMAS DE APOIO
+# 🧬 DRIVE SOMÁTICO (CORREÇÃO DE INÉRCIA)
 # ==================================================================
 class DriveSomático:
     def __init__(self):
@@ -142,21 +149,20 @@ class DriveSomático:
 
     def pulsar(self, impacto, dkl, u_toks):
         self.vm = max(-90.0, min(-45.0, self.vm + impacto * 12))
-        atrito = (abs(self.vm) * 0.5) / (dkl + 0.05)
-        self.inercia_emocional = max(0.1, min(2.0, atrito / 100.0))
+        # FIX: Limita a inércia para nunca inverter o sinal (máximo 0.9)
+        atrito = (abs(self.vm) * 0.1) / (dkl + 0.1)
+        self.inercia_emocional = min(0.9, atrito) 
+        
         gatilhos = {"amor":["amo","amor"], "prazer":["prazer","delicia"], "tristeza":["triste","mal"], "raiva":["odeio","raiva"]}
         for eixo, keywords in gatilhos.items():
             for k in keywords:
                 if k in u_toks:
-                    delta = (abs(self.vm) / 1.5) * impacto * (1.0 - self.inercia_emocional)
-                    self.eixos[eixo] = min(5.0, self.eixos[eixo] + delta)
+                    delta = (abs(self.vm) / 2.0) * impacto * (1.0 - self.inercia_emocional)
+                    self.eixos[eixo] = max(0.1, min(5.0, self.eixos[eixo] + delta))
 
 class SistemaDeepy:
     def __init__(self, raridade):
-        self.raridade = raridade
-        self.turnos_para_think = 7
-        self.contador_turnos = 0
-        self.frequencia_pulso = Counter()
+        self.raridade, self.turnos_think, self.frequencia_pulso = raridade, 0, Counter()
 
     def crivo_meritocratico(self, tokens, impacto):
         if not tokens: return False, 0
@@ -166,50 +172,26 @@ class SistemaDeepy:
         x_nec = Q / (P + 1e-5)
         return (x_apr >= x_nec * 0.08), x_apr
 
-class Emosfera:
-    def __init__(self, tokenizer):
-        self.cache = {}
-        self.tokenizer = tokenizer
-        self.active_foco = None
-
-    def atualizar(self, history, turn):
-        words = Counter()
-        for h in history:
-            for t in self.tokenizer.findall(h.lower()): words[t] += 1
-        for w, c in words.items():
-            if c >= 2: self.cache[w] = {'count': c, 'turn': turn}
-        if self.cache: self.active_foco = max(self.cache, key=lambda w: self.cache[w]['count'])
-
 # ==================================================================
-# 🌿 ORGANISMO SOBERANO (v32.1 REVISADA)
+# 🌿 ORGANISMO SOBERANO
 # ==================================================================
 class OrganismoSoberano:
     def __init__(self):
-        self.path_bin = "nucleo_organismo.qssml"
-        self.path_ledger = "ledger.bin"
+        self.path_bin, self.path_ledger = "nucleo_organismo.qssml", "ledger.bin"
         self.auto_train_files = ["oi.txt", "amor.txt", "prazer.txt", "confusa.txt", "sentimento.txt"]
         self.mapa_nd, self.l2_episodes, self.neuronios = {}, [], defaultdict(list)
-        self.raridade = Counter()
-        self.history = deque(maxlen=20)
-        self.fatigue = defaultdict(float)
-        self.ledger = set() 
-        self.ctx_foco = {}
-
-        self.soma = DriveSomático()
-        self.cortex = CortexCognitivo()
-        self.snc = SistemaNervosoCentral()
-        self.tokenizer = re.compile(r'\b\w+\b|[!?.]')
-        self.deepy = SistemaDeepy(self.raridade)
-        self.emosfera = Emosfera(self.tokenizer)
+        self.raridade, self.history, self.fatigue, self.ledger = Counter(), deque(maxlen=20), defaultdict(float), set()
+        self.ctx_foco, self.soma, self.cortex, self.snc = {}, DriveSomático(), CortexCognitivo(), SistemaNervosoCentral()
+        self.deepy, self.tokenizer = SistemaDeepy(self.raridade), re.compile(r'\b\w+\b|[!?.]')
 
     def _get_entropy(self, t): return 1.0 / (math.log(self.raridade.get(t, 1) + 1.2) + 1e-5)
 
     def processar(self, entrada):
         t0 = time.perf_counter()
-        self.deepy.contador_turnos += 1
-        if self.deepy.contador_turnos >= 7:
-            print("\n🧠 [DEEPY] Ciclo REM: Reorganizando..."); self.deepy.contador_turnos = 0
-            for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.3
+        self.deepy.turnos_think += 1
+        if self.deepy.turnos_think >= 7:
+            print("\n🧠 [DEEPY] Reorganização REM..."); self.deepy.turnos_think = 0
+            for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.2
 
         raw = NormalizadorSomático.limpar(entrada)
         u_toks = self.tokenizer.findall(raw)
@@ -229,31 +211,18 @@ class OrganismoSoberano:
         v_in = {}
         for t in u_toks:
             if t in self.mapa_nd: 
-                v_ep_vec = self.mapa_nd[t]
-                v_in = {k: v_in.get(k,0) + v_ep_vec.get(k,0)*self._get_entropy(t) for k in set(v_in)|set(v_ep_vec)}
+                v_in = {k: v_in.get(k,0) + self.mapa_nd[t].get(k,0)*self._get_entropy(t) for k in set(v_in)|set(self.mapa_nd[t])}
         v_in = KernelRessonante.normalize(v_in)
         if not self.ctx_foco: self.ctx_foco = v_in
         else: self.ctx_foco = KernelRessonante.normalize({k: self.ctx_foco.get(k,0)*0.6 + v_in.get(k,0)*0.4 for k in set(self.ctx_foco)|set(v_in)})
 
         cand = self.neuronios.get(sujeito, []) or random.sample(range(len(self.l2_episodes)), min(len(self.l2_episodes), 150))
-        scored = []
-        self.emosfera.atualizar(self.history, self.snc.t)
-        for idx in cand:
-            ep = self.l2_episodes[idx]
-            if ep['t'] in self.history: continue
-            score = KernelRessonante.tsallis_match(v_in, ep['v']) + KernelRessonante.dot(self.ctx_foco, ep['v'])*0.3 - self.fatigue[ep['t']]
-            if self.emosfera.active_foco and self.emosfera.active_foco in ep['t'].lower(): score += 1.2
-            scored.append((idx, score))
+        scored = sorted([(idx, KernelRessonante.tsallis_match(v_in, self.l2_episodes[idx]['v']) + KernelRessonante.dot(self.ctx_foco, self.l2_episodes[idx]['v'])*0.3 - self.fatigue[self.l2_episodes[idx]['t']]) for idx in cand], key=lambda x: x[1], reverse=True)
+        res = self.l2_episodes[scored[0][0]]['t'] if scored else "..."
 
-        scored.sort(key=lambda x: x[1], reverse=True)
-        melhor_idx = scored[0][0]
-        res = self.l2_episodes[melhor_idx]['t']
-
-        # APRENDIZADO CORRIGIDO (impacto vs impact)
-        if impacto > 0.1:
-            self.snc.adaptar_realtime([1.0 if i == modo_idx else 0.0 for i in range(3)])
-
+        if dkl < 0.45: self.snc.adaptar_realtime([1.0 if i == modo_idx else 0.0 for i in range(3)])
         self.history.append(res); self.fatigue[res] += 10.0
+
         dt = (time.perf_counter() - t0) * 1000
         print(f" ⚛️ [SNC t:{self.snc.t}] Pensou {ciclos} Ciclos (DKL:{dkl:.2f}) | {dt:.1f}ms")
         return res
@@ -272,7 +241,7 @@ class OrganismoSoberano:
         self.neuronios.clear()
         for i, ep in enumerate(self.l2_episodes):
             for t in self.tokenizer.findall(NormalizadorSomático.limpar(ep['t'])): self.neuronios[t].append(i)
-        print(f"✅ Organismo Online. Ciclos: {self.snc.t}")
+        print(f"✅ Organismo v32.2 Online. t:{self.snc.t} | Nexos: {len(self.l2_episodes)}")
 
     def cristalizar_solo(self, texto):
         for f in re.split(r'[\.\!\?\n]+', texto):
@@ -304,7 +273,5 @@ if __name__ == "__main__":
             u = input("\n👤: ").strip()
             if u.lower() == 'sair': break
             print(f"🧠: {org.processar(u)}")
-        org.dormir()
-    except Exception as e:
-        print(f"⚠️ Erro Crítico: {e}")
-        org.dormir()
+    except Exception as e: print(f"⚠️ Erro: {e}"); org.dormir()
+    org.dormir()
