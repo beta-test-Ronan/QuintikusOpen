@@ -2,11 +2,9 @@ import os, math, time, random, re, pickle, hashlib, tempfile, cmath, unicodedata
 from collections import defaultdict, Counter, deque
 
 # ==================================================================
-# ❄️ HARDWARE SHIELD
+# ❄️ HARDWARE SHIELD & NORMALIZAÇÃO
 # ==================================================================
 os.environ["OMP_NUM_THREADS"] = "1" 
-os.environ["MKL_NUM_THREADS"] = "1" 
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
 
 class NormalizadorSomático:
     @staticmethod
@@ -41,7 +39,7 @@ class KernelRessonante:
         return {d: val / (norm + 1e-9) for d, val in v.items()}
 
 # ==================================================================
-# 🧠 CÓRTEX COGNITIVO (REFLEXÃO KL)
+# 🧠 CÓRTEX COGNITIVO
 # ==================================================================
 class CortexCognitivo:
     def __init__(self, limite_confusao=0.30):
@@ -67,7 +65,7 @@ class CortexCognitivo:
         return q, ciclos, confusao
 
 # ==================================================================
-# 🧠 SISTEMA NERVOSO CENTRAL (RNN + ADAM)
+# 🧠 SISTEMA NERVOSO CENTRAL (SNC - RNN + ADAM)
 # ==================================================================
 class SistemaNervosoCentral:
     def __init__(self, n_in=6, n_hid=10, n_out=3, path="sistema_nervoso.bin"):
@@ -104,7 +102,6 @@ class SistemaNervosoCentral:
         for j in range(self.n_hid):
             soma_err = sum(delta_y[i] * self.W_y[i][j] for i in range(self.n_out))
             delta_h[j] = soma_err * (h[j] * (1.0 - h[j]))
-        
         c_b1, c_b2 = 1 - b1**self.t, 1 - b2**self.t
         for i in range(self.n_out):
             for j in range(self.n_hid):
@@ -135,7 +132,7 @@ class SistemaNervosoCentral:
             self.estado_anterior = d.get('ea', self.estado_anterior)
 
 # ==================================================================
-# 🧬 DRIVE SOMÁTICO E SISTEMA DEEPY
+# 🧬 DRIVE SOMÁTICO & SISTEMAS DE APOIO
 # ==================================================================
 class DriveSomático:
     def __init__(self):
@@ -169,9 +166,6 @@ class SistemaDeepy:
         x_nec = Q / (P + 1e-5)
         return (x_apr >= x_nec * 0.08), x_apr
 
-# ==================================================================
-# 🧠 EMOSFERA (PERSISTÊNCIA DE CONTEXTO)
-# ==================================================================
 class Emosfera:
     def __init__(self, tokenizer):
         self.cache = {}
@@ -184,15 +178,15 @@ class Emosfera:
             for t in self.tokenizer.findall(h.lower()): words[t] += 1
         for w, c in words.items():
             if c >= 2: self.cache[w] = {'count': c, 'turn': turn}
-        if self.cache:
-            self.active_foco = max(self.cache, key=lambda w: self.cache[w]['count'])
+        if self.cache: self.active_foco = max(self.cache, key=lambda w: self.cache[w]['count'])
 
 # ==================================================================
-# 🌿 ORGANISMO SOBERANO
+# 🌿 ORGANISMO SOBERANO (v32.1 REVISADA)
 # ==================================================================
 class OrganismoSoberano:
     def __init__(self):
         self.path_bin = "nucleo_organismo.qssml"
+        self.path_ledger = "ledger.bin"
         self.auto_train_files = ["oi.txt", "amor.txt", "prazer.txt", "confusa.txt", "sentimento.txt"]
         self.mapa_nd, self.l2_episodes, self.neuronios = {}, [], defaultdict(list)
         self.raridade = Counter()
@@ -214,7 +208,7 @@ class OrganismoSoberano:
         t0 = time.perf_counter()
         self.deepy.contador_turnos += 1
         if self.deepy.contador_turnos >= 7:
-            print("\n🧠 [DEEPY] REM Cycle: Reorganizando..."); self.deepy.contador_turnos = 0
+            print("\n🧠 [DEEPY] Ciclo REM: Reorganizando..."); self.deepy.contador_turnos = 0
             for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.3
 
         raw = NormalizadorSomático.limpar(entrada)
@@ -255,9 +249,11 @@ class OrganismoSoberano:
         melhor_idx = scored[0][0]
         res = self.l2_episodes[melhor_idx]['t']
 
-        if dkl < 0.45: self.snc.adaptar_realtime([1.0 if i == modo_idx else 0.0 for i in range(3)])
-        self.history.append(res); self.fatigue[res] += 10.0
+        # APRENDIZADO CORRIGIDO (impacto vs impact)
+        if impacto > 0.1:
+            self.snc.adaptar_realtime([1.0 if i == modo_idx else 0.0 for i in range(3)])
 
+        self.history.append(res); self.fatigue[res] += 10.0
         dt = (time.perf_counter() - t0) * 1000
         print(f" ⚛️ [SNC t:{self.snc.t}] Pensou {ciclos} Ciclos (DKL:{dkl:.2f}) | {dt:.1f}ms")
         return res
@@ -266,8 +262,8 @@ class OrganismoSoberano:
         if os.path.exists(self.path_bin):
             with open(self.path_bin, 'rb') as f:
                 d = pickle.load(f); self.l2_episodes, self.raridade, self.mapa_nd, self.ctx_foco = d['nexus'], d['raridade'], d['nd'], d.get('ctx_foco', {})
-        if os.path.exists("ledger.bin"):
-            with open("ledger.bin", 'rb') as f: self.ledger = pickle.load(f)
+        if os.path.exists(self.path_ledger):
+            with open(self.path_ledger, 'rb') as f: self.ledger = pickle.load(f)
         for arq in self.auto_train_files:
             if os.path.exists(arq):
                 with open(arq, 'r') as f:
@@ -293,7 +289,7 @@ class OrganismoSoberano:
         self.snc._salvar()
         with open(self.path_bin, 'wb') as f:
             pickle.dump({'nexus': self.l2_episodes, 'raridade': self.raridade, 'nd': self.mapa_nd, 'ctx_foco': self.ctx_foco}, f)
-        with open("ledger.bin", 'wb') as f: pickle.dump(self.ledger, f)
+        with open(self.path_ledger, 'wb') as f: pickle.dump(self.ledger, f)
 
     def despertar(self):
         if not self.ctx_foco: return "Olá."
@@ -308,6 +304,7 @@ if __name__ == "__main__":
             u = input("\n👤: ").strip()
             if u.lower() == 'sair': break
             print(f"🧠: {org.processar(u)}")
+        org.dormir()
     except Exception as e:
         print(f"⚠️ Erro Crítico: {e}")
         org.dormir()
