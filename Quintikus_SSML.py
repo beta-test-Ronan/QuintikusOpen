@@ -41,7 +41,7 @@ class KernelRessonante:
         return {d: val / (norm + 1e-9) for d, val in v.items()}
 
 # ==================================================================
-# 🧠 CÓRTEX COGNITIVO
+# 🧠 CÓRTEX COGNITIVO (REFLEXÃO KL)
 # ==================================================================
 class CortexCognitivo:
     def __init__(self, limite_confusao=0.30):
@@ -76,12 +76,10 @@ class SistemaNervosoCentral:
         self.W_h = [[random.uniform(-0.1, 0.1) for _ in range(n_in + n_hid)] for _ in range(n_hid)]
         self.W_y = [[random.uniform(-0.1, 0.1) for _ in range(n_hid)] for _ in range(n_out)]
         self.B_h, self.B_y = [0.0]*n_hid, [0.0]*n_out
-        
         self.adam_M_Wh = [[0.0]*(n_in+n_hid) for _ in range(n_hid)]
         self.adam_V_Wh = [[0.0]*(n_in+n_hid) for _ in range(n_hid)]
         self.adam_M_Wy = [[0.0]*n_hid for _ in range(n_out)]
         self.adam_V_Wy = [[0.0]*n_hid for _ in range(n_out)]
-        
         self.estado_anterior = [0.0]*n_hid
         self.cache = None
         if os.path.exists(path): self._carregar()
@@ -137,30 +135,31 @@ class SistemaNervosoCentral:
             self.estado_anterior = d.get('ea', self.estado_anterior)
 
 # ==================================================================
-# 🧬 DRIVE SOMÁTICO & SISTEMA DEEPY
+# 🧬 DRIVE SOMÁTICO E SISTEMA DEEPY
 # ==================================================================
 class DriveSomático:
     def __init__(self):
         self.vm = -70.0 
         self.eixos = {"amor": 0.1, "prazer": 0.1, "tristeza": 0.1, "raiva": 0.1}
-        self.valvulas = {k: False for k in self.eixos}
+        self.inercia_emocional = 1.0
 
-    def pulsar(self, impacto, u_toks):
+    def pulsar(self, impacto, dkl, u_toks):
         self.vm = max(-90.0, min(-45.0, self.vm + impacto * 12))
+        atrito = (abs(self.vm) * 0.5) / (dkl + 0.05)
+        self.inercia_emocional = max(0.1, min(2.0, atrito / 100.0))
         gatilhos = {"amor":["amo","amor"], "prazer":["prazer","delicia"], "tristeza":["triste","mal"], "raiva":["odeio","raiva"]}
         for eixo, keywords in gatilhos.items():
             for k in keywords:
                 if k in u_toks:
-                    if self.valvulas[eixo]: self.eixos[eixo] *= 0.6
-                    else: self.eixos[eixo] += impacto
-                    self.valvulas[eixo] = self.eixos[eixo] > 4.5
+                    delta = (abs(self.vm) / 1.5) * impacto * (1.0 - self.inercia_emocional)
+                    self.eixos[eixo] = min(5.0, self.eixos[eixo] + delta)
 
 class SistemaDeepy:
     def __init__(self, raridade):
         self.raridade = raridade
-        self.turnos_think = 0
+        self.turnos_para_think = 7
+        self.contador_turnos = 0
         self.frequencia_pulso = Counter()
-        self.expansores = ('fale', 'sobre', 'tudo', 'detalhes', 'mais', 'explique')
 
     def crivo_meritocratico(self, tokens, impacto):
         if not tokens: return False, 0
@@ -170,96 +169,94 @@ class SistemaDeepy:
         x_nec = Q / (P + 1e-5)
         return (x_apr >= x_nec * 0.08), x_apr
 
-    def filtrar_expansao(self, sujeito, u_toks, entrada_bruta, neuronios, episodes):
-        if not any(word in entrada_bruta.lower() for word in self.expansores) or len(u_toks) < 2: return None
-        contexto = [t for t in u_toks if t != sujeito]
-        alvo = contexto[0]
-        if sujeito in neuronios and alvo in neuronios:
-            f_suj, f_ctx = set(neuronios[sujeito]), set(neuronios[alvo])
-            comuns = list(f_suj.intersection(f_ctx))
-            if comuns: return episodes[random.choice(comuns)]['t']
-        return None
+# ==================================================================
+# 🧠 EMOSFERA (PERSISTÊNCIA DE CONTEXTO)
+# ==================================================================
+class Emosfera:
+    def __init__(self, tokenizer):
+        self.cache = {}
+        self.tokenizer = tokenizer
+        self.active_foco = None
+
+    def atualizar(self, history, turn):
+        words = Counter()
+        for h in history:
+            for t in self.tokenizer.findall(h.lower()): words[t] += 1
+        for w, c in words.items():
+            if c >= 2: self.cache[w] = {'count': c, 'turn': turn}
+        if self.cache:
+            self.active_foco = max(self.cache, key=lambda w: self.cache[w]['count'])
 
 # ==================================================================
-# 🌿 ORGANISMO SOBERANO (v31.1)
+# 🌿 ORGANISMO SOBERANO
 # ==================================================================
 class OrganismoSoberano:
     def __init__(self):
         self.path_bin = "nucleo_organismo.qssml"
-        self.path_ledger = "ledger.bin"
         self.auto_train_files = ["oi.txt", "amor.txt", "prazer.txt", "confusa.txt", "sentimento.txt"]
-        
         self.mapa_nd, self.l2_episodes, self.neuronios = {}, [], defaultdict(list)
         self.raridade = Counter()
         self.history = deque(maxlen=20)
         self.fatigue = defaultdict(float)
-        self.ctx_foco = {}             
-        self.ledger = set() # FIX: Atributo ledger inicializado
-        
+        self.ledger = set() 
+        self.ctx_foco = {}
+
         self.soma = DriveSomático()
         self.cortex = CortexCognitivo()
         self.snc = SistemaNervosoCentral()
-        self.deepy = SistemaDeepy(self.raridade)
         self.tokenizer = re.compile(r'\b\w+\b|[!?.]')
+        self.deepy = SistemaDeepy(self.raridade)
+        self.emosfera = Emosfera(self.tokenizer)
 
     def _get_entropy(self, t): return 1.0 / (math.log(self.raridade.get(t, 1) + 1.2) + 1e-5)
 
     def processar(self, entrada):
         t0 = time.perf_counter()
-        self.deepy.turnos_think += 1
-        if self.deepy.turnos_think >= 7:
-            print("\n🧠 [DEEPY] Reorganização REM ativada...")
-            for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.2
-            self.deepy.turnos_think = 0
+        self.deepy.contador_turnos += 1
+        if self.deepy.contador_turnos >= 7:
+            print("\n🧠 [DEEPY] REM Cycle: Reorganizando..."); self.deepy.contador_turnos = 0
+            for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.3
 
         raw = NormalizadorSomático.limpar(entrada)
         u_toks = self.tokenizer.findall(raw)
         if not u_toks: return "..."
 
-        # 1. Percepção Somática e Mérito
         sujeito = max([t for t in u_toks if t in self.neuronios] or [u_toks[0]], key=lambda t: self._get_entropy(t))
         impacto = self._get_entropy(sujeito)
-        self.soma.pulsar(impacto, u_toks)
         for t in u_toks: self.deepy.frequencia_pulso[t] += 1
-        tem_merito, nivel = self.deepy.crivo_meritocratico(u_toks, impacto)
-
-        # 2. Reflexão do Córtex e Volição do SNC
-        p_real = [self.soma.eixos[k] for k in ["amor", "prazer", "tristeza", "raiva"]]
-        q_int = self.snc.estado_anterior[:4]
-        estado_em, ciclos, dkl = self.cortex.processar_reflexao(p_real, q_int)
+        
+        estado_int = self.snc.estado_anterior[:4]
+        estado_em, ciclos, dkl = self.cortex.processar_reflexao([self.soma.eixos[k] for k in ["amor", "prazer", "tristeza", "raiva"]], estado_int)
+        self.soma.pulsar(impacto, dkl, u_toks)
+        
         volicao = self.snc.pulsar_vontade(estado_em + [impacto, (self.soma.vm+90)/45])
         modo_idx = volicao.index(max(volicao))
 
-        # 3. Busca por Ressonância
         v_in = {}
         for t in u_toks:
             if t in self.mapa_nd: 
                 v_ep_vec = self.mapa_nd[t]
                 v_in = {k: v_in.get(k,0) + v_ep_vec.get(k,0)*self._get_entropy(t) for k in set(v_in)|set(v_ep_vec)}
         v_in = KernelRessonante.normalize(v_in)
-        
         if not self.ctx_foco: self.ctx_foco = v_in
         else: self.ctx_foco = KernelRessonante.normalize({k: self.ctx_foco.get(k,0)*0.6 + v_in.get(k,0)*0.4 for k in set(self.ctx_foco)|set(v_in)})
 
-        # Busca com proteção
         cand = self.neuronios.get(sujeito, []) or random.sample(range(len(self.l2_episodes)), min(len(self.l2_episodes), 150))
-
         scored = []
+        self.emosfera.atualizar(self.history, self.snc.t)
         for idx in cand:
             ep = self.l2_episodes[idx]
             if ep['t'] in self.history: continue
             score = KernelRessonante.tsallis_match(v_in, ep['v']) + KernelRessonante.dot(self.ctx_foco, ep['v'])*0.3 - self.fatigue[ep['t']]
+            if self.emosfera.active_foco and self.emosfera.active_foco in ep['t'].lower(): score += 1.2
             scored.append((idx, score))
 
         scored.sort(key=lambda x: x[1], reverse=True)
-        melhor_idx = scored[0][0] if scored else random.choice(range(len(self.l2_episodes)))
+        melhor_idx = scored[0][0]
         res = self.l2_episodes[melhor_idx]['t']
 
-        # 5. Evolução e Aprendizado Sináptico
-        alvo = [0.0]*3; alvo[modo_idx] = 1.0
-        if dkl < 0.45: self.snc.adaptar_realtime(alvo) # FIX: Variável impacto corrigida internamente
+        if dkl < 0.45: self.snc.adaptar_realtime([1.0 if i == modo_idx else 0.0 for i in range(3)])
         self.history.append(res); self.fatigue[res] += 10.0
-        for k in list(self.fatigue.keys()): self.fatigue[k] *= 0.65
 
         dt = (time.perf_counter() - t0) * 1000
         print(f" ⚛️ [SNC t:{self.snc.t}] Pensou {ciclos} Ciclos (DKL:{dkl:.2f}) | {dt:.1f}ms")
@@ -269,8 +266,8 @@ class OrganismoSoberano:
         if os.path.exists(self.path_bin):
             with open(self.path_bin, 'rb') as f:
                 d = pickle.load(f); self.l2_episodes, self.raridade, self.mapa_nd, self.ctx_foco = d['nexus'], d['raridade'], d['nd'], d.get('ctx_foco', {})
-        if os.path.exists(self.path_ledger):
-            with open(self.path_ledger, 'rb') as f: self.ledger = pickle.load(f)
+        if os.path.exists("ledger.bin"):
+            with open("ledger.bin", 'rb') as f: self.ledger = pickle.load(f)
         for arq in self.auto_train_files:
             if os.path.exists(arq):
                 with open(arq, 'r') as f:
@@ -279,7 +276,7 @@ class OrganismoSoberano:
         self.neuronios.clear()
         for i, ep in enumerate(self.l2_episodes):
             for t in self.tokenizer.findall(NormalizadorSomático.limpar(ep['t'])): self.neuronios[t].append(i)
-        print(f"✅ Organismo Online. t:{self.snc.t} | Nexos: {len(self.l2_episodes)}")
+        print(f"✅ Organismo Online. Ciclos: {self.snc.t}")
 
     def cristalizar_solo(self, texto):
         for f in re.split(r'[\.\!\?\n]+', texto):
@@ -296,12 +293,12 @@ class OrganismoSoberano:
         self.snc._salvar()
         with open(self.path_bin, 'wb') as f:
             pickle.dump({'nexus': self.l2_episodes, 'raridade': self.raridade, 'nd': self.mapa_nd, 'ctx_foco': self.ctx_foco}, f)
-        with open(self.path_ledger, 'wb') as f: pickle.dump(self.ledger, f)
+        with open("ledger.bin", 'wb') as f: pickle.dump(self.ledger, f)
 
     def despertar(self):
         if not self.ctx_foco: return "Olá."
         cand = [ep['t'] for ep in self.l2_episodes if KernelRessonante.dot(self.ctx_foco, ep['v']) > 0.6]
-        return f"'{random.choice(cand)}'... estive pensando nisso enquanto dormia." if cand else "Oi."
+        return f"'{random.choice(cand)}'... pensei nisso enquanto dormia." if cand else "Oi."
 
 if __name__ == "__main__":
     org = OrganismoSoberano()
@@ -311,5 +308,6 @@ if __name__ == "__main__":
             u = input("\n👤: ").strip()
             if u.lower() == 'sair': break
             print(f"🧠: {org.processar(u)}")
-    except: pass
-    org.dormir()
+    except Exception as e:
+        print(f"⚠️ Erro Crítico: {e}")
+        org.dormir()
