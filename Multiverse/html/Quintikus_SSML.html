@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Organismo Soberano v32.1 – ARQUINET Core Polido</title>
+<title>Organismo Soberano v32.1 – ARQUINET Core</title>
 <style>
   body { font-family: monospace; background: #0a0a0a; color: #0f0; max-width: 800px; margin: auto; padding: 20px; }
   #chat { height: 400px; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; background: #000; }
@@ -273,7 +273,7 @@ class OrganismoSoberano {
        const amostra=Math.min(this.l2_episodes.length,150);
        candidatos=Array.from({length:this.l2_episodes.length},(_,i)=>i);
        // FIX: Substituído Math.random por RNG Semeado
-       candidatos = rngGlobal.sortearArray(candidatas || candidatos).slice(0,amostra);
+       candidatos = rngGlobal.sortearArray(candidatos).slice(0,amostra);
     }
     
     // FIX: Passagem dos eixos somáticos atuais no colapso geométrico
@@ -281,7 +281,7 @@ class OrganismoSoberano {
     if (melhor === null) melhor = candidatos[0] || 0;
     
     // FIX: Substituído Math.random por RNG Semeado na quebra forçada do pivô
-    if (pivo_acionado && candidatos.length > 1) { mejor = candidatos[Math.floor(rngGlobal.proximo() * candidatos.length)]; }
+    if (pivo_acionado && candidatos.length > 1) { melhor = candidatos[Math.floor(rngGlobal.proximo() * candidatos.length)]; }
     
     let res = this.l2_episodes[melhor]?.t || '...'; let meautoSigular = (simbiose > 1.5 && limite_zero < 0.1);
     if (isFinite(dkl)&&dkl<0.45) { const alvo=[0,0,0]; alvo[modo_idx]=1; this.snc.adaptar_bptt(alvo); }
