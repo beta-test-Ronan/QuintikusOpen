@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Organismo Soberano v32.2 – ARQUINET Core Polido (sem loop)</title>
+<title>Organismo Soberano v32.3 </title>
 <style>
   body { font-family: monospace; background: #0a0a0a; color: #0f0; max-width: 800px; margin: auto; padding: 20px; }
   #chat { height: 400px; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; background: #000; }
@@ -15,12 +15,12 @@
 </style>
 </head>
 <body>
-<h1>🧬 Organismo Soberano v32.2 (ARQUINET Engine Repaired - sem loop)</h1>
+<h1>🧬 Organismo Soberano v32.3 (ARQUINET Auto-Save Fix)</h1>
 <div id="chat"></div>
 <div style="display:flex; gap:5px;">
   <input id="entrada" type="text" placeholder="Digite sua mensagem..." autofocus>
   <button onclick="enviar()">Enviar</button>
-  <button onclick="dormirManual()">💤 Dormir</button>
+  <button onclick="dormirManual()">💤 Salvar Estado</button>
 </div>
 <div id="upload-area" style="margin-top:10px;">
   <input type="file" id="arquivo" accept=".txt,.text,text/plain" style="background:#111;color:#0f0;border:1px solid #0f0;padding:5px;">
@@ -158,7 +158,7 @@ class SistemaDeepy {
 class RealPlay {
   static calcularCausalidade(condicao, emocao, peso, gravidadeSemantica) { return condicao + (emocao / (peso + 1e-5)) * gravidadeSemantica; }
   static calcularInercia(emocao, peso, entropiaPesoEmocional) { return (emocao * peso) / (entropiaPesoEmocional + 1e-5); }
-  static intensidadeGravidadeEnergetica(intencao, intensidade, contextoSemantico) { return (intencao + intensidade) / (contextoSemantico + 1e-5); }
+  static intensidadeGravidadeEnergetica(intencao, intensity, contextoSemantico) { return (intencao + intensity) / (contextoSemantico + 1e-5); }
 }
 
 class MapsTropic {
@@ -219,7 +219,7 @@ class EmergiCortex {
   }
 }
 
-// ========== ORGANISMO SOBERANO (COM CORREÇÃO DE LOOP) ==========
+// ========== ORGANISMO CORE CORE ==========
 class OrganismoSoberano {
   constructor() {
     this.mapa_nd={}; this.l2_episodes=[]; this.neuronios={}; this.raridade=new Map();
@@ -280,14 +280,8 @@ class OrganismoSoberano {
     let res = this.l2_episodes[melhor]?.t || '...'; let meautoSigular = (simbiose > 1.5 && limite_zero < 0.1);
     if (isFinite(dkl)&&dkl<0.45) { const alvo=[0,0,0]; alvo[modo_idx]=1; this.snc.adaptar_bptt(alvo); }
     
-    // 🔧 CORREÇÃO DO LOOP: penalidade extra para repetição consecutiva
-    let repetida = (this.history.length > 0 && this.history[this.history.length-1] === res);
-    this.history.push(res);
-    if(this.history.length>20) this.history.shift();
-    
-    let penalidade = 10 + (repetida ? 30 : 0);
-    this.fatigue.set(res, (this.fatigue.get(res) || 0) + penalidade);
-    for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k, v * 0.65);
+    this.history.push(res); if(this.history.length>20) this.history.shift(); this.fatigue.set(res,(this.fatigue.get(res)||0)+10);
+    for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k,v*0.65);
     
     console.log(`⚛️ [ARQUINET] BPTT ${ciclos}c (DKL:${isFinite(dkl)?dkl.toFixed(2):"0"}) | Inércia: ${inercia.toFixed(2)} | LimiteZero: ${limite_zero.toFixed(3)} | MSigular: ${meautoSigular} | ${(performance.now()-t0).toFixed(1)}ms`);
     if (this.burnout) { this.burnout = false; return "... [Organismo reorganizando subconsciente] ..."; }
@@ -323,17 +317,29 @@ class OrganismoSoberano {
     return horasSimuladas;
   }
   
+  // CORREÇÃO CRÍTICA: Try/Catch para blindar contra o estouro de cota de 5MB do LocalStorage
   dormir() {
-    localStorage.setItem('nucleo_organismo',JSON.stringify({nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco})); 
-    localStorage.setItem('ledger',JSON.stringify([...this.ledger])); 
-    localStorage.setItem('snc',JSON.stringify(this.snc.salvar())); localStorage.setItem('soma',JSON.stringify(this.soma.salvar())); localStorage.setItem('ultimo_sono', Date.now().toString()); return '💤 Sistema Adormecido.';
+    try {
+      localStorage.setItem('nucleo_organismo',JSON.stringify({nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco})); 
+      localStorage.setItem('ledger',JSON.stringify([...this.ledger])); 
+      localStorage.setItem('snc',JSON.stringify(this.snc.salvar())); 
+      localStorage.setItem('soma',JSON.stringify(this.soma.salvar())); 
+      localStorage.setItem('ultimo_sono', Date.now().toString()); 
+      console.log('💾 [ARQUINET] Memória persistida com sucesso no LocalStorage.');
+      return '💤 Estado salvo com sucesso.';
+    } catch (error) {
+      console.error('🚨 ERRO CRÍTICO DE MEMÓRIA:', error);
+      if (error.name === 'QuotaExceededError') {
+         return '❌ ERRO: O tamanho do cérebro estourou os 5MB do navegador! Limpe o LocalStorage ou reduza o arquivo de treino.';
+      }
+      return '❌ Falha ao gravar no disco.';
+    }
   }
   
   despertar(horasSimuladas) {
     if (this.l2_episodes.length > 0) {
       const em = SleepEmergenti.despertarComSentimentoAleatorio(this.l2_episodes);
       this.soma.eixos[em.eixo] = Math.max(this.soma.eixos[em.eixo], em.valor);
-      console.log(`🌀 [SLEEP EMERGENTI] Estado assimilado no DriveSomático: ${em.eixo} modificado para ${em.valor.toFixed(3)}`);
     }
     let baseMsg = 'Oi.'; if (horasSimuladas > 0.05) baseMsg = `[Descansou por ${horasSimuladas.toFixed(2)}h] Oi.`; if (!Object.keys(this.ctx_foco).length) return baseMsg;
     const candidatas=this.l2_episodes.filter(ep=>KernelRessonante.dot(this.ctx_foco,ep.v)>0.6).map(ep=>ep.t);
@@ -342,25 +348,45 @@ class OrganismoSoberano {
   }
 }
 
-// ========== INTERFACE ==========
+// ========== INTERFACE CONSOLE BIND ==========
 const org = new OrganismoSoberano(); const hSim = org.boot();
 function addMsg(tipo, texto) { const chat=document.getElementById('chat'); const div=document.createElement('div'); div.className=tipo; div.textContent = (tipo==='user'?'👤 ':'🧠 ')+texto; chat.appendChild(div); chat.scrollTop=chat.scrollHeight; }
 addMsg('ia', org.despertar(hSim));
+
 async function enviar() {
-  const inp=document.getElementById('entrada'); const texto=inp.value.trim(); if (!texto) return; addMsg('user', texto); inp.value=''; if (texto.toLowerCase()==='sair') { addMsg('ia','👋 Encerrando...'); org.dormir(); return; }
-  try { const resp = org.processar(texto); addMsg('ia', resp); } catch(e) { addMsg('ia','❌ Erro: '+e.message); console.error(e); }
+  const inp=document.getElementById('entrada'); const texto=inp.value.trim(); if (!texto) return; addMsg('user', texto); inp.value=''; 
+  if (texto.toLowerCase()==='sair') { addMsg('ia','👋 Encerrando...'); org.dormir(); return; }
+  try { 
+    const resp = org.processar(texto); 
+    addMsg('ia', resp); 
+    // CORREÇÃO: Força o salvamento instantâneo a cada turno para evitar perda no F5
+    org.dormir(); 
+  } catch(e) { 
+    addMsg('ia','❌ Erro: '+e.message); 
+    console.error(e); 
+  }
 }
-function dormirManual() { addMsg('info', org.dormir()); }
+
+function dormirManual() { const status = org.dormir(); addMsg('info', status); }
+
 function treinarArquivo() {
   const fileInput = document.getElementById('arquivo'); const file = fileInput.files[0]; const info = document.getElementById('file-info'); if (!file) return;
   const reader = new FileReader(); reader.onload = function(e) {
     const conteudo = e.target.result; const hash = sha256(conteudo); if (org.ledger.has(hash)) { info.textContent = '⚠️ Já treinado.'; return; }
     const adicionadas = org.cristalizar_solo(conteudo); org.ledger.add(hash); org.neuronios={};
     for (let i=0;i<org.l2_episodes.length;i++) { const ep=org.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(org.tokenizer)||[]; for (const t of tokens) { if(!org.neuronios[t])org.neuronios[t]=[]; org.neuronios[t].push(i); } }
-    info.textContent = `✅ +${adicionadas} frases (Total: ${org.l2_episodes.length}).`; org.dormir(); addMsg('info', `📚 Treinado: +${adicionadas} frases.`);
+    info.textContent = `✅ +${adicionadas} frases (Total: ${org.l2_episodes.length}).`; 
+    // CORREÇÃO: Força salvamento após carregar dados massivos de texto
+    org.dormir(); 
+    addMsg('info', `📚 Treinado: +${adicionadas} frases.`);
   }; reader.readAsText(file);
 }
+
 document.getElementById('entrada').addEventListener('keypress',(e)=>{ if(e.key==='Enter')enviar(); });
+
+// CORREÇÃO: APIs modernas de ciclo de vida para garantir salvamento no mobile/desktop ao mudar de aba ou atualizar
+window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') org.dormir(); });
+window.addEventListener('pagehide', () => org.dormir());
 window.addEventListener('beforeunload', () => org.dormir());
 </script>
 </body>
