@@ -1,7 +1,7 @@
 # -*-coding:utf8;-*-
 import hashlib, math, random, time, sys
 from collections import defaultdict, deque, Counter
-#class 02 dlm
+
 class Quintikus_DLMC_V70:
     def __init__(self, raw_text):
         self.matrix = {} # Deep Logic Matrix
@@ -9,6 +9,7 @@ class Quintikus_DLMC_V70:
         self.estados = [0.5, 0.5] # [Temperatura/Pressão, Sinergia/Harmonia]
         self.rastro = deque(maxlen=10)
         self.termometro = {'erro': -0.3, 'falha': -0.2, 'ruído': -0.1, 'bom': 0.2, 'sinergia': 0.3, 'paz': 0.2}
+        self.coordenadas_palavras = {} # Coordenadas 3D de cada palavra individual
         
         # 1. PRÉ-PROCESSAMENTO DLM
         self.tokens = raw_text.lower().replace(".", " . ").replace(",", " , ").split()
@@ -42,6 +43,19 @@ class Quintikus_DLMC_V70:
             id_b, xyz = self.get_id_geometrico(bloco_tokens)
             self.blocos.append({"id": id_b, "xyz": xyz, "txt": bloco_tokens})
 
+        # CÁLCULO DE COORDENADAS DE PALAVRAS (Mapeamento espacial para Atenção Geométrica)
+        temp_coords = defaultdict(list)
+        for bloco in self.blocos:
+            for token in bloco["txt"]:
+                temp_coords[token].append(bloco["xyz"])
+        
+        # Define a posição média de cada palavra no espaço 3D dos blocos
+        for token, lista_xyz in temp_coords.items():
+            xs = [p[0] for p in lista_xyz]
+            ys = [p[1] for p in lista_xyz]
+            zs = [p[2] for p in lista_xyz]
+            self.coordenadas_palavras[token] = [sum(xs)/len(xs), sum(ys)/len(ys), sum(zs)/len(zs)]
+
         print(f"🧬 Matrix DLMC Ativa: {len(self.matrix)} nós | {len(self.blocos)} blocos de massa.")
 
     def atualizar_termica(self, tokens_in):
@@ -54,6 +68,10 @@ class Quintikus_DLMC_V70:
         # Resfriamento natural
         self.estados = [s * 0.95 for s in self.estados]
 
+    def calcular_distancia_3d(self, p1, p2):
+        """Calcula a distância euclidiana simples entre dois pontos 3D"""
+        return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
+
     def pensar(self, prompt):
         ql = prompt.lower().split()
         qs = set(ql)
@@ -61,10 +79,10 @@ class Quintikus_DLMC_V70:
 
         # LOCALIZAÇÃO POR INTERSEÇÃO (Acha o Bloco mais próximo do Input)
         melhor_bloco = max(self.blocos, key=lambda b: len(qs.intersection(b["txt"])), default=self.blocos[0])
+        centro_xyz = melhor_bloco["xyz"]
         
         # PONTO DE IGNIÇÃO
         atual = ql[-1] if ql[-1] in self.matrix else random.choice(melhor_bloco["txt"])
-        centro_xyz = melhor_bloco["xyz"]
         
         resultado = []
         for i in range(40):
@@ -79,16 +97,32 @@ class Quintikus_DLMC_V70:
                 if prox not in self.matrix: continue
                 massa = self.matrix[prox]["m"]
                 
-                # Influência Térmica: Pressão (estados[0]) gera caos, Sinergia (estados[1]) gera foco
+                # Influência Térmica
                 caos = random.uniform(0, self.estados[0])
                 foco = 1.0 + self.estados[1]
                 
-                # Geometria: Atração pelo Bloco de Massa Crítica
-                # Se o token estiver no bloco alvo, ganha bônus
-                bonus_bloco = 2.0 if prox in melhor_bloco["txt"] else 0.5
+                # 1. ATENÇÃO GEOMÉTRICA (Proximidade Espacial)
+                # Mede a distância entre a palavra candidata e o bloco central de contexto
+                coord_prox = self.coordenadas_palavras.get(prox, [0, 0, 0])
+                dist = self.calcular_distancia_3d(coord_prox, centro_xyz)
+                # Normaliza para que distâncias menores deem maior pontuação (mínimo de 0.1 para evitar divisão por zero)
+                atencao_geo = 10.0 / (dist + 1.0) 
                 
-                # Equação DLM-FLOW
-                prob = (freq * massa * foco * bonus_bloco) + caos
+                # 2. ATENÇÃO SEMÂNTICA (Conexão direta com o Prompt)
+                # Verifica a relevância de 'prox' em relação a todos os termos do prompt digitado
+                atencao_semantica = 0.0
+                for token_prompt in ql:
+                    if token_prompt in self.matrix:
+                        # Se o token do prompt costuma apontar para 'prox', aumenta o peso
+                        atencao_semantica += self.matrix[token_prompt]["links"].get(prox, 0)
+                
+                # Suavização da atenção semântica
+                atencao_semantica = math.log1p(atencao_semantica)
+
+                # Equação DLM-FLOW com os novos fatores de Atenção
+                atencao_total = 1.0 + atencao_geo + atencao_semantica
+                
+                prob = (freq * massa * foco * atencao_total) + caos
                 if prox in self.rastro: prob *= 0.001 # Anti-loop
 
                 candidatos.append(prox)
@@ -98,7 +132,7 @@ class Quintikus_DLMC_V70:
             atual = random.choices(candidatos, weights=pesos, k=1)[0]
             if atual == "." and i > 10: break
 
-        # MODULAÇÃO DE VOZ (Baseada na Temperatura)
+        # MODULAÇÃO DE VOZ
         prefixo = "DLM-ACTIVE | "
         if self.estados[0] > 0.6: prefixo = "[SOB PRESSÃO] "
         elif self.estados[1] > 0.6: prefixo = "[SINERGIA] "
@@ -110,22 +144,25 @@ class Quintikus_DLMC_V70:
 
 banco_dlm = """
 
-Gato é animal.
-Animal precisa comer,quando gato fico com fome ele precisa de comer.
-Gato tem comer comida de animal.
-Pedra é mineral.
-Mineral é sólido.
-Pedra tem massa.
+    João era cego, mas tinha o profundo desejo de conhecer as cores. Para isso, ele precisava de alguém que o ajudasse a enxergar o mundo através das palavras. 
+    Ele nunca tinha visto a cor verde, mas, ainda assim, amava a camisa verde que é favorita. 
+    João ficava muito triste quando alguém o ofendia, chamando-o de "cego burro". 
+    No entanto, existia uma esperança, ele poderia voltar a enxergar se fizesse uma cirurgia para implantar um olho robótico.
+
+    Maria era vesga, mas tinha o profundo desejo de conhecer ver melhor. Para isso, ele precisava de alguém que o ajudasse a enxergar o mundo através das palavras. 
+    Maria tinha camisa de cor rosa a rua da casa dela, mas, ainda assim, amava a sua camisa rosa. 
+    Maria ficava muito triste quando alguém o ofendia, chamando-o de "vesga burro". 
+    No entanto, existia uma esperança, ele poderia voltar a enxergar se fizesse uma cirurgia para implantar um olho robótico.
 
 
 """
-with open('amor.txt', 'r', encoding='utf-8') as arquivo:
+with open('love.txt', 'r', encoding='utf-8') as arquivo:
     conteudo = arquivo.read()
    
 
 
 if __name__ == "__main__":
-    motor = Quintikus_DLMC_V70(banco_dlm)
+    motor = Quintikus_DLMC_V70(conteudo)
 
     print("="*60)
     print("QUINTIKUS DLMC V70: DEEP LOGIC MATRIX FLOW")
