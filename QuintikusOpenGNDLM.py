@@ -13,8 +13,8 @@ from collections import Counter, deque, defaultdict
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
-class Quintikus_GNDLM_V140:
-    def __init__(self, raw_text, d_model=64, seq_len=16, num_clusters=8):
+class Quintikus_GNDLM_V170:
+    def __init__(self, raw_text, d_model=128, seq_len=64, num_clusters=8):
         self.d = d_model
         self.seq = seq_len
         self.k_clusters = num_clusters
@@ -109,15 +109,41 @@ class Quintikus_GNDLM_V140:
             self.blocos_xyz[id_b] = xyz.copy()
 
     def extrair_triplas_relacionais(self, tokens):
-        """
-        Mapeia triplas lógicas explícitas da estrutura: Entidade -> Relação -> Atributo
-        """
         for i in range(len(tokens) - 2):
             sujeito = tokens[i]
             verbo = tokens[i+1]
             objeto = tokens[i+2]
             if verbo in self.tipos_relacao:
                 self.relacoes[sujeito][verbo].add(objeto)
+
+    def _consolidar_abstracoes_automaticas(self):
+        entidades = list(self.relacoes.keys())
+        for i in range(len(entidades)):
+            ent_a = entidades[i]
+            targets_a = set()
+            for rel, objs in self.relacoes[ent_a].items():
+                targets_a.update(objs)
+            if not targets_a: 
+                continue
+            
+            for j in range(len(entidades)):
+                if i == j: 
+                    continue
+                ent_b = entidades[j]
+                targets_b = set()
+                for rel, objs in self.relacoes[ent_b].items():
+                    targets_b.update(objs)
+                if not targets_b: 
+                    continue
+                
+                comum = targets_a.intersection(targets_b)
+                if len(comum) >= 2 and (len(comum) / len(targets_a)) >= 0.5:
+                    massa_a = self.matrix.get(ent_a, {}).get("m", 999)
+                    massa_b = self.matrix.get(ent_b, {}).get("m", 999)
+                    if massa_b < massa_a:
+                        if ent_b not in self.relacoes[ent_a]["é"]:
+                            self.relacoes[ent_a]["é"].add(ent_b)
+                            print(f"✨ [Abstração Automática] Deduzido por covariância: {ent_a} é {ent_b}")
 
     def _atualizar_grafo_dinamico(self, novos_tokens):
         with self.lock:
@@ -269,7 +295,6 @@ class Quintikus_GNDLM_V140:
         h1 = h + attn_expanded
         n2, s2 = self._rms(h1)
         
-        # Canal de Abstração Bottleneck
         ff_mid = np.maximum(0, n2 @ self.weights['ff_down'])  
         ff1 = np.maximum(0, ff_mid @ self.weights['ff_up'])    
         ffn_out = ff1 @ self.weights['ff2']
@@ -453,6 +478,8 @@ class Quintikus_GNDLM_V140:
                 
             if epoca % 35 == 0 or epoca == epocas - 1:
                 print(f"   Mapeamento NDLM: Época {epoca:03d}/{epocas:03d}")
+                
+        self._consolidar_abstracoes_automaticas()
         t_fim = time.perf_counter()
         print(f"✅ Manifold NDLM Consolidado em {t_fim - t_inicio:.2f}s!")
         self.save()
@@ -477,6 +504,7 @@ class Quintikus_GNDLM_V140:
                 melhor_bloco = self.localizar_melhor_bloco(fatia_tokens)
                 self.atualizar_sinapses(indices_totais, melhor_bloco["id"], start_idx=start, lr_custom=0.001)
                 
+        self._consolidar_abstracoes_automaticas()
         print(f"✅ Ajuste Fino Concluído! Novo vocabulário: {self.vs} termos.")
         self.save()
 
@@ -528,6 +556,24 @@ class Quintikus_GNDLM_V140:
         # --- FILTRO CONTRA DILUIÇÃO DO TRUST GATE ---
         conhece_entidade = any(t in self.relacoes for t in ql)
         
+        # --- NÍVEL 4: ANCORAGEM DE TÓPICO TOPOLÓGICA COM FILTRO DE HUBS ---
+        vizinhanca_ativa = set(ql)
+        for t in ql:
+            if t in self.matrix:
+                vizinhanca_ativa.update(self.matrix[t]["links"].keys())
+                for rel, objs in self.relacoes[t].items():
+                    vizinhanca_ativa.update(objs)
+                    
+        # Transitividade de 2ª ordem excluindo conectores e verbos relacionais (Hubs de contaminação)
+        hubs_bloqueados = {"é", "tem", "de", "com", "o", "a", "em", "para", "que", "precisa", "e", "ou", ",", "."}
+        vizinhos_primeira_ordem = list(vizinhanca_ativa)
+        for t1 in vizinhos_primeira_ordem:
+            if t1 in self.matrix and t1 not in hubs_bloqueados:
+                vizinhanca_ativa.update(self.matrix[t1]["links"].keys())
+                
+        # Adiciona os conectores universais apenas para a fluidez de saída
+        vizinhanca_ativa.update({".", ",", "e", "de", "com", "o", "a", "em", "para", "que", "?"})
+
         len_prompt = len(ql)
         if len_prompt > 1:
             sub_prior = r_prior_full[:len_prompt, :len_prompt]
@@ -535,7 +581,6 @@ class Quintikus_GNDLM_V140:
         else:
             path_strength = 1.0  
 
-        # O gate só bloqueia se o modelo não conhecer a entidade E não encontrar caminhos no prior
         if len_prompt > 1 and not conhece_entidade and path_strength < 0.15:
             print(f"CÉREBRO: {prefixo}Não tenho informações lógicas suficientes para responder com certeza.")
             return
@@ -548,28 +593,75 @@ class Quintikus_GNDLM_V140:
                 logits, *_ = self._think(input_arr, np.array([xyz_offset], dtype=np.float32), r_prior_full)
             
             logits_finais = logits[0, -1, :].copy()
-            for idx_passado in resposta_indices[-8:]:
-                logits_finais[idx_passado] -= 3.0  
+            
+            # --- PENALIDADE DE REPETIÇÃO A NÍVEL DE PALAVRAS ---
+            for palavra_passada in resposta_tokens[-6:]:
+                if palavra_passada in self.vocab:
+                    logits_finais[self.vocab[palavra_passada]] -= 8.0
+                    
+            # --- FILTRAGEM ATIVA DE ANCORAGEM DE TÓPICO ---
+            for idx_candidato in range(self.vs):
+                palavra_candidata = self.ivocab[idx_candidato]
+                if palavra_candidata not in vizinhanca_ativa:
+                    logits_finais[idx_candidato] -= 25.0
                 
-            # --- MÁSCARA DE LOGITS BASEADA EM REGRAS SIMBÓLICAS (GUIDED SYMBOLIC LOGIT MASKING) ---
-            # Identifica e prioriza os caminhos factuais estritos presentes no Grafo Relacional
+            # --- MÁSCARA DE LOGITS BASEADA EM REGRAS SIMBÓLICAS E HERANÇA TRANSITIVA (v170) ---
             if contexto_decode:
                 ultimo_token = self.ivocab[contexto_decode[-1]]
                 penultimo_token = self.ivocab[contexto_decode[-2]] if len(contexto_decode) > 1 else ""
                 
-                # Caso 1: O último token gerado é uma Entidade conhecida no Grafo Relacional
-                # Estimula com prioridade absoluta os verbos de ligação registrados para ela (Ex: se ultimo é "maria", boost em "é")
+                # Caso 1: Relação Direta e Herança Transitiva (Abstração)
                 if ultimo_token in self.relacoes:
+                    # Direta
                     for rel in self.relacoes[ultimo_token].keys():
                         if rel in self.vocab:
-                            logits_finais[self.vocab[rel]] += 150.0
+                            logits_finais[self.vocab[rel]] += 30.0
+                    # Transitiva (Generalização de Classe)
+                    if "é" in self.relacoes[ultimo_token]:
+                        for classe_b in self.relacoes[ultimo_token]["é"]:
+                            for rel_b in self.relacoes[classe_b].keys():
+                                if rel_b in self.vocab:
+                                    logits_finais[self.vocab[rel_b]] += 25.0
                             
-                # Caso 2: O penúltimo é Entidade e o último é um Verbo Relacional (Ex: "maria" e "é")
-                # Estimula os atributos ou objetos válidos registrados na tripla (Ex: boost em "rosa")
+                # Caso 2: Objeto Direto e Herança Causal
                 if penultimo_token in self.relacoes and ultimo_token in self.relacoes[penultimo_token]:
                     for obj in self.relacoes[penultimo_token][ultimo_token]:
                         if obj in self.vocab:
-                            logits_finais[self.vocab[obj]] += 150.0
+                            logits_finais[self.vocab[obj]] += 30.0
+                else:
+                    # Transitivo
+                    if penultimo_token in self.relacoes and "é" in self.relacoes[penultimo_token]:
+                        for classe_b in self.relacoes[penultimo_token]["é"]:
+                            if ultimo_token in self.relacoes[classe_b]:
+                                for obj_b in self.relacoes[classe_b][ultimo_token]:
+                                    if obj_b in self.vocab:
+                                        logits_finais[self.vocab[obj_b]] += 25.0
+
+                # --- NÍVEL 3: TERMINAÇÃO DINÂMICA DE ATRIBUTO ---
+                # Impulsiona o ponto final para encerrar a frase assim que a relação lógica se completa,
+                # e adiciona fadiga aos verbos de relação já gerados para evitar loops tautológicos.
+                if len(resposta_tokens) >= 1:
+                    ultimo_gerado = resposta_tokens[-1]
+                    if ultimo_gerado in self.tipos_relacao and ultimo_gerado in self.vocab:
+                        logits_finais[self.vocab[ultimo_gerado]] -= 15.0  # Fadiga de relação recém-expressa
+                        
+                if len(resposta_tokens) >= 3:
+                    obj_atual = resposta_tokens[-1]
+                    verbo_atual = resposta_tokens[-2] if len(resposta_tokens) > 1 else ""
+                    sub_atual = resposta_tokens[-3] if len(resposta_tokens) > 2 else ""
+                    
+                    tem_vinculo = False
+                    if sub_atual in self.relacoes and verbo_atual in self.relacoes[sub_atual] and obj_atual in self.relacoes[sub_atual][verbo_atual]:
+                        tem_vinculo = True
+                    else:
+                        if sub_atual in self.relacoes and "é" in self.relacoes[sub_atual]:
+                            for classe_b in self.relacoes[sub_atual]["é"]:
+                                if verbo_atual in self.relacoes[classe_b] and obj_atual in self.relacoes[classe_b][verbo_atual]:
+                                    tem_vinculo = True
+                                    break
+                                    
+                    if tem_vinculo and "." in self.vocab:
+                        logits_finais[self.vocab["."]] += 35.0
 
             sub_logits = logits_finais / (temp_dinamica + 1e-9)
             probs = self.softmax(sub_logits)
@@ -613,14 +705,14 @@ maria é rosa .
 """
 
 if __name__ == "__main__":
-    motor = Quintikus_GNDLM_V140(banco_dlm, d_model=64, seq_len=16, num_clusters=8)
+    motor = Quintikus_GNDLM_V170(banco_dlm, d_model=64, seq_len=16, num_clusters=8)
     
     if not motor.load("brain_NDLM.npz"):
         print("🆕 Nenhum cérebro salvo encontrado. Iniciando pré-treinamento da base de dados...")
         motor.pre_treinar_base(epocas=140)
     
     print("\n" + "="*60)
-    print("QUINTIKUS GNDLM V140: COGNIÇÃO CONCEITUAL-RELACIONAL (D-LEARNING)")
+    print("QUINTIKUS GNDLM V170: COGNIÇÃO CONCEITUAL-RELACIONAL (D-LEARNING)")
     print("="*60)
     
     while True:
