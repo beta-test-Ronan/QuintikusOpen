@@ -13,7 +13,7 @@ from collections import Counter, deque, defaultdict
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
 
-class Quintikus_GNDLM_V130:
+class Quintikus_GNDLM_V140:
     def __init__(self, raw_text, d_model=64, seq_len=16, num_clusters=8):
         self.d = d_model
         self.seq = seq_len
@@ -109,6 +109,9 @@ class Quintikus_GNDLM_V130:
             self.blocos_xyz[id_b] = xyz.copy()
 
     def extrair_triplas_relacionais(self, tokens):
+        """
+        Mapeia triplas lógicas explícitas da estrutura: Entidade -> Relação -> Atributo
+        """
         for i in range(len(tokens) - 2):
             sujeito = tokens[i]
             verbo = tokens[i+1]
@@ -266,6 +269,7 @@ class Quintikus_GNDLM_V130:
         h1 = h + attn_expanded
         n2, s2 = self._rms(h1)
         
+        # Canal de Abstração Bottleneck
         ff_mid = np.maximum(0, n2 @ self.weights['ff_down'])  
         ff1 = np.maximum(0, ff_mid @ self.weights['ff_up'])    
         ffn_out = ff1 @ self.weights['ff2']
@@ -380,7 +384,6 @@ class Quintikus_GNDLM_V130:
                 self.weights[key] -= lr * mh / (np.sqrt(vh) + eps)
 
     def save(self, filepath="brain_NDLM.npz"):
-        """Salva todo o estado dinâmico, incluindo grafo relacional e parâmetros neurais"""
         with self.lock:
             relacoes_puras = {k: {kk: list(vv) for kk, vv in v.items()} for k, v in self.relacoes.items()}
             matrix_pura = {k: {"m": v["m"], "links": dict(v["links"])} for k, v in self.matrix.items()}
@@ -403,7 +406,6 @@ class Quintikus_GNDLM_V130:
             print(f"💾 Estado cognitivo salvo com sucesso em: {filepath}")
 
     def load(self, filepath="brain_NDLM.npz"):
-        """Carrega e reconstrói o estado cognitivo salvo anteriormente"""
         if not os.path.exists(filepath):
             return False
         try:
@@ -418,7 +420,6 @@ class Quintikus_GNDLM_V130:
                 self.blocos = list(data['blocos'])
                 self.blocos_xyz = data['blocos_xyz'].item()
                 
-                # Reconstrói os defaultdict e Counters nativos
                 relacoes_raw = data['relacoes'].item()
                 self.relacoes = defaultdict(lambda: defaultdict(set))
                 for k, v in relacoes_raw.items():
@@ -457,14 +458,9 @@ class Quintikus_GNDLM_V130:
         self.save()
 
     def finetune(self, novo_texto, epocas=60):
-        """
-        SISTEMA DE APRENDIZADO CONTÍNUO (Finetuning)
-        Adiciona conhecimento de forma incremental em cima do estado existente.
-        """
         print(f"🔧 Iniciando ajuste fino (Finetuning)...")
         novos_tokens = novo_texto.lower().replace(".", " . ").replace(",", " , ").split()
         
-        # Reconstrói e expande o grafo
         self._atualizar_grafo_dinamico(novos_tokens)
         self.tokens.extend(novos_tokens)
         
@@ -505,6 +501,7 @@ class Quintikus_GNDLM_V130:
         while len(self.short_term_memory) > 128:
             self.short_term_memory.pop(0)
 
+        # PLASTICIDADE COGNITIVA ONLINE IMEDIATA
         if len(self.short_term_memory) >= self.seq + 1:
             for _ in range(4):  
                 self.atualizar_sinapses(self.short_term_memory, bloco_id, lr_custom=0.001)
@@ -528,6 +525,9 @@ class Quintikus_GNDLM_V130:
         elif self.estados[1] > 0.5: 
             prefixo = "[SINERGIA] "
             
+        # --- FILTRO CONTRA DILUIÇÃO DO TRUST GATE ---
+        conhece_entidade = any(t in self.relacoes for t in ql)
+        
         len_prompt = len(ql)
         if len_prompt > 1:
             sub_prior = r_prior_full[:len_prompt, :len_prompt]
@@ -535,7 +535,8 @@ class Quintikus_GNDLM_V130:
         else:
             path_strength = 1.0  
 
-        if len_prompt > 1 and path_strength < 0.15:
+        # O gate só bloqueia se o modelo não conhecer a entidade E não encontrar caminhos no prior
+        if len_prompt > 1 and not conhece_entidade and path_strength < 0.15:
             print(f"CÉREBRO: {prefixo}Não tenho informações lógicas suficientes para responder com certeza.")
             return
 
@@ -550,6 +551,26 @@ class Quintikus_GNDLM_V130:
             for idx_passado in resposta_indices[-8:]:
                 logits_finais[idx_passado] -= 3.0  
                 
+            # --- MÁSCARA DE LOGITS BASEADA EM REGRAS SIMBÓLICAS (GUIDED SYMBOLIC LOGIT MASKING) ---
+            # Identifica e prioriza os caminhos factuais estritos presentes no Grafo Relacional
+            if contexto_decode:
+                ultimo_token = self.ivocab[contexto_decode[-1]]
+                penultimo_token = self.ivocab[contexto_decode[-2]] if len(contexto_decode) > 1 else ""
+                
+                # Caso 1: O último token gerado é uma Entidade conhecida no Grafo Relacional
+                # Estimula com prioridade absoluta os verbos de ligação registrados para ela (Ex: se ultimo é "maria", boost em "é")
+                if ultimo_token in self.relacoes:
+                    for rel in self.relacoes[ultimo_token].keys():
+                        if rel in self.vocab:
+                            logits_finais[self.vocab[rel]] += 150.0
+                            
+                # Caso 2: O penúltimo é Entidade e o último é um Verbo Relacional (Ex: "maria" e "é")
+                # Estimula os atributos ou objetos válidos registrados na tripla (Ex: boost em "rosa")
+                if penultimo_token in self.relacoes and ultimo_token in self.relacoes[penultimo_token]:
+                    for obj in self.relacoes[penultimo_token][ultimo_token]:
+                        if obj in self.vocab:
+                            logits_finais[self.vocab[obj]] += 150.0
+
             sub_logits = logits_finais / (temp_dinamica + 1e-9)
             probs = self.softmax(sub_logits)
             
@@ -577,30 +598,29 @@ class Quintikus_GNDLM_V130:
 
 # --- DATASET INICIAL ---
 banco_dlm = """
-gato é animal 
+gato é animal .
 animal precisa comer , quando gato fica com fome ele precisa de comer .
-gato tem de comer comida de animal 
-pedra é mineral 
-mineral é sólido 
-pedra tem massa 
-amor é um sentimento humano forte 
+gato tem de comer comida de animal .
+pedra é mineral .
+mineral é sólido .
+pedra tem massa .
+amor é um sentimento humano forte .
 sentimento traz paz , harmonia e sinergia entre as pessoas .
 quando há erro ou ruído na comunicação , a sinergia cai e a pressão térmica sobe .
 o cérebro tenta resolver a falha para recuperar a paz .
-joão é verde
-maria é rosa
+joão é verde .
+maria é rosa .
 """
 
 if __name__ == "__main__":
-    motor = Quintikus_GNDLM_V130(banco_dlm, d_model=64, seq_len=16, num_clusters=8)
+    motor = Quintikus_GNDLM_V140(banco_dlm, d_model=64, seq_len=16, num_clusters=8)
     
-    # Sistema de Aprendizado Contínuo com persistência em disco
     if not motor.load("brain_NDLM.npz"):
         print("🆕 Nenhum cérebro salvo encontrado. Iniciando pré-treinamento da base de dados...")
         motor.pre_treinar_base(epocas=140)
     
     print("\n" + "="*60)
-    print("QUINTIKUS GNDLM V130: COGNIÇÃO CONCEITUAL-RELACIONAL (D-LEARNING)")
+    print("QUINTIKUS GNDLM V140: COGNIÇÃO CONCEITUAL-RELACIONAL (D-LEARNING)")
     print("="*60)
     
     while True:
