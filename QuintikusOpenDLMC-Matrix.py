@@ -1,7 +1,7 @@
 # -*-coding:utf8;-*-
 import hashlib, math, random, time, sys
 from collections import defaultdict, deque, Counter
-#class 2 dlm
+#class 2
 class Quintikus_DLMC_V70:
     def __init__(self, raw_text):
         self.matrix = {} # Deep Logic Matrix
