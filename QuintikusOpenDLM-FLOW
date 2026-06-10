@@ -1,5 +1,5 @@
 import hashlib, time, random
-
+#class 01
 class QuintikusAGI:
     def __init__(self, _t=0.5):
         # Estados: 0:Temp(Pressão), 1:Sinergia(Harmonia), 2:Foco(Atenção)
