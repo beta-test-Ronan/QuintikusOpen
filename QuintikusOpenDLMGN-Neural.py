@@ -8,7 +8,7 @@ import time
 import random
 import threading
 from collections import Counter, deque, defaultdict
-
+#class 3 dynamic logic modal gemetric neural
 # --- ESCUDO TÉRMICO ---
 os.environ["OMP_NUM_THREADS"] = "1"
 os.environ["MKL_NUM_THREADS"] = "1"
