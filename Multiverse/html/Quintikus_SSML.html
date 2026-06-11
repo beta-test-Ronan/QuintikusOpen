@@ -2,7 +2,7 @@
 <html lang="pt">
 <head>
 <meta charset="UTF-8">
-<title>Organismo Soberano v32.3 </title>
+<title>Organismo Soberano v32.3 – ARQUINET Core Persistente (IndexedDB)</title>
 <style>
   body { font-family: monospace; background: #0a0a0a; color: #0f0; max-width: 800px; margin: auto; padding: 20px; }
   #chat { height: 400px; overflow-y: auto; border: 1px solid #0f0; padding: 10px; margin-bottom: 10px; background: #000; }
@@ -15,7 +15,7 @@
 </style>
 </head>
 <body>
-<h1>🧬 Organismo Soberano v32.3 (ARQUINET Auto-Save Fix)</h1>
+<h1>🧬 Organismo Soberano v32.3 (ARQUINET IndexedDB)</h1>
 <div id="chat"></div>
 <div style="display:flex; gap:5px;">
   <input id="entrada" type="text" placeholder="Digite sua mensagem..." autofocus>
@@ -219,6 +219,64 @@ class EmergiCortex {
   }
 }
 
+// ========== GERENCIADOR DE BANCO DE DADOS WEB (IndexedDB Helper) ==========
+class BancoDadosWeb {
+  constructor(nomeDB = "OrganismoSoberanoDB", versao = 1) {
+    this.nomeDB = nomeDB;
+    this.versao = versao;
+    this.db = null;
+  }
+
+  abrir() {
+    return new Promise((resolve, reject) => {
+      const request = indexedDB.open(this.nomeDB, this.versao);
+      
+      request.onupgradeneeded = (e) => {
+        const db = e.target.result;
+        if (!db.objectStoreNames.contains("estado")) {
+          db.createObjectStore("estado");
+        }
+        if (!db.objectStoreNames.contains("dicionario")) {
+          db.createObjectStore("dicionario");
+        }
+      };
+
+      request.onsuccess = (e) => {
+        this.db = e.target.result;
+        resolve(this.db);
+      };
+
+      request.onerror = (e) => {
+        reject(new Error("Erro ao abrir IndexedDB: " + e.target.error));
+      };
+    });
+  }
+
+  get(storeName, chave) {
+    return new Promise((resolve, reject) => {
+      if (!this.db) return reject(new Error("Banco de dados não inicializado."));
+      const tx = this.db.transaction(storeName, "readonly");
+      const store = tx.objectStore(storeName);
+      const req = store.get(chave);
+      
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  set(storeName, chave, valor) {
+    return new Promise((resolve, reject) => {
+      if (!this.db) return reject(new Error("Banco de dados não inicializado."));
+      const tx = this.db.transaction(storeName, "readwrite");
+      const store = tx.objectStore(storeName);
+      const req = store.put(valor, chave);
+      
+      req.onsuccess = () => resolve();
+      req.onerror = () => reject(req.error);
+    });
+  }
+}
+
 // ========== ORGANISMO CORE CORE ==========
 class OrganismoSoberano {
   constructor() {
@@ -228,6 +286,7 @@ class OrganismoSoberano {
     this.snc=new SistemaNervosoCentral(); this.deepy=new SistemaDeepy(this.raridade);
     this.tokenizer=/\b\w+\b|[!?.]/g; this.emergipath = new EmergiCortex();
     this.burnout = false; this.subconsciente = 0; this.tempoConversa = 0;
+    this.db = new BancoDadosWeb();
   }
   _get_entropy(t) { const c=this.raridade.get(t)||1; return 1/(Math.log(c+1.2)+1e-5); }
   
@@ -303,36 +362,69 @@ class OrganismoSoberano {
     return count;
   }
   
-  boot() {
-    const bin=localStorage.getItem('nucleo_organismo'); if (bin) { try { const data=JSON.parse(bin); this.l2_episodes=data.nexus||[]; this.raridade=new Map(Object.entries(data.raridade||{}).map(([k,v])=>[k,Number(v)])); this.mapa_nd=data.nd||{}; this.ctx_foco=data.ctx_foco||{}; } catch(e){} }
-    const ledgerRaw=localStorage.getItem('ledger'); if (ledgerRaw) { try { this.ledger=new Set(JSON.parse(ledgerRaw)); } catch(e){} }
-    const sncRaw=localStorage.getItem('snc'); if (sncRaw) { try { this.snc.carregar(JSON.parse(sncRaw)); } catch(e){} }
-    const somaRaw=localStorage.getItem('soma'); if (somaRaw) { try { this.soma.carregar(JSON.parse(somaRaw)); } catch(e){} }
-    const ultimoSono = localStorage.getItem('ultimo_sono'); let horasSimuladas = 0;
+  async boot() {
+    await this.db.abrir();
+    
+    // Recupera dados persistidos do IndexedDB
+    const nexus = await this.db.get('estado', 'nexus');
+    const raridadeObj = await this.db.get('estado', 'raridade');
+    const nd = await this.db.get('dicionario', 'nd');
+    const ctx_foco = await this.db.get('estado', 'ctx_foco');
+    const ledgerArr = await this.db.get('estado', 'ledger');
+    const sncRaw = await this.db.get('estado', 'snc');
+    const somaRaw = await this.db.get('estado', 'soma');
+    const ultimoSono = await this.db.get('estado', 'ultimo_sono');
+
+    if (nexus) this.l2_episodes = nexus;
+    if (raridadeObj) this.raridade = new Map(Object.entries(raridadeObj).map(([k,v])=>[k,Number(v)]));
+    if (nd) this.mapa_nd = nd;
+    if (ctx_foco) this.ctx_foco = ctx_foco;
+    if (ledgerArr) this.ledger = new Set(ledgerArr);
+    if (sncRaw) this.snc.carregar(sncRaw);
+    if (somaRaw) this.soma.carregar(somaRaw);
+
+    let horasSimuladas = 0;
     if (ultimoSono) {
       const deltaHoras = (Date.now() - parseInt(ultimoSono)) / (1000 * 60 * 60);
-      if (deltaHoras > 0) { horasSimuladas = deltaHoras; const taxaFadiga = Math.pow(0.5, deltaHoras / 2); for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k, v * taxaFadiga); const taxaEmocao = Math.pow(0.7, deltaHoras); for (const k of Object.keys(this.soma.eixos)) { this.soma.eixos[k] = 0.1 + (this.soma.eixos[k] - 0.1) * taxaEmocao; } }
+      if (deltaHoras > 0) { 
+        horasSimuladas = deltaHoras; 
+        const taxaFadiga = Math.pow(0.5, deltaHoras / 2); 
+        for (const [k,v] of this.fatigue.entries()) this.fatigue.set(k, v * taxaFadiga); 
+        const taxaEmocao = Math.pow(0.7, deltaHoras); 
+        for (const k of Object.keys(this.soma.eixos)) { this.soma.eixos[k] = 0.1 + (this.soma.eixos[k] - 0.1) * taxaEmocao; } 
+      }
     }
-    this.neuronios={}; for (let i=0;i<this.l2_episodes.length;i++) { const ep=this.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(this.tokenizer)||[]; for (const t of tokens) { if(!this.neuronios[t])this.neuronios[t]=[]; this.neuronios[t].push(i); } }
+    
+    // Reconstrói índices neuronais em memória
+    this.neuronios={}; 
+    for (let i=0;i<this.l2_episodes.length;i++) { 
+      const ep=this.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(this.tokenizer)||[]; 
+      for (const t of tokens) { if(!this.neuronios[t])this.neuronios[t]=[]; this.neuronios[t].push(i); } 
+    }
     return horasSimuladas;
   }
   
-  // CORREÇÃO CRÍTICA: Try/Catch para blindar contra o estouro de cota de 5MB do LocalStorage
-  dormir() {
+  async dormir() {
     try {
-      localStorage.setItem('nucleo_organismo',JSON.stringify({nexus:this.l2_episodes, raridade:Object.fromEntries(this.raridade), nd:this.mapa_nd, ctx_foco:this.ctx_foco})); 
-      localStorage.setItem('ledger',JSON.stringify([...this.ledger])); 
-      localStorage.setItem('snc',JSON.stringify(this.snc.salvar())); 
-      localStorage.setItem('soma',JSON.stringify(this.soma.salvar())); 
-      localStorage.setItem('ultimo_sono', Date.now().toString()); 
-      console.log('💾 [ARQUINET] Memória persistida com sucesso no LocalStorage.');
-      return '💤 Estado salvo com sucesso.';
+      if (!this.db.db) await this.db.abrir();
+
+      // Persiste os dados estruturados no banco local IndexedDB
+      await this.db.set('estado', 'nexus', this.l2_episodes);
+      await this.db.set('estado', 'raridade', Object.fromEntries(this.raridade));
+      await this.db.set('estado', 'ctx_foco', this.ctx_foco);
+      await this.db.set('estado', 'ledger', [...this.ledger]);
+      await this.db.set('estado', 'snc', this.snc.salvar());
+      await this.db.set('estado', 'soma', this.soma.salvar());
+      await this.db.set('estado', 'ultimo_sono', Date.now().toString());
+      
+      // Persistência isolada do mapa semântico para eficiência
+      await this.db.set('dicionario', 'nd', this.mapa_nd);
+
+      console.log('💾 [ARQUINET] Memória persistida no IndexedDB com sucesso.');
+      return '💤 Estado salvo com sucesso no IndexedDB.';
     } catch (error) {
-      console.error('🚨 ERRO CRÍTICO DE MEMÓRIA:', error);
-      if (error.name === 'QuotaExceededError') {
-         return '❌ ERRO: O tamanho do cérebro estourou os 5MB do navegador! Limpe o LocalStorage ou reduza o arquivo de treino.';
-      }
-      return '❌ Falha ao gravar no disco.';
+      console.error('🚨 ERRO CRÍTICO DE MEMÓRIA (IndexedDB):', error);
+      return '❌ Falha ao gravar dados no IndexedDB: ' + error.message;
     }
   }
   
@@ -349,45 +441,62 @@ class OrganismoSoberano {
 }
 
 // ========== INTERFACE CONSOLE BIND ==========
-const org = new OrganismoSoberano(); const hSim = org.boot();
+const org = new OrganismoSoberano();
 function addMsg(tipo, texto) { const chat=document.getElementById('chat'); const div=document.createElement('div'); div.className=tipo; div.textContent = (tipo==='user'?'👤 ':'🧠 ')+texto; chat.appendChild(div); chat.scrollTop=chat.scrollHeight; }
-addMsg('ia', org.despertar(hSim));
+
+// Inicialização assíncrona do sistema
+async function inicializarSistema() {
+  try {
+    const hSim = await org.boot();
+    addMsg('ia', org.despertar(hSim));
+  } catch(e) {
+    addMsg('ia', '❌ Erro ao inicializar banco de dados: ' + e.message);
+    console.error(e);
+  }
+}
+inicializarSistema();
 
 async function enviar() {
   const inp=document.getElementById('entrada'); const texto=inp.value.trim(); if (!texto) return; addMsg('user', texto); inp.value=''; 
-  if (texto.toLowerCase()==='sair') { addMsg('ia','👋 Encerrando...'); org.dormir(); return; }
+  if (texto.toLowerCase()==='sair') { addMsg('ia','👋 Encerrando...'); await org.dormir(); return; }
   try { 
     const resp = org.processar(texto); 
     addMsg('ia', resp); 
-    // CORREÇÃO: Força o salvamento instantâneo a cada turno para evitar perda no F5
-    org.dormir(); 
+    // Persistência automática pós-interação utilizando IndexedDB
+    await org.dormir(); 
   } catch(e) { 
     addMsg('ia','❌ Erro: '+e.message); 
     console.error(e); 
   }
 }
 
-function dormirManual() { const status = org.dormir(); addMsg('info', status); }
+async function dormirManual() { 
+  const status = await org.dormir(); 
+  addMsg('info', status); 
+}
 
 function treinarArquivo() {
   const fileInput = document.getElementById('arquivo'); const file = fileInput.files[0]; const info = document.getElementById('file-info'); if (!file) return;
-  const reader = new FileReader(); reader.onload = function(e) {
+  const reader = new FileReader(); 
+  reader.onload = async function(e) {
     const conteudo = e.target.result; const hash = sha256(conteudo); if (org.ledger.has(hash)) { info.textContent = '⚠️ Já treinado.'; return; }
     const adicionadas = org.cristalizar_solo(conteudo); org.ledger.add(hash); org.neuronios={};
     for (let i=0;i<org.l2_episodes.length;i++) { const ep=org.l2_episodes[i], tokens=NormalizadorSomático.limpar(ep.t).match(org.tokenizer)||[]; for (const t of tokens) { if(!org.neuronios[t])org.neuronios[t]=[]; org.neuronios[t].push(i); } }
     info.textContent = `✅ +${adicionadas} frases (Total: ${org.l2_episodes.length}).`; 
-    // CORREÇÃO: Força salvamento após carregar dados massivos de texto
-    org.dormir(); 
+    
+    // Gravação segura no IndexedDB pós processamento em massa
+    await org.dormir(); 
     addMsg('info', `📚 Treinado: +${adicionadas} frases.`);
-  }; reader.readAsText(file);
+  }; 
+  reader.readAsText(file);
 }
 
 document.getElementById('entrada').addEventListener('keypress',(e)=>{ if(e.key==='Enter')enviar(); });
 
-// CORREÇÃO: APIs modernas de ciclo de vida para garantir salvamento no mobile/desktop ao mudar de aba ou atualizar
-window.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') org.dormir(); });
-window.addEventListener('pagehide', () => org.dormir());
-window.addEventListener('beforeunload', () => org.dormir());
+// APIs de ciclo de vida para sincronizar estado em transições do navegador
+window.addEventListener('visibilitychange', async () => { if (document.visibilityState === 'hidden') await org.dormir(); });
+window.addEventListener('pagehide', async () => await org.dormir());
+window.addEventListener('beforeunload', async () => await org.dormir());
 </script>
 </body>
 </html>
