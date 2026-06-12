@@ -2,13 +2,13 @@
 import hashlib, math, random, time, sys, os, pickle
 from collections import defaultdict, deque, Counter
 import numpy as np
-
+#class 2 dlm 
 # =====================================================================
-# 1. COMPONENTE NEURAL: CONTROLADOR DE ATENÇÃO (ADAM - 7 OUTS)
+# 1. COMPONENTE NEURAL: CONTROLADOR DE ATENÇÃO (ADAM - 8 OUTS)
 # =====================================================================
 class NeuralAttentionController:
-    """MLP Metacognitiva que calibra 7 parâmetros incluindo a Propagação Semântica"""
-    def __init__(self, input_dim=5, hidden_dim=12, output_dim=7, lr=0.01):
+    """MLP Metacognitiva que calibra 8 parâmetros incluindo o peso de Lógica Simbólica"""
+    def __init__(self, input_dim=5, hidden_dim=12, output_dim=8, lr=0.01):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
         self.output_dim = output_dim
@@ -181,7 +181,7 @@ class Accepty:
 
 
 # =====================================================================
-# 4. MOTOR CENTRAL MATRIX DLMC V70 COM PROPAGAÇÃO SEMÂNTICA
+# 4. MOTOR CENTRAL MATRIX DLMC V70 ULTRA NEURO-SIMBÓLICA
 # =====================================================================
 class Quintikus_DLMC_V70:
     def __init__(self, raw_text, brain_file="matrix_brain.bin"):
@@ -195,14 +195,22 @@ class Quintikus_DLMC_V70:
         
         self.memoria_historica_prompts = deque(maxlen=5) 
         self.memoria_conhecimento_sequencias = [] 
-        self.ativacao_atual = {} # Estado ativo da memória semântica
+        self.ativacao_atual = {} 
         
+        # --- ATRIBUTOS DE INFRAESTRUTURA LÓGICA DO NDLM ---
+        self.relacoes = defaultdict(lambda: defaultdict(set))
+        self.tipos_relacao = {"é", "tem", "usa", "causa", "vive_em", "precisa"}
+
         # 1. PRÉ-PROCESSAMENTO DLM
         self.tokens = raw_text.lower().replace(".", " . ").replace(",", " , ").split()
-        self.build_matrix()
+        self.build_dlm_matrix()
+        
+        # Extrai relações explícitas e induz classes por covariância (Nível 4 do NDLM)
+        self.extrair_triplas_relacionais(self.tokens)
+        self._consolidar_abstracoes_automaticas()
 
-        # 2. SISTEMAS NEURAIS INTEGRADOS (NAC configurada com 7 saídas)
-        self.nac = NeuralAttentionController(input_dim=5, hidden_dim=12, output_dim=7, lr=0.01)
+        # 2. SISTEMAS NEURAIS INTEGRADOS (NAC configurada com 8 saídas para calibrar Lógica)
+        self.nac = NeuralAttentionController(input_dim=5, hidden_dim=12, output_dim=8, lr=0.01)
         self.cnn = CoherenceCNN1D()
         self.accepty = Accepty(threshold=0.20) 
         
@@ -218,7 +226,7 @@ class Quintikus_DLMC_V70:
         z = (int(h[8:12], 16) % 200) - 100
         return h[:4], [x, y, z]
 
-    def build_matrix(self):
+    def build_dlm_matrix(self):
         freq = Counter(self.tokens)
         for t in freq:
             self.matrix[t] = {"m": 1.5 / (freq[t] + 1e-5), "links": Counter()}
@@ -252,6 +260,45 @@ class Quintikus_DLMC_V70:
 
         print(f"🧬 Matrix DLMC Ativa: {len(self.matrix)} nós | {len(self.blocos)} blocos de massa.")
         print(f"💾 Dimensões de Sequência Carregadas: {len(self.memoria_conhecimento_sequencias)} vetores estruturais.")
+
+    # =====================================================================
+    # EXTRATORES DE LÓGICA E ABSTRAÇÃO (PROPRIEDADES DO NDLM)
+    # =====================================================================
+    def extrair_triplas_relacionais(self, tokens):
+        """Mapeia triplas lógicas explícitas da estrutura: Entidade -> Relação -> Atributo"""
+        for i in range(len(tokens) - 2):
+            sujeito = tokens[i]
+            verbo = tokens[i+1]
+            objeto = tokens[i+2]
+            if verbo in self.tipos_relacao:
+                self.relacoes[sujeito][verbo].add(objeto)
+
+    def _consolidar_abstracoes_automaticas(self):
+        """Induz classes taxonômicas por covariância lógica de atributos"""
+        entidades = list(self.relacoes.keys())
+        for i in range(len(entidades)):
+            ent_a = entidades[i]
+            targets_a = set()
+            for rel, objs in self.relacoes[ent_a].items():
+                targets_a.update(objs)
+            if not targets_a: continue
+            
+            for j in range(len(entidades)):
+                if i == j: continue
+                ent_b = entidades[j]
+                targets_b = set()
+                for rel, objs in self.relacoes[ent_b].items():
+                    targets_b.update(objs)
+                if not targets_b: continue
+                
+                comum = targets_a.intersection(targets_b)
+                if len(comum) >= 2 and (len(comum) / len(targets_a)) >= 0.5:
+                    massa_a = self.matrix.get(ent_a, {}).get("m", 999)
+                    massa_b = self.matrix.get(ent_b, {}).get("m", 999)
+                    if massa_b < massa_a:
+                        if ent_b not in self.relacoes[ent_a]["é"]:
+                            self.relacoes[ent_a]["é"].add(ent_b)
+                            print(f"✨ [Abstração Automática] Induzido por covariância: {ent_a} é {ent_b}")
 
     def treinar_cnn_com_corpus(self, passos_treino=1000):
         print("⚙️ Iniciando treinamento de sequenciamento lógico da CNN...")
@@ -377,19 +424,12 @@ class Quintikus_DLMC_V70:
         
         return 0.5 * suavidade_velocidade + 0.5 * suavidade_direcao
 
-    # =====================================================================
-    # ALGORITMO SPREADING ACTIVATION (PROPAGAÇÃO DE ATIVAÇÃO COGNITIVA)
-    # =====================================================================
     def propagar_ativacao_relacional(self, ql, passos=3, decaimento=0.5):
-        """Espalha energia a partir das sementes do prompt ao longo do Grafo Semântico"""
         ativacao = {t: 0.0 for t in self.matrix}
-        
-        # Sementes iniciais
         for t in ql:
             if t in ativacao:
                 ativacao[t] = 1.0
                 
-        # Etapas de espalhamento relacional
         for _ in range(passos):
             nova_ativacao = {t: 0.0 for t in self.matrix}
             for node, energia in ativacao.items():
@@ -397,24 +437,25 @@ class Quintikus_DLMC_V70:
                     links = self.matrix[node]["links"]
                     soma_links = sum(links.values())
                     if soma_links > 0:
-                        # Distribui energia proporcionalmente à força relacional da ligação
                         for vizinho, freq in links.items():
                             if vizinho in nova_ativacao:
                                 nova_ativacao[vizinho] += energia * (freq / soma_links) * decaimento
             
-            # Acumula energia amortecida nos nós receptores
             for node in ativacao:
                 ativacao[node] = min(1.0, ativacao[node] + nova_ativacao[node])
                 
         self.ativacao_atual = ativacao
 
-    def _gerar_candidato_solitario(self, prompt, ql, centro_xyz, w_caos, w_geo, w_sem, w_ancora, w_propagacao):
+    # =====================================================================
+    # GERAÇÃO DE CANDIDATOS COM BIAS DE LÓGICA SUAVE (NEURO-SIMBÓLICA)
+    # =====================================================================
+    def _gerar_candidato_solitario(self, prompt, ql, centro_xyz, w_caos, w_geo, w_sem, w_ancora, w_propagacao, w_logico):
         atual = ql[-1] if ql[-1] in self.matrix else random.choice(
             max(self.blocos, key=lambda b: len(set(ql).intersection(b["txt"])), default=self.blocos[0])["txt"]
         )
         
         resultado = []
-        gradientes_acumulados = np.zeros((1, 7)) # Expandido para 7 saídas cognitivas
+        gradientes_acumulados = np.zeros((1, 8)) # Gradientes expandidos para 8 dimensões
         rastro_local = list(self.rastro)
 
         for i in range(40):
@@ -453,16 +494,55 @@ class Quintikus_DLMC_V70:
                         sims_tokens_prompt.append((sim + 1.0) / 2.0)
                 score_ancora_realtime = np.mean(sims_tokens_prompt) if sims_tokens_prompt else 0.5
 
-                # -------------------------------------------------------------
-                # ATIVAÇÃO RELACIONAL (SPREADING ACTIVATION BIAS)
-                # -------------------------------------------------------------
+                # Ativação Relacional (Spreading Activation)
                 score_propagacao = self.ativacao_atual.get(prox, 0.0)
 
-                # Equação Final com a nova força de ativação semântica
+                # -------------------------------------------------------------
+                # BIAS DE REGRAS LÓGICAS E HERANÇA TRANSITIVA SUAVE (NDLM)
+                # -------------------------------------------------------------
+                score_logico = 0.0
+                penultimo = resultado[-2] if len(resultado) > 1 else ""
+                
+                if atual in self.relacoes:
+                    # Direta
+                    for rel, objs in self.relacoes[atual].items():
+                        if prox in objs:
+                            score_logico += 1.5
+                    # Transitiva
+                    if "é" in self.relacoes[atual]:
+                        for classe_b in self.relacoes[atual]["é"]:
+                            if classe_b in self.relacoes:
+                                for rel_b, objs_b in self.relacoes[classe_b].items():
+                                    if prox in objs_b:
+                                        score_logico += 1.0
+                                        
+                # Objeto Direto / Consequência causal
+                if penultimo in self.relacoes and atual in self.relacoes[penultimo]:
+                    if prox in self.relacoes[penultimo][atual]:
+                        score_logico += 1.5
+
+                # Terminação Dinâmica de Sentença (Nível 3)
+                if prox == "." and len(resultado) >= 3:
+                    sub_at = resultado[-3]
+                    ver_at = resultado[-2]
+                    obj_at = resultado[-1]
+                    tem_vinculo = False
+                    if sub_at in self.relacoes and ver_at in self.relacoes[sub_at] and obj_at in self.relacoes[sub_at][ver_at]:
+                        tem_vinculo = True
+                    elif sub_at in self.relacoes and "é" in self.relacoes[sub_at]:
+                        for cl in self.relacoes[sub_at]["é"]:
+                            if cl in self.relacoes and ver_at in self.relacoes[cl] and obj_at in self.relacoes[cl][ver_at]:
+                                tem_vinculo = True
+                                break
+                    if tem_vinculo:
+                        score_logico += 2.0 # Empurrão probabilístico suave para pontuar e fechar a relação
+
+                # Equação Final unificada
                 atencao_total = (
                     1.0 + atencao_geo + atencao_semantica + 
                     (score_ancora_realtime * w_ancora) + 
-                    (score_propagacao * w_propagacao)
+                    (score_propagacao * w_propagacao) +
+                    (score_logico * w_logico)
                 )
                 prob = (freq * massa * foco * atencao_total) + caos_ativo
                 
@@ -474,7 +554,7 @@ class Quintikus_DLMC_V70:
             if not candidatos: break
             escolhido = random.choices(candidatos, weights=pesos, k=1)[0]
             
-            # Ajuste de gradiente para as 7 dimensões
+            # Ajuste de gradiente para as 8 dimensões
             if len(candidatos) > 1:
                 soma_pesos = sum(pesos) + 1e-8
                 prob_relativa = pesos[candidatos.index(escolhido)] / soma_pesos
@@ -486,8 +566,9 @@ class Quintikus_DLMC_V70:
                 d_inercia = -erro_foco * 0.3
                 d_hist = -erro_foco * 0.3
                 d_ancora = -erro_foco * 0.4 
-                d_propagacao = -erro_foco * 0.4 # Calibração do peso da ativação semântica
-                gradientes_acumulados += np.array([d_caos, d_geo, d_sem, d_inercia, d_hist, d_ancora, d_propagacao])
+                d_propagacao = -erro_foco * 0.4
+                d_logico = -erro_foco * 0.4 # Gradiente para calibrar o uso de regras simbólicas
+                gradientes_acumulados += np.array([d_caos, d_geo, d_sem, d_inercia, d_hist, d_ancora, d_propagacao, d_logico])
 
             atual = escolhido
             if atual == "." and i > 10: break
@@ -505,7 +586,6 @@ class Quintikus_DLMC_V70:
         melhor_bloco = max(self.blocos, key=lambda b: len(qs.intersection(b["txt"])), default=self.blocos[0])
         centro_xyz = melhor_bloco["xyz"]
         
-        # 1. ATIVAÇÃO RELACIONAL: Dispara a propagação a partir dos tokens do prompt
         self.propagar_ativacao_relacional(ql, passos=3, decaimento=0.50)
         
         vetor_prompt_atual = self.calcular_vetor_medio(ql)
@@ -521,14 +601,14 @@ class Quintikus_DLMC_V70:
             min(1.0, len(self.memoria_historica_prompts) / 5.0) 
         ]
         
-        # Extrai os 7 parâmetros gerados dinamicamente
-        w_caos, w_geo, w_sem, w_inercia, w_historico, w_ancora, w_propagacao = self.nac.forward(estado_vetor)
+        # Extrai os 8 parâmetros gerados dinamicamente (incluindo w_logico)
+        w_caos, w_geo, w_sem, w_inercia, w_historico, w_ancora, w_propagacao, w_logico = self.nac.forward(estado_vetor)
         
         pool_candidatos = []
         candidatos_aprovados = []
 
         for _ in range(num_candidatos):
-            cand = self._gerar_candidato_solitario(prompt, ql, centro_xyz, w_caos, w_geo, w_sem, w_ancora, w_propagacao)
+            cand = self._gerar_candidato_solitario(prompt, ql, centro_xyz, w_caos, w_geo, w_sem, w_ancora, w_propagacao, w_logico)
             if not cand["txt"]: continue
             
             passou, score_accepty, sim_suj, sim_pred = self.accepty.avaliar(ql, cand["txt"], self.coordenadas_palavras)
@@ -589,21 +669,15 @@ class Quintikus_DLMC_V70:
 # =====================================================================
 # 5. CARREGAMENTO E EXECUÇÃO
 # =====================================================================
-text="""
-Oi, amor!
-estou estou bem!
-espero que seu dias seja lindo e cheio de paz.
-
-"""
-
 if __name__ == "__main__":
+
     with open('amor.txt', 'r', encoding='utf-8') as arquivo:
         conteudo = arquivo.read()
 
-    motor = Quintikus_DLMC_V70(text)
+    motor = Quintikus_DLMC_V70(conteudo)
 
     print("="*85)
-    print("QUINTIKUS DLMC V70 ULTRA: 16D CNN + METACONTROL + SPREADING SEMANTIC ACTIVATION")
+    print("QUINTIKUS DLMC V70 ULTRA NEURO-SIMBÓLICA")
     print("="*85)
     
     while True:
@@ -611,7 +685,7 @@ if __name__ == "__main__":
             p = input("\nINPUT > ")
             if p.lower() in ['sair', 'exit']: break
             
-            res = motor.pensar(p, num_candidatos=50)
+            res = motor.pensar(p, num_candidatos=5)
             
             sys.stdout.write("Processando Matrix: ")
             for char in res:
