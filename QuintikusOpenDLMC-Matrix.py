@@ -2,12 +2,11 @@
 import hashlib, math, random, time, sys, os, pickle
 from collections import defaultdict, deque, Counter
 import numpy as np
-#class 2 dlm 
+
 # =====================================================================
 # 1. COMPONENTE NEURAL: CONTROLADOR DE ATENÇÃO (ADAM - 8 OUTS)
 # =====================================================================
 class NeuralAttentionController:
-    """MLP Metacognitiva que calibra 8 parâmetros incluindo o peso de Lógica Simbólica"""
     def __init__(self, input_dim=5, hidden_dim=12, output_dim=8, lr=0.01):
         self.input_dim = input_dim
         self.hidden_dim = hidden_dim
@@ -181,7 +180,7 @@ class Accepty:
 
 
 # =====================================================================
-# 4. MOTOR CENTRAL MATRIX DLMC V70 ULTRA NEURO-SIMBÓLICA
+# 4. MOTOR CENTRAL MATRIX DLMC V70 ULTRA COM ESPELHAMENTO ATÔMICO
 # =====================================================================
 class Quintikus_DLMC_V70:
     def __init__(self, raw_text, brain_file="matrix_brain.bin"):
@@ -205,11 +204,11 @@ class Quintikus_DLMC_V70:
         self.tokens = raw_text.lower().replace(".", " . ").replace(",", " , ").split()
         self.build_dlm_matrix()
         
-        # Extrai relações explícitas e induz classes por covariância (Nível 4 do NDLM)
+        # Extrai relações lógicas do corpus inicial
         self.extrair_triplas_relacionais(self.tokens)
         self._consolidar_abstracoes_automaticas()
 
-        # 2. SISTEMAS NEURAIS INTEGRADOS (NAC configurada com 8 saídas para calibrar Lógica)
+        # 2. SISTEMAS NEURAIS INTEGRADOS
         self.nac = NeuralAttentionController(input_dim=5, hidden_dim=12, output_dim=8, lr=0.01)
         self.cnn = CoherenceCNN1D()
         self.accepty = Accepty(threshold=0.20) 
@@ -261,11 +260,7 @@ class Quintikus_DLMC_V70:
         print(f"🧬 Matrix DLMC Ativa: {len(self.matrix)} nós | {len(self.blocos)} blocos de massa.")
         print(f"💾 Dimensões de Sequência Carregadas: {len(self.memoria_conhecimento_sequencias)} vetores estruturais.")
 
-    # =====================================================================
-    # EXTRATORES DE LÓGICA E ABSTRAÇÃO (PROPRIEDADES DO NDLM)
-    # =====================================================================
     def extrair_triplas_relacionais(self, tokens):
-        """Mapeia triplas lógicas explícitas da estrutura: Entidade -> Relação -> Atributo"""
         for i in range(len(tokens) - 2):
             sujeito = tokens[i]
             verbo = tokens[i+1]
@@ -274,7 +269,6 @@ class Quintikus_DLMC_V70:
                 self.relacoes[sujeito][verbo].add(objeto)
 
     def _consolidar_abstracoes_automaticas(self):
-        """Induz classes taxonômicas por covariância lógica de atributos"""
         entidades = list(self.relacoes.keys())
         for i in range(len(entidades)):
             ent_a = entidades[i]
@@ -298,7 +292,7 @@ class Quintikus_DLMC_V70:
                     if massa_b < massa_a:
                         if ent_b not in self.relacoes[ent_a]["é"]:
                             self.relacoes[ent_a]["é"].add(ent_b)
-                            print(f"✨ [Abstração Automática] Induzido por covariância: {ent_a} é {ent_b}")
+                            print(f"✨ [Abstração Automática] Deduzido por covariância: {ent_a} é {ent_b}")
 
     def treinar_cnn_com_corpus(self, passos_treino=1000):
         print("⚙️ Iniciando treinamento de sequenciamento lógico da CNN...")
@@ -345,7 +339,17 @@ class Quintikus_DLMC_V70:
                         self.cnn.b_conv = data['cnn_b_conv']
                         self.cnn.W_dense = data['cnn_W_dense']
                         self.cnn.b_dense = data['cnn_b_dense']
-                        print("🧠 Cérebro Unificado e padrões CNN 16D carregados com sucesso.")
+                        
+                        # Carregamento persistente de Coordenadas e Relações do Organismo
+                        if 'coordenadas_palavras' in data:
+                            self.coordenadas_palavras = data['coordenadas_palavras']
+                        if 'relacoes' in data:
+                            rel_raw = data['relacoes']
+                            self.relacoes = defaultdict(lambda: defaultdict(set))
+                            for k, v in rel_raw.items():
+                                for kk, vv in v.items():
+                                    self.relacoes[k][kk] = set(vv)
+                        print("🧠 Cérebro Unificado, padrões CNN 16D, Coordenadas e Relações carregados.")
                         return True
                     else:
                         print("⚠️ Modificação na arquitetura física detectada. Reiniciando novo cérebro.")
@@ -358,12 +362,16 @@ class Quintikus_DLMC_V70:
     def save_brain(self):
         try:
             temp_file = self.brain_file + ".tmp"
+            # Converte relações do defaultdict de sets para formato serializável (dict de listas)
+            relacoes_puras = {k: {kk: list(vv) for kk, vv in v.items()} for k, v in self.relacoes.items()}
             data = {
                 'nac_W1': self.nac.W1, 'nac_b1': self.nac.b1,
                 'nac_W2': self.nac.W2, 'nac_b2': self.nac.b2,
                 'nac_t': self.nac.t,
                 'cnn_W_conv': self.cnn.W_conv, 'cnn_b_conv': self.cnn.b_conv,
-                'cnn_W_dense': self.cnn.W_dense, 'cnn_b_dense': self.cnn.b_dense
+                'cnn_W_dense': self.cnn.W_dense, 'cnn_b_dense': self.cnn.b_dense,
+                'coordenadas_palavras': self.coordenadas_palavras,
+                'relacoes': relacoes_puras
             }
             with open(temp_file, 'wb') as f:
                 pickle.dump(data, f)
@@ -447,15 +455,41 @@ class Quintikus_DLMC_V70:
         self.ativacao_atual = ativacao
 
     # =====================================================================
-    # GERAÇÃO DE CANDIDATOS COM BIAS DE LÓGICA SUAVE (NEURO-SIMBÓLICA)
+    # SISTEMAS DE ALINHAMENTO GEOMÉTRICO (ESPELHO)
     # =====================================================================
+    def _ajustar_coordenadas_usuario(self, prompt_tokens):
+        """Aproxima fisicamente em 3D as palavras combinadas pelo usuário no prompt"""
+        for i in range(len(prompt_tokens) - 1):
+            w_at = prompt_tokens[i]
+            w_px = prompt_tokens[i+1]
+            if w_at in self.coordenadas_palavras and w_px in self.coordenadas_palavras:
+                c_at = np.array(self.coordenadas_palavras[w_at])
+                c_px = np.array(self.coordenadas_palavras[w_px])
+                # Atração geométrica suave de 15% (Adapta o espaço latente ao fluxo do usuário)
+                novo_c_px = c_px + 0.15 * (c_at - c_px)
+                self.coordenadas_palavras[w_px] = list(novo_c_px)
+
+    def _sincronizar_espaco_geometrico(self, ql, texto_final):
+        """
+        Sincroniza o espaço geométrico 3D aproximando os tokens do usuário
+        com os tokens gerados pela resposta do modelo.
+        """
+        for w_user in ql:
+            for w_model in texto_final:
+                if w_user in self.coordenadas_palavras and w_model in self.coordenadas_palavras:
+                    c_user = np.array(self.coordenadas_palavras[w_user])
+                    c_model = np.array(self.coordenadas_palavras[w_model])
+                    # Atração sutil mútua de 5% (Alinhamento de ponta a ponta)
+                    novo_c_model = c_model + 0.05 * (c_user - c_model)
+                    self.coordenadas_palavras[w_model] = list(novo_c_model)
+
     def _gerar_candidato_solitario(self, prompt, ql, centro_xyz, w_caos, w_geo, w_sem, w_ancora, w_propagacao, w_logico):
         atual = ql[-1] if ql[-1] in self.matrix else random.choice(
             max(self.blocos, key=lambda b: len(set(ql).intersection(b["txt"])), default=self.blocos[0])["txt"]
         )
         
         resultado = []
-        gradientes_acumulados = np.zeros((1, 8)) # Gradientes expandidos para 8 dimensões
+        gradientes_acumulados = np.zeros((1, 8)) 
         rastro_local = list(self.rastro)
 
         for i in range(40):
@@ -497,18 +531,14 @@ class Quintikus_DLMC_V70:
                 # Ativação Relacional (Spreading Activation)
                 score_propagacao = self.ativacao_atual.get(prox, 0.0)
 
-                # -------------------------------------------------------------
-                # BIAS DE REGRAS LÓGICAS E HERANÇA TRANSITIVA SUAVE (NDLM)
-                # -------------------------------------------------------------
+                # Bias de Regras Lógicas (NDLM)
                 score_logico = 0.0
                 penultimo = resultado[-2] if len(resultado) > 1 else ""
                 
                 if atual in self.relacoes:
-                    # Direta
                     for rel, objs in self.relacoes[atual].items():
                         if prox in objs:
                             score_logico += 1.5
-                    # Transitiva
                     if "é" in self.relacoes[atual]:
                         for classe_b in self.relacoes[atual]["é"]:
                             if classe_b in self.relacoes:
@@ -516,12 +546,10 @@ class Quintikus_DLMC_V70:
                                     if prox in objs_b:
                                         score_logico += 1.0
                                         
-                # Objeto Direto / Consequência causal
                 if penultimo in self.relacoes and atual in self.relacoes[penultimo]:
                     if prox in self.relacoes[penultimo][atual]:
                         score_logico += 1.5
 
-                # Terminação Dinâmica de Sentença (Nível 3)
                 if prox == "." and len(resultado) >= 3:
                     sub_at = resultado[-3]
                     ver_at = resultado[-2]
@@ -535,9 +563,8 @@ class Quintikus_DLMC_V70:
                                 tem_vinculo = True
                                 break
                     if tem_vinculo:
-                        score_logico += 2.0 # Empurrão probabilístico suave para pontuar e fechar a relação
+                        score_logico += 2.0
 
-                # Equação Final unificada
                 atencao_total = (
                     1.0 + atencao_geo + atencao_semantica + 
                     (score_ancora_realtime * w_ancora) + 
@@ -554,7 +581,6 @@ class Quintikus_DLMC_V70:
             if not candidatos: break
             escolhido = random.choices(candidatos, weights=pesos, k=1)[0]
             
-            # Ajuste de gradiente para as 8 dimensões
             if len(candidatos) > 1:
                 soma_pesos = sum(pesos) + 1e-8
                 prob_relativa = pesos[candidatos.index(escolhido)] / soma_pesos
@@ -567,7 +593,7 @@ class Quintikus_DLMC_V70:
                 d_hist = -erro_foco * 0.3
                 d_ancora = -erro_foco * 0.4 
                 d_propagacao = -erro_foco * 0.4
-                d_logico = -erro_foco * 0.4 # Gradiente para calibrar o uso de regras simbólicas
+                d_logico = -erro_foco * 0.4 
                 gradientes_acumulados += np.array([d_caos, d_geo, d_sem, d_inercia, d_hist, d_ancora, d_propagacao, d_logico])
 
             atual = escolhido
@@ -580,6 +606,17 @@ class Quintikus_DLMC_V70:
 
     def pensar(self, prompt, num_candidatos=50):
         ql = prompt.lower().split()
+        
+        # --- APRENDIZADO ONLINE COM INPUT DO USUÁRIO ---
+        # 1. Ajuste Geométrico: Palavras próximas no input do usuário aproximam seus vetores no espaço 3D
+        self._ajustar_coordenadas_usuario(ql)
+        
+        # 2. Sintonização da CNN: Aprende a estrutura sintática do usuário
+        if len(ql) >= 3:
+            coords_usuario = [self.coordenadas_palavras.get(t, [0.0, 0.0, 0.0]) for t in ql]
+            self.cnn.forward(coords_usuario)
+            self.cnn.backward_step(target=1.0, lr=0.01) # CNN converge para o padrão do usuário
+            
         qs = set(ql)
         self.atualizar_termica(ql)
 
@@ -601,7 +638,6 @@ class Quintikus_DLMC_V70:
             min(1.0, len(self.memoria_historica_prompts) / 5.0) 
         ]
         
-        # Extrai os 8 parâmetros gerados dinamicamente (incluindo w_logico)
         w_caos, w_geo, w_sem, w_inercia, w_historico, w_ancora, w_propagacao, w_logico = self.nac.forward(estado_vetor)
         
         pool_candidatos = []
@@ -627,13 +663,18 @@ class Quintikus_DLMC_V70:
                 score_memoria_txt = 0.5
                 
             score_historico = (self.similaridade_cosseno(fluxo_conversacional_vec, vetor_candidato) + 1.0) / 2.0
+            
+            # Similaridade cosseno direta de Ponta a Ponta entre Prompt atual e Resposta Candidata
+            score_prompt_cosseno = (self.similaridade_cosseno(vetor_prompt_atual, vetor_candidato) + 1.0) / 2.0
 
+            # Equação Geral de Decisão com pesos unificados de Ponta a Ponta
             score_final = (
-                (0.20 * score_accepty) + 
-                (0.20 * score_cnn) + 
-                (0.20 * score_trajetoria * w_inercia) + 
-                (0.20 * score_memoria_txt) + 
-                (0.20 * score_historico * w_historico)
+                (0.15 * score_accepty) + 
+                (0.15 * score_cnn) + 
+                (0.15 * score_trajetoria * w_inercia) + 
+                (0.15 * score_memoria_txt) + 
+                (0.20 * score_historico * w_historico) +
+                (0.20 * score_prompt_cosseno)
             )
             
             cand["score"] = score_final
@@ -653,9 +694,13 @@ class Quintikus_DLMC_V70:
         
         texto_final = melhor_candidato["txt"]
 
-        if melhor_candidato["accepty_pass"]:
-            self.nac.backward(melhor_candidato["gradientes"][0])
-            self.save_brain()
+        # --- SINCRONIZAÇÃO GEOMÉTRICA DE PONTA A PONTA ---
+        # Sincroniza o espaço de palavras do modelo com o input do usuário na rodada ativa
+        self._sincronizar_espaco_geometrico(ql, texto_final)
+
+        # Aprendizado e Salvamento Atômico em cada Turno (Persistência Infinita de Coordenadas e Pesos)
+        self.nac.backward(melhor_candidato["gradientes"][0])
+        self.save_brain()
 
         for t in texto_final:
             self.rastro.append(t)
@@ -677,7 +722,7 @@ if __name__ == "__main__":
     motor = Quintikus_DLMC_V70(conteudo)
 
     print("="*85)
-    print("QUINTIKUS DLMC V70 ULTRA NEURO-SIMBÓLICA")
+    print("QUINTIKUS DLMC V70 ULTRA")
     print("="*85)
     
     while True:
@@ -685,7 +730,7 @@ if __name__ == "__main__":
             p = input("\nINPUT > ")
             if p.lower() in ['sair', 'exit']: break
             
-            res = motor.pensar(p, num_candidatos=5)
+            res = motor.pensar(p, num_candidatos=10)
             
             sys.stdout.write("Processando Matrix: ")
             for char in res:
