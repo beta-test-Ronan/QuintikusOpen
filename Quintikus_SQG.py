@@ -10,9 +10,9 @@ import secrets
 import hmac
 from collections import defaultdict
 
-# ==================================================================
-# 1. KALAMIDY SHIELD V210: PROTOCOLO DE LACRE DE FERRO (IRON SEAL)
-# ==================================================================
+# ======================================================================================================
+# 1. KALAMIDY SHIELD V210: PROTOCOLO DE LACRE DE FERRO (IRON SEAL) - Diario virtual / Banco de dados
+# ======================================================================================================
 class KalamidyShield:
     def __init__(self, password):
         self.password = password.encode()
