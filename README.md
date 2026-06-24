@@ -225,7 +225,9 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
 <pre><code>   Agi = precessamento bruto e busca&lt;br&gt;
    Fast = velocidade de busca grande contexto 
    Doomoble = IA transformer de bolso
-   SSML =  Singularidade Simbólica model logic
+   SSML = Symbolic Singularity model Logic
+   DLMC = Dynamic Logic Model Cortex
+   DSML = Dynamic Singularity model LOGIC
 </code></pre>
 
 <h1>Quintikus Doomoble🥔 Droid🧠</h1>
