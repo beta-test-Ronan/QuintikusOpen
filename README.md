@@ -226,7 +226,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
    Agi = raw processing and search
    Fast = large-context search speed 
    Doomoble = IA transformer de bolso
-   SSML = Symbolic Singularity model Logic
+   SSML = Sensation Singularity model Logic
    DLMC = Dynamic Logic Model Cortex
    DSML = Dynamic Singularity model LOGIC
 </code></pre>
