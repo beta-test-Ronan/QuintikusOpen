@@ -160,4 +160,4 @@ def sintetizar_arquinet(texto):
     proc.wait()
 
 if __name__ == '__main__':
-    sintetizar_arquinet("oi, como posso te ajuda humano")
+    sintetizar_arquinet("oi,eu sou robo")
