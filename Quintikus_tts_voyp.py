@@ -7,151 +7,119 @@ import random
 SAMPLE_RATE = 16000
 
 # ═══════════════════════════════════════════════════════════════
-# AS SUAS CLASSES (INTEGRADAS)
+# ESTRUTURA FÍSICA (SUAS CLASSES CALIBRADAS)
 # ═══════════════════════════════════════════════════════════════
 
 class WaveOscillator:
-    def __init__(self, f0=130.0, wave_type='saw'):
+    def __init__(self, f0=130.0):
         self.f0 = f0
-        self.wave_type = wave_type
         self.phase = 0.0
-        self.update_inc()
 
-    def update_inc(self):
-        self.phase_inc = self.f0 / SAMPLE_RATE
-
-    def set_f0(self, f0):
-        self.f0 = f0
-        self.update_inc()
-
-    def tick(self):
-        if self.wave_type == 'saw':
-            sample = 2.0 * self.phase - 1.0
-        elif self.wave_type == 'square':
-            sample = 1.0 if self.phase < 0.5 else -1.0
-        else:
-            sample = 2.0 * self.phase - 1.0
-        self.phase += self.phase_inc
+    def tick(self, f0):
+        self.phase += f0 / SAMPLE_RATE
         if self.phase >= 1.0: self.phase -= 1.0
-        return sample
+        return 2.0 * self.phase - 1.0 # Sawtooth pura
 
-class BiquadBandpass:
+class BiquadFilter:
     def __init__(self, freq, bw=80.0):
-        self.x1 = self.x2 = 0.0
-        self.z1 = self.z2 = 0.0
-        self.update_coeffs(freq, bw)
+        self.x1 = self.x2 = self.z1 = self.z2 = 0.0
+        self.update(freq, bw)
 
-    def update_coeffs(self, freq, bw):
-        # Proteção para frequências fora do limite de Nyquist
+    def update(self, freq, bw):
         freq = max(100, min(freq, SAMPLE_RATE // 2 - 100))
         omega = 2 * math.pi * freq / SAMPLE_RATE
         alpha = math.sin(omega) * math.sinh(math.log(2) / 2 * bw / freq * omega / math.sin(omega))
-        b0 = alpha
-        b1 = 0.0
-        b2 = -alpha
-        a0 = 1 + alpha
-        a1 = -2 * math.cos(omega)
-        a2 = 1 - alpha
-        self.b = (b0/a0, b1/a0, b2/a0)
+        b0, b2 = alpha, -alpha
+        a0, a1, a2 = 1 + alpha, -2 * math.cos(omega), 1 - alpha
+        self.b = (b0/a0, 0, b2/a0)
         self.a = (1.0, a1/a0, a2/a0)
 
-    def process(self, sample):
-        y = (self.b[0] * sample + self.b[1] * self.x1 + self.b[2] * self.x2
-             - self.a[1] * self.z1 - self.a[2] * self.z2)
-        self.x2, self.x1 = self.x1, sample
+    def process(self, x):
+        y = (self.b[0]*x + self.b[1]*self.x1 + self.b[2]*self.x2 - self.a[1]*self.z1 - self.a[2]*self.z2)
+        self.x2, self.x1 = self.x1, x
         self.z2, self.z1 = self.z1, y
         return y
 
-def adsr_envelope(total_samples, attack, decay, sustain_level, release):
-    env = [0.0] * total_samples
-    for i in range(total_samples):
-        if i < attack:
-            env[i] = i / attack if attack > 0 else 1.0
-        elif i < attack + decay:
-            progress = (i - attack) / decay if decay > 0 else 0.0
-            env[i] = 1.0 - progress * (1.0 - sustain_level)
-        elif i < total_samples - release:
-            env[i] = sustain_level
-        else:
-            release_start = total_samples - release
-            progress = (i - release_start) / release if release > 0 else 0.0
-            env[i] = sustain_level * (1.0 - progress)
-    return env
-
 # ═══════════════════════════════════════════════════════════════
-# O DICIONÁRIO DE FONEMAS (SEU BANCO)
+# BANCOS DE DADOS GEOMÉTRICOS (PT-BR / EN)
 # ═══════════════════════════════════════════════════════════════
 
-VOGAIS = {
-    'a': (700, 1150, 2500), 'e': (500, 1800, 2500), 'i': (270, 2300, 3000),
-    'o': (450, 850, 2300),  'u': (300, 850, 2250),
+GEOMETRIAS_PTBR = {
+    'a': [[730, 60, 1.0], [1100, 80, 0.8], [2450, 120, 0.4]],
+    'e': [[500, 55, 1.0], [1800, 85, 0.7], [2500, 120, 0.4]],
+    'i': [[280, 40, 1.0], [2300, 90, 0.8], [3500, 150, 0.5]],
+    'o': [[450, 50, 1.0], [800, 70, 0.7], [2300, 140, 0.3]],
+    'u': [[320, 40, 1.0], [800, 65, 0.6], [2200, 120, 0.2]],
+    's': [[4000, 500, 0.4], [6000, 800, 0.6], [7500, 1000, 0.3]],
+    'p': [[160, 20, 1.2], [450, 80, 0.2], [900, 150, 0.1]],
+    't': [[180, 25, 1.1], [1500, 80, 0.3], [2500, 150, 0.1]],
+    'r': [[450, 40, 0.8], [1500, 80, 0.4], [2500, 150, 0.1]],
+    'm': [[250, 30, 1.0], [900, 60, 0.4], [2000, 120, 0.2]],
+    ' ': [[0, 1, 0.0], [0, 1, 0.0], [0, 1, 0.0]],
 }
 
-CONSOANTES = {
-    'p': ('surda', 0.05, 800), 't': ('surda', 0.05, 2000), 'k': ('surda', 0.05, 1200),
-    's': ('surda', 0.10, 4000), 'b': ('sonora', 0.06, 800), 'r': ('sonora', 0.08, 1500),
-    'm': ('sonora', 0.08, 400), ' ': ('pausa', 0.1, 0),
+GEOMETRIAS_EN = {
+    'a': [[730, 60, 1.0], [1100, 80, 0.8], [2450, 120, 0.4]],
+    'e': [[500, 55, 1.0], [1800, 85, 0.7], [2500, 120, 0.4]],
+    'i': [[280, 40, 1.0], [2300, 90, 0.8], [3500, 150, 0.5]],
+    'o': [[450, 50, 1.0], [800, 70, 0.7], [2300, 140, 0.3]],
+    'u': [[320, 40, 1.0], [800, 65, 0.6], [2200, 120, 0.2]],
+    'h': [[0, 1, 0.0], [0, 1, 0.0], [0, 1, 0.0]], 
+    's': [[4000, 500, 0.4], [6000, 800, 0.6], [7500, 1000, 0.3]],
+    ' ': [[0, 1, 0.0], [0, 1, 0.0], [0, 1, 0.0]],
 }
 
+# Identificação de Consoantes Surdas (Apenas Sopro/Ruído)
+SURDAS = {'s', 'p', 't', 'k', 'f', 'x', 'h'}
+
 # ═══════════════════════════════════════════════════════════════
-# MOTOR DE SÍNTESE LINEAR UNIFICADO
+# MOTOR DE FLUXO GLOBAL
 # ═══════════════════════════════════════════════════════════════
 
-def sintetizar_arquinet(texto):
-    print(f"📡 QUINTIKUS v6.0 Ativado: «{texto}»")
-    osc = WaveOscillator(f0=120.0, wave_type='saw')
+def arquinet_talk(texto, lang='pt'):
+    banco = GEOMETRIAS_PTBR if lang == 'pt' else GEOMETRIAS_EN
+    print(f"🌐 Arquinet [{lang.upper()}]: «{texto}»")
     
-    # Três filtros biquad para os formantes F1, F2, F3
-    filtros = [BiquadBandpass(500), BiquadBandpass(1500), BiquadBandpass(2500)]
-    
+    osc = WaveOscillator(f0=125.0)
+    filtros = [BiquadFilter(500), BiquadFilter(1500), BiquadFilter(2500)]
+    f_atual = [500.0, 1500.0, 2500.0]
+
     cmd = ['aplay', '-t', 'raw', '-f', 'S16_LE', '-c', '1', '-r', str(SAMPLE_RATE)]
     proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
 
-    # Estado dos formantes para transição linear
-    f_atual = [500.0, 1500.0, 2500.0]
-
     for char in texto.lower():
-        if char in VOGAIS:
-            f_alvo = VOGAIS[char]
-            tipo = 'vogal'
-            dur_sec = 0.12
-        elif char in CONSOANTES:
-            tipo_c, dur_sec, freq_c = CONSOANTES[char]
-            f_alvo = (freq_c, freq_c * 1.5, freq_c * 2) if tipo_c != 'pausa' else f_atual
-            tipo = tipo_c
-        else: continue
-
+        if char not in banco: char = ' '
+        geo_alvo = banco[char]
+        
+        # Consoantes são mais curtas que vogais
+        dur_sec = 0.08 if char in SURDAS or char in 'bcdfgj' else 0.14
         dur_amostras = int(SAMPLE_RATE * dur_sec)
         
-        # Envelope ADSR para estruturação da sílaba
-        if tipo == 'pausa':
-            env = [0.0] * dur_amostras
-        else:
-            a, d, s, r = (200, 400, 0.7, 500) if tipo == 'vogal' else (100, 200, 0.5, 300)
-            env = adsr_envelope(dur_amostras, a, d, s, r)
-
         chunk = []
         for i in range(dur_amostras):
             t = i / dur_amostras
-            # Inflexão de pitch (Micro-delta linear)
-            osc.set_f0(120.0 * (1.0 - 0.05 * t))
+            # Micro-delta para naturalidade
+            f0_dinamico = 125.0 * (1.0 - 0.05 * t)
             
-            # Fonte: Saw para voz, Ruído para consoantes surdas
-            if tipo == 'surda':
-                fonte = random.uniform(-1, 1)
+            # Fonte: Ruído para surdas, Oscilador para o resto
+            if char in SURDAS:
+                fonte = random.uniform(-1.0, 1.0)
+            elif char == ' ':
+                fonte = 0.0
             else:
-                fonte = osc.tick()
+                fonte = osc.tick(f0_dinamico)
 
-            # Transição Linear dos Filtros Biquad
-            res = 0.0
+            # Processamento Harmônico Linear
+            saida_filtros = 0.0
             for j in range(3):
-                # Desliza a frequência do filtro em direção ao alvo
-                f_atual[j] += (f_alvo[j] - f_atual[j]) * 0.01 
-                filtros[j].update_coeffs(f_atual[j], bw=80)
-                res += filtros[j].process(fonte)
-            
-            # Saturação e Estruturação Vocal (Linear -> Tanh)
-            sample = math.tanh(res * env[i] * 0.5)
+                # Transição linear dos formantes
+                f_atual[j] += (geo_alvo[j][0] - f_atual[j]) * 0.02
+                filtros[j].update(f_atual[j], bw=geo_alvo[j][1])
+                saida_filtros += filtros[j].process(fonte) * geo_alvo[j][2]
+
+            # Estruturação Vocal: Envelope Silábico + Saturação Tanh
+            envelope = math.sin(math.pi * t)
+            sample = math.tanh(saida_filtros * envelope * 1.5)
             chunk.append(int(sample * 30000))
         
         proc.stdin.write(struct.pack(f'<{len(chunk)}h', *chunk))
@@ -159,5 +127,13 @@ def sintetizar_arquinet(texto):
     proc.stdin.close()
     proc.wait()
 
+# ═══════════════════════════════════════════════════════════════
+# EXECUÇÃO
+# ═══════════════════════════════════════════════════════════════
+
 if __name__ == '__main__':
-    sintetizar_arquinet("oi,eu sou robo")
+    # Teste em Português
+    arquinet_talk("ola eu sou o robo do arquinet", lang='pt')
+    
+    # Teste em Inglês
+    arquinet_talk("i am a robot", lang='en')
