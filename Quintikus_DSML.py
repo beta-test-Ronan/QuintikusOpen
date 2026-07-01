@@ -1,287 +1,914 @@
-# -*-coding:utf8;-*-
-import os, math, time, random, re, pickle, hashlib, unicodedata, threading
-from collections import defaultdict, Counter, deque
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento (Deep Sea Meta-Learning)
+Fusão completa: GPS + Periscópio + Computador de Bordo + Metabolismo +
+SNC + Homeostase + Perfil de Usuário + Relógio Endógeno Não-Invasivo +
+NeuroMicro (Sentimento) + Contexto Entrópico
+Versão Final – Corrigida, Persistente e com Aprendizado Emocional Refinado
+"""
 
-# ==================================================================
-# ❄️ [ÁREA 1: ESCUDO DE HARDWARE & MATEMÁTICA PURA]
-# ==================================================================
-os.environ["OMP_NUM_THREADS"] = "1" 
-os.environ["MKL_NUM_THREADS"] = "1" 
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
+import hashlib, math, random, time, pickle, os, tempfile, sys, re, threading
+from array import array
+from collections import defaultdict, deque, Counter
+from typing import List, Tuple, Dict, Optional
 
-def clip(val, min_val, max_val):
-    return max(min_val, min(max_val, val))
+# ============================================
+# BLOCO ANDROID – Detecção segura
+# ============================================
+ANDROID_VOZ = False
+MODO_VOZ = False
+droid = None
+sistema_ocupado = False
 
-def sigmoid_fn(x):
-    return 1.0 / (1.0 + math.exp(-clip(x, -20.0, 20.0)))
+try:
+    import androidhelper
+    droid = androidhelper.Android()
+    ANDROID_VOZ = True
+    print("✅ QPython detectado. Voz disponível.")
+except (ImportError, AttributeError):
+    pass
 
-def softplus_fn(x):
-    return math.log1p(math.exp(clip(x, -20.0, 20.0)))
+if not ANDROID_VOZ:
+    try:
+        from sl4a import Android
+        droid = Android()
+        ANDROID_VOZ = True
+        print("✅ SL4A detectado. Voz disponível.")
+    except (ImportError, AttributeError):
+        pass
+
+if not ANDROID_VOZ:
+    print("ℹ️  Android sem SL4A. Rodando em modo teclado.")
+    droid = None
+
+def safe_input(prompt: str = "") -> str:
+    if prompt:
+        sys.stdout.write(prompt)
+        sys.stdout.flush()
+    return sys.stdin.readline().strip()
+
+def falar(texto: str) -> bool:
+    global ANDROID_VOZ, droid
+    if not ANDROID_VOZ or droid is None:
+        return False
+    try:
+        droid.ttsSpeak(texto)
+        droid.eventWait(3000)
+        time.sleep(0.5)
+        return True
+    except Exception:
+        return False
+
+def ouvir(prompt: str = "Ouvindo...") -> str:
+    global ANDROID_VOZ, droid
+    if not ANDROID_VOZ or droid is None:
+        return ""
+    try:
+        resultado = droid.recognizeSpeech(prompt)
+        if resultado and resultado.result:
+            return resultado.result.strip()
+        return ""
+    except Exception:
+        return ""
+
+def vibrar(ms: int = 100):
+    global ANDROID_VOZ, droid
+    if not ANDROID_VOZ or droid is None:
+        return
+    try:
+        droid.vibrate(ms)
+    except Exception:
+        pass
+
+# ============================================
+# UTILITÁRIOS
+# ============================================
+def sha256(msg: str) -> str:
+    return hashlib.sha256(msg.encode()).hexdigest()
+
+def cosine_sim(v1, v2):
+    if not v1 or not v2 or len(v1) != len(v2): return 0.0
+    n1 = math.sqrt(sum(x*x for x in v1))
+    n2 = math.sqrt(sum(x*x for x in v2))
+    if n1 == 0 or n2 == 0: return 0.0
+    return sum(a*b for a,b in zip(v1,v2)) / (n1*n2)
+
+def euclidean_dist(v1, v2):
+    return math.sqrt(sum((a-b)**2 for a,b in zip(v1,v2)))
+
+def sigmoid(x: float) -> float:
+    return 1.0 / (1.0 + math.exp(-max(-20.0, min(20.0, x))))
+
+def softplus(x: float) -> float:
+    return math.log1p(math.exp(min(x, 20.0)))
+
+def tanh(x: float) -> float:
+    return math.tanh(x)
+
+def ajustar_pontuacao(resposta: str) -> str:
+    if not resposta:
+        return resposta
+    ultimo = resposta[-1]
+    if ultimo in '.!?':
+        return resposta
+    if any(p in resposta.lower() for p in ['quem', 'quando', 'onde', 'por que', 'como', 'qual', '?' ]):
+        return resposta + '?'
+    if any(p in resposta for p in ['!', 'nossa', 'caramba', 'que', 'como']):
+        return resposta + '!'
+    return resposta + '.'
+
+# ============================================
+# GRU (Gated Recurrent Unit)
+# ============================================
+class GRUCell:
+    def __init__(self, input_dim: int, hidden_dim: int):
+        self.W_ir = [[random.gauss(0, 0.1) for _ in range(hidden_dim)] for _ in range(input_dim)]
+        self.W_iz = [[random.gauss(0, 0.1) for _ in range(hidden_dim)] for _ in range(input_dim)]
+        self.W_in = [[random.gauss(0, 0.1) for _ in range(hidden_dim)] for _ in range(input_dim)]
+        self.W_hr = [[random.gauss(0, 0.1) for _ in range(hidden_dim)] for _ in range(hidden_dim)]
+        self.W_hz = [[random.gauss(0, 0.1) for _ in range(hidden_dim)] for _ in range(hidden_dim)]
+        self.W_hn = [[random.gauss(0, 0.1) for _ in range(hidden_dim)] for _ in range(hidden_dim)]
+        self.b_ir = [0.0]*hidden_dim; self.b_iz = [0.0]*hidden_dim; self.b_in = [0.0]*hidden_dim
+        self.b_hr = [0.0]*hidden_dim; self.b_hz = [0.0]*hidden_dim; self.b_hn = [0.0]*hidden_dim
+
+    def forward(self, x, h_prev):
+        h_dim = len(h_prev)
+        r = [sigmoid(sum(x[k]*self.W_ir[k][j] for k in range(len(x))) + 
+                     sum(h_prev[k]*self.W_hr[k][j] for k in range(h_dim)) + 
+                     self.b_ir[j] + self.b_hr[j]) for j in range(h_dim)]
+        z = [sigmoid(sum(x[k]*self.W_iz[k][j] for k in range(len(x))) + 
+                     sum(h_prev[k]*self.W_hz[k][j] for k in range(h_dim)) + 
+                     self.b_iz[j] + self.b_hz[j]) for j in range(h_dim)]
+        n = [tanh(sum(x[k]*self.W_in[k][j] for k in range(len(x))) + 
+                  r[j] * sum(h_prev[k]*self.W_hn[k][j] for k in range(h_dim)) + 
+                  self.b_in[j] + self.b_hn[j]) for j in range(h_dim)]
+        h_new = [(1.0 - z[j]) * n[j] + z[j] * h_prev[j] for j in range(h_dim)]
+        return h_new
+
+class GRULayer:
+    def __init__(self, input_dim: int, hidden_dim: int, seq_len: int = 5):
+        self.input_dim = input_dim
+        self.hidden_dim = hidden_dim
+        self.seq_len = seq_len
+        self.cell = GRUCell(input_dim, hidden_dim)
+        self.W_proj = [[random.gauss(0, 0.1) for _ in range(8)] for _ in range(hidden_dim)]
+        self.b_proj = [0.0]*8
+
+    def forward(self, sequence):
+        h = [0.0]*self.hidden_dim
+        for x in sequence[-self.seq_len:]:
+            h = self.cell.forward(x, h)
+        out = [sum(h[j]*self.W_proj[j][i] for j in range(self.hidden_dim)) + self.b_proj[i] for i in range(8)]
+        return out
+
+# ============================================
+# REDE NEURAL COM ADAM
+# ============================================
+class MiniRedeAdam:
+    def __init__(self, input_dim=10, hidden_dim=16, output_dim=8):
+        scale1 = math.sqrt(2.0/input_dim); scale2 = math.sqrt(2.0/hidden_dim)
+        self.W1 = [[(random.random()*2-1)*scale1 for _ in range(hidden_dim)] for _ in range(input_dim)]
+        self.b1 = [0.0]*hidden_dim
+        self.W2 = [[(random.random()*2-1)*scale2 for _ in range(output_dim)] for _ in range(hidden_dim)]
+        self.b2 = [0.0]*output_dim
+        self.beta1, self.beta2, self.eps, self.t, self.lr = 0.9, 0.999, 1e-8, 0, 0.005
+        self.mW1 = [[0.0]*hidden_dim for _ in range(input_dim)]; self.vW1 = [[0.0]*hidden_dim for _ in range(input_dim)]
+        self.mb1, self.vb1 = [0.0]*hidden_dim, [0.0]*hidden_dim
+        self.mW2 = [[0.0]*output_dim for _ in range(hidden_dim)]; self.vW2 = [[0.0]*output_dim for _ in range(hidden_dim)]
+        self.mb2, self.vb2 = [0.0]*output_dim, [0.0]*output_dim
+
+    def forward(self, x):
+        self.x = x
+        self.h = [max(0.0, self.b1[i] + sum(x[j]*self.W1[j][i] for j in range(len(x)))) for i in range(len(self.b1))]
+        self.out_raw = [self.b2[i] + sum(self.h[j]*self.W2[j][i] for j in range(len(self.h))) for i in range(len(self.b2))]
+        return [softplus(v) for v in self.out_raw]
+
+    def backward(self, target):
+        self.t += 1
+        sig_out = [sigmoid(v) for v in self.out_raw]
+        delta2 = [(self.out_raw[i]-target[i])*sig_out[i] for i in range(len(target))]
+        dW2 = [[delta2[j]*self.h[i] for j in range(len(delta2))] for i in range(len(self.h))]
+        db2 = list(delta2)
+        delta1 = [0.0]*len(self.h)
+        for i in range(len(self.h)):
+            if self.h[i] <= 0: continue
+            delta1[i] = sum(delta2[j]*self.W2[i][j] for j in range(len(delta2)))
+        dW1 = [[delta1[j]*self.x[i] for j in range(len(delta1))] for i in range(len(self.x))]
+        db1 = list(delta1)
+        self._adam2d(self.W1, dW1, self.mW1, self.vW1)
+        self._adam1d(self.b1, db1, self.mb1, self.vb1)
+        self._adam2d(self.W2, dW2, self.mW2, self.vW2)
+        self._adam1d(self.b2, db2, self.mb2, self.vb2)
+
+    def _adam2d(self, param, grad, m, v):
+        for i in range(len(param)):
+            for j in range(len(param[i])):
+                m[i][j] = self.beta1*m[i][j] + (1-self.beta1)*grad[i][j]
+                v[i][j] = self.beta2*v[i][j] + (1-self.beta2)*grad[i][j]*grad[i][j]
+                m_hat = m[i][j]/(1-self.beta1**self.t)
+                v_hat = v[i][j]/(1-self.beta2**self.t)
+                param[i][j] -= self.lr*m_hat/(math.sqrt(abs(v_hat))+self.eps)
+
+    def _adam1d(self, param, grad, m, v):
+        for i in range(len(param)):
+            m[i] = self.beta1*m[i] + (1-self.beta1)*grad[i]
+            v[i] = self.beta2*v[i] + (1-self.beta2)*grad[i]*grad[i]
+            m_hat = m[i]/(1-self.beta1**self.t)
+            v_hat = v[i]/(1-self.beta2**self.t)
+            param[i] -= self.lr*m_hat/(math.sqrt(abs(v_hat))+self.eps)
+
+# ============================================
+# ÍNDICE ESPACIAL (GPS do Modelo)
+# ============================================
+class SpatialIndex:
+    def __init__(self):
+        self.frases_3d = []
+        self.frase_ids = []
+    
+    def build(self, frases_originais, coords_func):
+        self.frases_3d = []
+        self.frase_ids = list(range(len(frases_originais)))
+        for i, frase in enumerate(frases_originais):
+            emb = coords_func(frase)
+            if len(emb) >= 3:
+                self.frases_3d.append(emb[:3])
+            else:
+                self.frases_3d.append([0.0, 0.0, 0.0])
+    
+    def query(self, prompt_emb_3d, k=50):
+        if not self.frases_3d or k <= 0:
+            return []
+        distancias = []
+        for i, coord in enumerate(self.frases_3d):
+            dist = euclidean_dist(prompt_emb_3d, coord)
+            distancias.append((dist, i))
+        distancias.sort(key=lambda x: x[0])
+        return [self.frase_ids[idx] for _, idx in distancias[:k]]
+
+# ============================================
+# ATENÇÃO HIERÁRQUICA (Periscópio Multi-Banda)
+# ============================================
+class HierarchicalAttention:
+    def __init__(self, input_dim=3):
+        self.scales = [10, 30, 50]
+        self.W_scale = [random.gauss(0, 0.1) for _ in range(len(self.scales))]
+        self.b = 0.0
+        self.lr = 0.01
+    
+    def forward(self, prompt_emb_3d, spatial_index, frases_originais):
+        resultados_por_escala = []
+        for i, k in enumerate(self.scales):
+            vizinhos = spatial_index.query(prompt_emb_3d, k=k)
+            if vizinhos:
+                frase_id = vizinhos[0]
+                frase = frases_originais[frase_id]
+                resultados_por_escala.append(frase)
+        
+        if not resultados_por_escala:
+            return None, 0.0
+        
+        scores = [sigmoid(self.W_scale[i]) for i in range(len(resultados_por_escala))]
+        total = sum(scores) + 1e-8
+        probs = [s/total for s in scores]
+        
+        r = random.random()
+        acum = 0.0
+        escolhida = resultados_por_escala[0]
+        for j, p in enumerate(probs):
+            acum += p
+            if r <= acum:
+                escolhida = resultados_por_escala[j]
+                break
+        
+        confianca = max(scores) if scores else 0.5
+        return escolhida, confianca
+    
+    def backward(self, reward, scale_idx):
+        if 0 <= scale_idx < len(self.W_scale):
+            self.W_scale[scale_idx] += self.lr * reward
+            self.b += self.lr * reward * 0.1
+
+# ============================================
+# ATENÇÃO SUJEITO-PREDICADO (Periscópio Fino)
+# ============================================
+class ContextAttention:
+    def __init__(self, input_dim=10):
+        self.W_suj = [random.gauss(0,0.1) for _ in range(input_dim)]
+        self.W_pred = [random.gauss(0,0.1) for _ in range(input_dim)]
+        self.b = 0.0
+        self.lr = 0.01
+
+    def extrair_sujeito_predicado(self, ql, coords, raridade):
+        suj_tokens = sorted(ql, key=lambda t: raridade.get(t, 1))[:max(1, len(ql)//3)]
+        pred_tokens = sorted(ql, key=lambda t: raridade.get(t, 1), reverse=True)[:max(1, len(ql)//3)]
+        def media_emb(tokens):
+            coords_list = [coords[t] for t in tokens if t in coords]
+            if not coords_list: return [0.0]*3
+            return [sum(c[i] for c in coords_list)/len(coords_list) for i in range(3)]
+        return media_emb(suj_tokens), media_emb(pred_tokens)
+
+    def forward(self, emb_prompt, suj_emb, pred_emb):
+        score_suj = sum(suj_emb[i]*self.W_suj[i] for i in range(3)) if len(suj_emb)==3 else 0
+        score_pred = sum(pred_emb[i]*self.W_pred[i] for i in range(3)) if len(pred_emb)==3 else 0
+        alpha = sigmoid(score_suj - score_pred + self.b)
+        return alpha
+
+    def backward(self, alpha, target_alpha, suj_emb, pred_emb):
+        error = target_alpha - alpha
+        if len(suj_emb)==3:
+            for i in range(3): self.W_suj[i] += self.lr * error * suj_emb[i]
+        if len(pred_emb)==3:
+            for i in range(3): self.W_pred[i] -= self.lr * error * pred_emb[i]
+        self.b += self.lr * error
+
+# ============================================
+# MOTOR PRINCIPAL V85.2 – COM AUTO‑CURA TOTAL
+# ============================================
+class QuintikusDLMC:
+    def __init__(self, texto: str = "", arquivo_bin: str = "cerebro_v85.bin"):
+        self.texto = texto
+        self.arquivo_bin = arquivo_bin
+        self.matrix = {}
+        self.blocos = []
+        self.estados = [0.3, 0.7]
+        self.rastro = []
+        self.coords = {}
+        self.inicios = []
+        self.frases_originais = []
+        self.memoria_curto_prazo = deque(maxlen=10)
+        self.topicos = defaultdict(list)
+        self.raridade = {}
+        self.pronto = False
+        
+        self.rede = MiniRedeAdam(10, 16, 8)
+        self.gru = GRULayer(input_dim=10, hidden_dim=12, seq_len=5)
+        self.gru2 = GRULayer(input_dim=10, hidden_dim=8, seq_len=3)
+        self.attention = ContextAttention(input_dim=3)
+        self.hierarchical = HierarchicalAttention(input_dim=3)
+        self.spatial_index = SpatialIndex()
+        
+        self.gru_ativo = True
+        self.historico_embeddings = deque(maxlen=5)
+        self.max_tokens = 40
+        self.temperatura = 0.7
+        self.debug = False
+        self.interacoes = 0
+        self.momentum = [0.0, 0.0, 0.0]
+        self.historico_momentum = deque(maxlen=5)
+        self.fator_momentum = 0.4
+        self.fator_suavidade = 0.3
+        self.k_curvatura = 3.0
+        self.limiar_curvatura = 0.6
+        self.gru_treino_counter = 0
+        self.auto_salvar = True
+        self.salvar_intervalo = 5
+        self.last_scale_idx = 0
+
+    def _curar_modulos(self):
+        curados = False
+        for nome, classe, args in [
+            ('gru', GRULayer, (10, 12, 5)),
+            ('gru2', GRULayer, (10, 8, 3)),
+            ('attention', ContextAttention, (3,)),
+            ('hierarchical', HierarchicalAttention, (3,))
+        ]:
+            obj = getattr(self, nome, None)
+            ok = True
+            if not hasattr(obj, 'forward'):
+                ok = False
+            elif hasattr(obj, 'cell') and not hasattr(obj.cell, 'forward'):
+                ok = False
+            if not ok:
+                setattr(self, nome, classe(*args))
+                curados = True
+                if self.debug:
+                    print(f"   ⚠️ [AUTO‑CURA] {nome} regenerado (incluindo célula).")
+        if not hasattr(self.rede, 'forward'):
+            self.rede = MiniRedeAdam(10, 16, 8)
+            curados = True
+            if self.debug:
+                print("   ⚠️ [AUTO‑CURA] rede neural regenerada.")
+        if curados:
+            self.salvar()
+
+    def _salvar_atomico(self):
+        try:
+            dados = {
+                "matrix": self.matrix, "blocos": self.blocos,
+                "estados": self.estados, "rastro": self.rastro,
+                "coords": self.coords, "inicios": self.inicios,
+                "frases_originais": self.frases_originais,
+                "topicos": dict(self.topicos), "raridade": self.raridade,
+                "max_tokens": self.max_tokens, "temperatura": self.temperatura,
+                "interacoes": self.interacoes,
+                "momentum": self.momentum,
+                "historico_momentum": list(self.historico_momentum),
+                "fator_momentum": self.fator_momentum,
+                "fator_suavidade": self.fator_suavidade,
+                "k_curvatura": self.k_curvatura,
+                "limiar_curvatura": self.limiar_curvatura,
+                "gru": self.gru, "gru2": self.gru2, "gru_ativo": self.gru_ativo,
+                "historico_embeddings": list(self.historico_embeddings),
+                "gru_treino_counter": self.gru_treino_counter,
+                "attention": self.attention,
+                "hierarchical": self.hierarchical,
+                "spatial_index": self.spatial_index,
+                "rede": {"W1": self.rede.W1, "b1": self.rede.b1,
+                         "W2": self.rede.W2, "b2": self.rede.b2, "t": self.rede.t}
+            }
+            dir_name = os.path.dirname(os.path.abspath(self.arquivo_bin)) or "."
+            with tempfile.NamedTemporaryFile(mode='wb', dir=dir_name, delete=False, prefix='dlmc_v85_', suffix='.tmp') as tmp:
+                pickle.dump(dados, tmp, protocol=pickle.HIGHEST_PROTOCOL)
+                tmp.flush(); os.fsync(tmp.fileno())
+                tmp_path = tmp.name
+            os.replace(tmp_path, self.arquivo_bin)
+            return True
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar atomicamente: {e}")
+            if 'tmp_path' in locals() and os.path.exists(tmp_path):
+                try: os.unlink(tmp_path)
+                except: pass
+            try:
+                with open(self.arquivo_bin, "wb") as f:
+                    pickle.dump(dados, f, protocol=pickle.HIGHEST_PROTOCOL)
+            except: pass
+            return False
+
+    def salvar(self):
+        ok = self._salvar_atomico()
+        if ok and self.debug: print("   [DEBUG] Cérebro salvo atomicamente.")
+        return ok
+
+    def _embed_palavra(self, token: str):
+        if token not in self.matrix: return [0.0]*10
+        coord = self.coords.get(token, [0,0,0])
+        freq = len(self.matrix[token].get("links", {}))
+        massa = self.matrix[token].get("m", 0)
+        num_nexts = len(self.matrix[token].get("nexts", []))
+        return [
+            coord[0]/100, coord[1]/100, coord[2]/100,
+            math.log1p(freq)/10, massa*10, num_nexts/100,
+            random.random()*0.01,
+            self.estados[0], self.estados[1],
+            len(self.rastro)/100
+        ]
+
+    def _embed_frase(self, tokens):
+        if not tokens: return [0.0]*10
+        embs = [self._embed_palavra(t) for t in tokens]
+        soma = [0.0]*10
+        for e in embs:
+            for i in range(10): soma[i] += e[i]
+        return [v/len(embs) for v in soma]
+
+    def _coords_frase(self, tokens):
+        coords_list = [self.coords[t] for t in tokens if t in self.coords]
+        if not coords_list: return [0.0, 0.0, 0.0]
+        return [sum(c[i] for c in coords_list)/len(coords_list) for i in range(3)]
+
+    def _comportamento_emergente(self, ql):
+        if not self.frases_originais: return ("criativo", 0.0)
+        prompt_3d = self._coords_frase(ql)
+        vizinhos = self.spatial_index.query(prompt_3d, k=min(50, len(self.frases_originais)))
+        if not vizinhos: return ("criativo", 0.0)
+        
+        sims = [cosine_sim(prompt_3d, self._coords_frase(self.frases_originais[i])) for i in vizinhos]
+        sim_max = max(sims) if sims else 0.0
+        sim_med = sum(sims)/len(sims) if sims else 0.0
+        
+        f_dataset = sim_max
+        f_emocional = abs(self.estados[0]-self.estados[1])
+        f_compr = min(1.0, len(ql)/10)
+        f_novidade = 1.0 - sim_med
+        
+        s_linear = f_dataset*0.5 + f_compr*0.3 + (1-f_emocional)*0.2
+        s_criativo = f_novidade*0.4 + f_emocional*0.4 + (1-f_compr)*0.2
+        
+        if self.debug: print(f"   [DEBUG] Linear:{s_linear:.3f} Criativo:{s_criativo:.3f}")
+        return ("linear", sim_max) if s_linear >= s_criativo else ("criativo", f_novidade)
+
+    def _responder_linear(self, ql, sim_max):
+        prompt_3d = self._coords_frase(ql)
+        vizinhos = self.spatial_index.query(prompt_3d, k=min(50, len(self.frases_originais)))
+        
+        if not vizinhos:
+            return self._responder_criativo(ql, 0.5)
+        
+        melhor_frase, confianca = self.hierarchical.forward(prompt_3d, self.spatial_index, self.frases_originais)
+        
+        if not melhor_frase or confianca < 0.1:
+            return self._responder_criativo(ql, 0.5)
+        
+        ini = 0
+        for i, t in enumerate(melhor_frase):
+            if any(p in t for p in ql): ini = i; break
+        
+        trecho = melhor_frase[ini:ini+self.max_tokens]
+        resp = " ".join(trecho)
+        resp = ajustar_pontuacao(resp)
+        return resp[0].upper() + resp[1:] if resp else self._responder_criativo(ql, 0.5)
+
+    def _triangulate(self, gps_signal, periscope_signal):
+        gps_confidence = 0.7 if len(self.historico_embeddings) > 3 else 0.3
+        periscope_confidence = 0.6
+        alpha = gps_confidence / (gps_confidence + periscope_confidence + 1e-8)
+        return [alpha * gps_signal[i] + (1 - alpha) * periscope_confidence * periscope_signal[i] for i in range(8)]
+
+    def _responder_criativo(self, ql, f_novidade):
+        if not self.matrix: return "Preciso de mais dados."
+        emb_prompt = self._embed_frase(ql)
+
+        suj_emb, pred_emb = self.attention.extrair_sujeito_predicado(ql, self.coords, self.raridade)
+
+        if self.gru_ativo and len(self.historico_embeddings) >= 2:
+            seq = list(self.historico_embeddings) + [emb_prompt]
+            pesos_gru1 = self.gru.forward(seq)
+            pesos_gru2 = self.gru2.forward(seq[-3:])
+            pesos_gru = [(pesos_gru1[i] + pesos_gru2[i]) / 2.0 for i in range(8)]
+        else:
+            pesos_gru = [0.5]*8
+
+        pesos_adam = self.rede.forward(emb_prompt)
+
+        pesos_gps = pesos_gru
+        pesos_periscope = pesos_adam
+        pesos = self._triangulate(pesos_gps, pesos_periscope)
+
+        alpha = self.attention.forward(emb_prompt, suj_emb, pred_emb)
+
+        if self.debug:
+            print(f"   [DEBUG] Alpha (Sujeito-Predicado): {alpha:.3f}")
+
+        self.historico_embeddings.append(emb_prompt)
+        w_comprimento, w_palavras_longas, w_pontuacao, w_criatividade, w_estado0, w_estado1, w_coerencia, w_variabilidade = pesos
+
+        target_adam = [min(1.0, len(ql)/20),
+                       sum(1 for t in ql if len(t)>5)/max(1, len(ql)),
+                       sum(1 for t in ql if t==',')/max(1, len(ql)),
+                       0.6, self.estados[0], self.estados[1], 0.7, 0.5]
+        self.rede.backward(target_adam)
+
+        target_alpha = 0.7 if len(self.historico_embeddings) > 3 else 0.3
+        self.attention.backward(alpha, target_alpha, suj_emb, pred_emb)
+
+        self.gru_treino_counter += 1
+        if self.gru_ativo and self.gru_treino_counter % 3 == 0 and len(self.historico_embeddings) >= 2:
+            self.gru.forward(list(self.historico_embeddings))
+            self.gru2.forward(list(self.historico_embeddings)[-3:])
+
+        pos = ['amo','amor','bem','feliz','bom','gosto','lindo','maravilhoso','obrigado']
+        neg = ['odeio','triste','mal','raiva','feio','horrivel','chateado']
+        for t in ql:
+            if any(e in t for e in pos): self.estados[1] = min(1.0, self.estados[1]+0.15)
+            if any(e in t for e in neg): self.estados[0] = min(1.0, self.estados[0]+0.15)
+        self.estados = [s*0.95 for s in self.estados]
+
+        atual = next((t for t in ql if t in self.matrix and self.matrix[t].get("nexts")), None)
+        if not atual and self.inicios: atual = random.choice(self.inicios)
+        if not atual or not self.matrix.get(atual, {}).get("nexts"):
+            candidatas = [k for k in self.matrix if self.matrix[k].get("nexts")]
+            if not candidatas: return "Preciso de mais dados."
+            atual = random.choice(candidatas)
+
+        resultado = []; ultimos = []
+        comprimento_alvo = max(5, min(self.max_tokens, round((w_comprimento or 0.5)*30)))
+        self.momentum = [0.0,0.0,0.0]; self.historico_momentum.clear()
+
+        for _ in range(comprimento_alvo):
+            if atual not in self.matrix or not self.matrix[atual].get("nexts"): break
+            resultado.append(atual); ultimos.append(atual)
+            if len(ultimos) > 8: ultimos.pop(0)
+
+            if atual in self.coords:
+                self.historico_momentum.append(self.coords[atual])
+                if len(self.historico_momentum) >= 2:
+                    pts = list(self.historico_momentum)
+                    vetores = [[pts[i+1][j]-pts[i][j] for j in range(3)] for i in range(len(pts)-1)]
+                    if vetores: self.momentum = [sum(v[i] for v in vetores)/len(vetores) for i in range(3)]
+
+            candidatos = self.matrix[atual]["nexts"]; links = self.matrix[atual]["links"]
+            pesos_cand = []
+            for prox in candidatos:
+                p = links.get(prox, 1)
+                if prox in ultimos: p *= 0.001
+                if not self.matrix.get(prox,{}).get("nexts"): p *= 0.1
+                if prox in ql: p *= (1.5+(w_coerencia or 0.5))
+                if len(prox)>5 and (w_palavras_longas or 0.5)>0.5: p *= 1.5
+                if prox in (',','.') and (w_pontuacao or 0.3)>0.5: p *= 2.0
+                if self.coords.get(prox):
+                    for tp in ql:
+                        if self.coords.get(tp):
+                            sim = (cosine_sim(self.coords[prox],self.coords[tp])+1)/2
+                            p *= (1+sim*(w_variabilidade or 0.5))
+                if len(resultado)%15==14 and prox=='.': p *= 5.0
+                
+                if self.coords.get(atual) and self.coords.get(prox) and any(v!=0 for v in self.momentum):
+                    v_prox = [self.coords[prox][i]-self.coords[atual][i] for i in range(3)]
+                    if any(v!=0 for v in v_prox):
+                        sim_m = cosine_sim(v_prox, self.momentum)
+                        p *= (1.0+sim_m*self.fator_momentum)
+                
+                if len(resultado)>=2 and self.coords.get(atual):
+                    pen = resultado[-2] if len(resultado)>=2 else None
+                    ant = resultado[-3] if len(resultado)>=3 else None
+                    if pen and ant and ant in self.coords and pen in self.coords:
+                        v_ant = [self.coords[pen][i]-self.coords[ant][i] for i in range(3)]
+                        v_prox = [self.coords[atual][i]-self.coords[pen][i] for i in range(3)] if atual in self.coords else None
+                        v_cand = [self.coords[prox][i]-self.coords[atual][i] for i in range(3)] if prox in self.coords else None
+                        if v_prox and v_cand and any(v!=0 for v in v_prox) and any(v!=0 for v in v_cand):
+                            sim_c = cosine_sim(v_prox, v_cand)
+                            pen_c = 1.0/(1.0+math.exp(self.k_curvatura*(sim_c-self.limiar_curvatura)))
+                            p *= (1.0-pen_c*self.fator_suavidade)
+                
+                pesos_cand.append(p)
+
+            if self.temperatura != 1.0 and self.temperatura > 0:
+                pesos_cand = [x**(1.0/max(0.1,self.temperatura)) for x in pesos_cand]
+            soma = sum(pesos_cand)+1e-8; probs = [x/soma for x in pesos_cand]
+            r = random.random(); ac = 0.0; esc = candidatos[0]
+            for j, prob in enumerate(probs):
+                ac += prob
+                if r <= ac: esc = candidatos[j]; break
+            atual = esc
+            if atual=='.' and len(resultado)>=3: break
+
+        if resultado and resultado[-1]=='.': resultado.pop()
+        self.rastro.extend(resultado)
+        if len(self.rastro)>100: self.rastro = self.rastro[-100:]
+
+        if self.auto_salvar and self.interacoes % self.salvar_intervalo == 0:
+            self.salvar()
+
+        resp = " ".join(resultado).replace(" ,",",").replace(" .",".")
+        resp = ajustar_pontuacao(resp)
+        return resp[0].upper()+resp[1:] if resp else "..."
+
+    def pensar(self, prompt: str) -> str:
+        self._curar_modulos()
+        self.interacoes += 1
+        ql = prompt.lower().split()
+        if not ql: return "..."
+        if not self.matrix: return "Preciso de mais dados. Use train:arquivo.txt"
+        self.memoria_curto_prazo.append(("user", ql))
+        estrategia, confianca = self._comportamento_emergente(ql)
+        if self.debug: print(f"   [DEBUG] Estratégia: {estrategia} (conf:{confianca:.3f})")
+        resp = self._responder_linear(ql, confianca) if estrategia=="linear" else self._responder_criativo(ql, confianca)
+        tokens = resp.split()
+        if len(tokens) > self.max_tokens+10:
+            resp = " ".join(tokens[:self.max_tokens])
+            resp = ajustar_pontuacao(resp)
+        return resp
+
+    def inicializar(self):
+        if os.path.exists(self.arquivo_bin):
+            try:
+                with open(self.arquivo_bin, "rb") as f:
+                    saved = pickle.load(f)
+
+                for attr_name, default_factory in [
+                    ('gru', lambda: GRULayer(10, 12, 5)),
+                    ('gru2', lambda: GRULayer(10, 8, 3)),
+                    ('attention', lambda: ContextAttention(3)),
+                    ('hierarchical', lambda: HierarchicalAttention(3)),
+                    ('spatial_index', lambda: SpatialIndex())
+                ]:
+                    val = saved.get(attr_name)
+                    if not isinstance(val, (GRULayer, GRUCell, ContextAttention, HierarchicalAttention, SpatialIndex)):
+                        saved[attr_name] = default_factory()
+                        print(f"   ⚠️ {attr_name} corrompido. Recriado com valores padrão.")
+
+                for k, v in saved.items():
+                    if hasattr(self, k):
+                        setattr(self, k, v)
+
+                if len(self.matrix) < 100:
+                    self.gru_ativo = False
+                    print("   ⚠️ Dataset pequeno (<100 palavras). GRU desativada automaticamente.")
+
+                if not self.inicios:
+                    self.inicios = [k for k in self.matrix if self.matrix[k].get("nexts")]
+
+                print(f"🧠 Cérebro V85 carregado. Palavras: {len(self.matrix)} | Frases: {len(self.frases_originais)}")
+                print(f"   Índice Espacial: {len(self.spatial_index.frases_3d)} pontos")
+                print(f"   GRUx2: {'Ativa' if self.gru_ativo else 'Inativa'} | Atenção Hierárquica ativa")
+                self.pronto = True
+                return
+            except Exception as e:
+                print(f"⚠️ Erro ao carregar cérebro: {e}")
+                print("   Iniciando com cérebro vazio...")
+
+        if not self.texto.strip():
+            print("⚠️ Nenhum texto. Cérebro vazio.")
+            self.pronto = True
+            return
+
+        self._processar_dataset()
+
+    def _processar_dataset(self):
+        print("🔄 Processando dataset (V85 – Deep Sea Navigation)...")
+        frases_raw = [f.strip() for f in self.texto.replace("!",".").replace("?",".").replace(";",".").split(".") if len(f.strip())>0]
+        frases = []
+        for f in frases_raw:
+            tokens = f.split()
+            if len(tokens)>40:
+                for i in range(0,len(tokens),40):
+                    sub = tokens[i:i+40]
+                    if len(sub)>=2: frases.append(" ".join(sub))
+            else: frases.append(f)
+
+        todas_frases = []; all_tokens = []
+        for frase in frases:
+            tokens = frase.lower().replace(","," , ").split()
+            if len(tokens)>=2:
+                self.inicios.append(tokens[0])
+                all_tokens.extend(tokens); all_tokens.append(".")
+                todas_frases.append(tokens); self.frases_originais.append(tokens)
+                for t in tokens: self.topicos[t].append(len(self.frases_originais)-1)
+
+        if not self.inicios and all_tokens: self.inicios = list(set(t for t in all_tokens if t!="."))
+        for t in all_tokens: self.raridade[t] = self.raridade.get(t,0) + 1
+
+        temp_coords = defaultdict(list)
+        for i in range(0,len(all_tokens),256):
+            bloco = all_tokens[i:i+256]
+            if not bloco: continue
+            h = sha256(" ".join(bloco))
+            xyz = [(int(h[0:4],16)%200)-100,(int(h[4:8],16)%200)-100,(int(h[8:12],16)%200)-100]
+            self.blocos.append({"xyz":xyz,"txt":bloco})
+            for t in bloco: temp_coords[t].append(xyz)
+        for t, lista in temp_coords.items():
+            xs=[p[0] for p in lista]; ys=[p[1] for p in lista]; zs=[p[2] for p in lista]
+            self.coords[t] = [sum(xs)/len(lista),sum(ys)/len(lista),sum(zs)/len(lista)]
+
+        freq = {}
+        for t in all_tokens: freq[t] = freq.get(t,0)+1
+        for t, f in freq.items(): self.matrix[t] = {"m":1.5/(f+1e-5),"links":{},"nexts":[]}
+
+        for i in range(len(all_tokens)-1):
+            a,b = all_tokens[i],all_tokens[i+1]
+            if a not in self.matrix or b not in self.matrix: continue
+            peso_base = 1
+            if i>=2 and self.fator_suavidade>0:
+                a_ant = all_tokens[i-2] if i-2>=0 else None
+                b_ant = all_tokens[i-1]
+                if a_ant and a_ant in self.coords and b_ant in self.coords and a in self.coords and b in self.coords:
+                    v_ant = [self.coords[b_ant][k]-self.coords[a_ant][k] for k in range(3)]
+                    v_atual = [self.coords[a][k]-self.coords[b_ant][k] for k in range(3)]
+                    v_prox = [self.coords[b][k]-self.coords[a][k] for k in range(3)]
+                    if any(v!=0 for v in v_ant) and any(v!=0 for v in v_atual) and any(v!=0 for v in v_prox):
+                        sim_c = cosine_sim(v_atual,v_prox)
+                        pen = 1.0/(1.0+math.exp(self.k_curvatura*(sim_c-self.limiar_curvatura)))
+                        peso_base *= (1.0-pen*self.fator_suavidade)
+            self.matrix[a]["links"][b] = self.matrix[a]["links"].get(b,0)+peso_base
+            if b not in self.matrix[a]["nexts"]: self.matrix[a]["nexts"].append(b)
+
+        print("⚙️ Construindo índice espacial (GPS)...")
+        t0 = time.time()
+        self.spatial_index.build(self.frases_originais, self._coords_frase)
+        print(f"   Índice construído em {time.time()-t0:.2f}s com {len(self.frases_originais)} pontos.")
+
+        print("⚙️ Treinando redes neurais (Adam + GRUx2 + Atenção Hierárquica)...")
+        t0 = time.time()
+        num_treino = min(len(todas_frases) or len(all_tokens),500)
+        for i in range(min(50,len(todas_frases))):
+            self.historico_embeddings.append(self._embed_frase(todas_frases[i]))
+        for _ in range(5):
+            for i in range(num_treino):
+                frase = todas_frases[i%max(1,len(todas_frases))] if todas_frases else [all_tokens[i%len(all_tokens)]]
+                if len(frase)<1: continue
+                emb = self._embed_frase(frase)
+                self.rede.forward(emb)
+                target = [min(1.0,len(frase)/20),
+                          sum(1 for t in frase if len(t)>5)/max(1,len(frase)),
+                          sum(1 for t in frase if t in (',','.'))/max(1,len(frase)),
+                          0.5+random.random()*0.3,self.estados[0],self.estados[1],0.5,0.5]
+                self.rede.backward(target)
+                if self.gru_ativo and len(self.historico_embeddings)>=2:
+                    self.gru.forward(list(self.historico_embeddings))
+                    self.gru2.forward(list(self.historico_embeddings)[-3:])
+
+        if len(self.matrix) < 100:
+            self.gru_ativo = False
+            print("   ⚠️ Dataset pequeno (<100 palavras). GRU desativada automaticamente.")
+
+        print(f"✅ Treino em {time.time()-t0:.2f}s.")
+        print(f"✅ Motor V85 pronto! Palavras: {len(self.matrix)} | Frases: {len(self.frases_originais)}")
+        print(f"   Escalável para bilhões de tokens com índice espacial O(log n)")
+        self.pronto = True
+        self.salvar()
+
+    def treino_consolidacao(self):
+        if not self.frases_originais: return
+        print("⚙️ Consolidando...")
+        t0=time.time()
+        num_treino=min(len(self.frases_originais),200)
+        for _ in range(3):
+            for i in range(num_treino):
+                frase=self.frases_originais[i%len(self.frases_originais)]
+                if len(frase)<2: continue
+                emb=self._embed_frase(frase)
+                self.rede.forward(emb)
+                target=[min(1.0,len(frase)/20),
+                        sum(1 for t in frase if len(t)>5)/max(1,len(frase)),
+                        sum(1 for t in frase if t in (',','.'))/max(1,len(frase)),
+                        0.5+random.random()*0.3,self.estados[0],self.estados[1],0.5,0.5]
+                self.rede.backward(target)
+                if self.gru_ativo and len(self.historico_embeddings)>=2:
+                    self.gru.forward(list(self.historico_embeddings))
+                    self.gru2.forward(list(self.historico_embeddings)[-3:])
+        print(f"✅ Consolidação em {time.time()-t0:.2f}s.")
+        self.salvar()
+
+
+# ================================================================
+# MÓDULOS DSML – ÁREAS 2.8 a 9
+# ================================================================
+
+class KernelRessonante:
+    @staticmethod
+    def normalize(d):
+        s = sum(abs(x) for x in d.values()) + 1e-9
+        return {k: v/s for k, v in d.items()}
+    @staticmethod
+    def dot(d1, d2):
+        keys = set(d1.keys()) & set(d2.keys())
+        return sum(d1[k]*d2[k] for k in keys)
 
 class NormalizadorSomático:
     @staticmethod
     def limpar(texto):
-        if not texto: return ""
-        texto = texto.lower()
-        texto = ''.join(c for c in unicodedata.normalize('NFD', texto) if unicodedata.category(c) != 'Mn')
-        return re.sub(r'[^a-z0-9!?.\s]', '', texto).strip()
+        return re.sub(r'[^a-z0-9\s]', '', texto.lower())
 
-class KernelRessonante:
-    @staticmethod
-    def get_vetor_esparso(token, dims=5000, sparsity=100):
-        seed = int(hashlib.sha256(token.encode()).hexdigest(), 16)
-        rng = random.Random(seed)
-        return {i: rng.gauss(0, 1) for i in rng.sample(range(dims), sparsity)}
-
-    @staticmethod
-    def tsallis_match(v1, v2, q=0.8):
-        keys = v1.keys() & v2.keys()
-        if not keys: return 0.0
-        sum_pq = sum((abs(v1[k] * v2[k]))**q for k in keys)
-        return (1.0 - sum_pq) / (q - 1.0 + 1e-9)
+class HarvesterSemantico:
+    def __init__(self):
+        self.pesos = {
+            0: [random.uniform(-0.1, 0.1) for _ in range(4)],
+            1: [random.uniform(-0.1, 0.1) for _ in range(4)],
+            2: [random.uniform(-0.1, 0.1) for _ in range(4)],
+            3: [-0.6, -0.1, 0.2, 2.5]
+        }
+        self.bias = {0: 0.5, 1: 0.1, 2: -0.3, 3: -0.5}
 
     @staticmethod
-    def dot(v1, v2):
-        keys = v1.keys() & v2.keys()
-        return sum(v1[k] * v2[k] for k in keys) if keys else 0.0
+    def extrair_nome_usuario(texto_raw):
+        # Aceita "meu nome é X", "me chamo X", "sou o X", "sou a X", "sou X"
+        nome_match = re.search(r'\b(?:meu nome [ée]|me chamo|sou(?: o| a)?)\s+([a-zA-ZÀ-ÿ]+)', texto_raw.lower())
+        if nome_match:
+            return nome_match.group(1).strip()
+        # Fallback: se a entrada for só uma palavra, assume como nome
+        palavras = texto_raw.strip().split()
+        if len(palavras) == 1 and palavras[0].isalpha() and len(palavras[0]) > 1:
+            return palavras[0]
+        return None
 
-    @staticmethod
-    def normalize(v):
-        norm = math.sqrt(sum(x*x for x in v.values()))
-        if norm < 1e-9: return {}
-        return {d: val / norm for d, val in v.items()}
+    def _analisar_metadado_emocional(self, prompt):
+        gatilhos_confusao = [
+            "confusa", "confuso", "duvida", "nao sei", "perdi",
+            "ajuda", "socorro", "errado", "bug", "vazio", "sem dados", "qual caminho"
+        ]
+        t_bruto = prompt.lower()
+        pontuacao = sum(2.0 for g in gatilhos_confusao if g in t_bruto)
+        if "?" in t_bruto: pontuacao += 1.0
+        if len(t_bruto.split()) < 4 and pontuacao > 0: pontuacao += 1.5
+        return 1.0 / (1.0 + math.exp(-pontuacao + 2.0))
 
-# ==================================================================
-# 🧠 [ÁREA 2: NEURAL ATTENTION CONTROLLER - NAC (ADAM NATIVO)]
-# ==================================================================
-class NeuralAttentionController:
-    def __init__(self, input_dim=5, hidden_dim=12, output_dim=8, lr=0.01):
-        self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
-        self.output_dim = output_dim
-        self.lr = lr
+    def _extrair_estado_expandido(self, prompt, organismo):
+        tokens = re.findall(r'[a-z0-9]+', NormalizadorSomático.limpar(prompt))
+        foco = [t for t in tokens if t in organismo.matrix]
         
-        # Inicialização Xavier
-        scale1 = math.sqrt(2.0 / input_dim)
-        self.W1 = [[random.gauss(0.0, 1.0) * scale1 for _ in range(hidden_dim)] for _ in range(input_dim)]
-        self.b1 = [0.0] * hidden_dim
+        def _entropy(t):
+            freq = organismo.raridade.get(t, 1)
+            return -math.log2(freq / max(1, sum(organismo.raridade.values())))
+        x0 = sum(_entropy(t) for t in foco) / (len(foco) + 1e-9) if foco else 0.0
+        x0 = min(1.0, x0 / 10.0)
         
-        scale2 = math.sqrt(2.0 / hidden_dim)
-        self.W2 = [[random.gauss(0.0, 1.0) * scale2 for _ in range(output_dim)] for _ in range(hidden_dim)]
-        self.b2 = [0.0] * output_dim
+        counts = Counter(prompt)
+        probs = [c / len(prompt) for c in counts.values()] if prompt else [0.0]
+        ent_score = -sum(p * math.log2(p) for p in probs)
+        x1 = min(ent_score / 5.0, 1.0)
         
-        self.beta1 = 0.9
-        self.beta2 = 0.999
-        self.eps = 1e-8
-        self.t = 0
+        sujeitos = set()
+        for t in foco:
+            if t in organismo.topicos:
+                sujeitos.update(organismo.topicos[t])
+        x2 = min(len(sujeitos) / 6.0, 1.0)
         
-        self.m_W1 = [[0.0] * hidden_dim for _ in range(input_dim)]
-        self.v_W1 = [[0.0] * hidden_dim for _ in range(input_dim)]
-        self.m_b1 = [0.0] * hidden_dim
-        self.v_b1 = [0.0] * hidden_dim
+        x3 = self._analisar_metadado_emocional(prompt)
         
-        self.m_W2 = [[0.0] * output_dim for _ in range(hidden_dim)]
-        self.v_W2 = [[0.0] * output_dim for _ in range(hidden_dim)]
-        self.m_b2 = [0.0] * output_dim
-        self.v_b2 = [0.0] * output_dim
+        return [x0, x1, x2, x3], x2, x3
 
-    def forward(self, x):
-        self.x = list(x) # Input vector de tamanho 5
-        
-        # Camada Oculta: h = ReLU(x * W1 + b1)
-        self.h = []
-        for j in range(self.hidden_dim):
-            col_val = sum(self.x[i] * self.W1[i][j] for i in range(self.input_dim)) + self.b1[j]
-            self.h.append(max(0.0, col_val))
-            
-        # Camada de Saída: out = Softplus(h * W2 + b2)
-        self.out_raw = []
-        for j in range(self.output_dim):
-            col_val = sum(self.h[i] * self.W2[i][j] for i in range(self.hidden_dim)) + self.b2[j]
-            self.out_raw.append(col_val)
-            
-        self.out = [softplus_fn(val) for val in self.out_raw]
-        return self.out
+    def triagem_metabolica(self, prompt, organismo):
+        x, colisao_var, incerteza = self._extrair_estado_expandido(prompt, organismo)
+        ativacoes = {}
+        for caixa in [0, 1, 2, 3]:
+            z = sum(x[i] * self.pesos[caixa][i] for i in range(4)) + self.bias[caixa]
+            ativacoes[caixa] = z
+        caixa_eleita = max(ativacoes, key=ativacoes.get)
+        if organismo.debug:
+            print(f"⚡ [PERCEPTRON] Incerteza:{incerteza*100:.1f}% | Colisão:{colisao_var*100:.1f}% | Caixa:{caixa_eleita}")
+        return caixa_eleita, colisao_var, incerteza
 
-    def backward(self, d_out):
-        # Gradientes de saída ativada
-        sigmoid_raw = [1.0 / (1.0 + math.exp(-clip(val, -20.0, 20.0))) for val in self.out_raw]
-        d_out_raw = [do * sr for do, sr in zip(d_out, sigmoid_raw)]
-        
-        # dW2 (hidden_dim x output_dim), db2 (output_dim)
-        dW2 = [[self.h[i] * d_out_raw[j] for j in range(self.output_dim)] for i in range(self.hidden_dim)]
-        db2 = list(d_out_raw)
-        
-        # dh = d_out_raw * W2.T
-        dh = []
-        for i in range(self.hidden_dim):
-            if self.h[i] <= 0.0:
-                dh.append(0.0)
-            else:
-                val = sum(d_out_raw[j] * self.W2[i][j] for j in range(self.output_dim))
-                dh.append(val)
-                
-        # dW1 (input_dim x hidden_dim), db1 (hidden_dim)
-        dW1 = [[self.x[i] * dh[j] for j in range(self.hidden_dim)] for i in range(self.input_dim)]
-        db1 = list(dh)
-        
-        self.t += 1
-        c_b1 = 1.0 - self.beta1 ** self.t
-        c_b2 = 1.0 - self.beta2 ** self.t
-        
-        # Otimizador Adam Dinâmico
-        def update_2d(param, grad, m, v):
-            for i in range(len(param)):
-                for j in range(len(param[i])):
-                    g = grad[i][j]
-                    m[i][j] = self.beta1 * m[i][j] + (1.0 - self.beta1) * g
-                    v[i][j] = self.beta2 * v[i][j] + (1.0 - self.beta2) * (g ** 2)
-                    m_hat = m[i][j] / c_b1
-                    v_hat = v[i][j] / c_b2
-                    param[i][j] -= self.lr * m_hat / (math.sqrt(abs(v_hat)) + self.eps)
-                    
-        def update_1d(param, grad, m, v):
-            for i in range(len(param)):
-                g = grad[i]
-                m[i] = self.beta1 * m[i] + (1.0 - self.beta1) * g
-                v[i] = self.beta2 * v[i] + (1.0 - self.beta2) * (g ** 2)
-                m_hat = m[i] / c_b1
-                v_hat = v[i] / c_b2
-                param[i] -= self.lr * m_hat / (math.sqrt(abs(v_hat)) + self.eps)
-
-        update_2d(self.W1, dW1, self.m_W1, self.v_W1)
-        update_1d(self.b1, db1, self.m_b1, self.v_b1)
-        update_2d(self.W2, dW2, self.m_W2, self.v_W2)
-        update_1d(self.b2, db2, self.m_b2, self.v_b2)
-
-# ==================================================================
-# 📡 [ÁREA 3: CNN 1D DE COERÊNCIA SINTÁTICA GEOMÉTRICA]
-# ==================================================================
-class CoherenceCNN1D:
-    def __init__(self, sequence_length=15, embedding_dim=3):
-        self.seq_len = sequence_length
-        self.emb_dim = embedding_dim
-        self.num_filters = 16 
-        self.filter_width = 3
-        
-        scale1 = math.sqrt(2.0 / (self.filter_width * embedding_dim))
-        self.W_conv = [[[random.gauss(0.0, 1.0) * scale1 for _ in range(self.num_filters)] for _ in range(embedding_dim)] for _ in range(self.filter_width)]
-        self.b_conv = [0.0] * self.num_filters
-        
-        scale2 = math.sqrt(2.0 / self.num_filters)
-        self.W_dense = [random.gauss(0.0, 1.0) * scale2 for _ in range(self.num_filters)]
-        self.b_dense = 0.0
-
-    def forward(self, sentence_coords):
-        X = list(sentence_coords)
-        if len(X) < self.seq_len:
-            X = X + [[0.0, 0.0, 0.0]] * (self.seq_len - len(X))
-        else:
-            X = X[:self.seq_len]
-        self.X = X
-        
-        conv_out_len = self.seq_len - self.filter_width + 1
-        self.conv_features = []
-        
-        for i in range(conv_out_len):
-            feature_row = []
-            window = X[i:i+self.filter_width]
-            for f in range(self.num_filters):
-                val = sum(window[r][c] * self.W_conv[r][c][f] for r in range(self.filter_width) for c in range(self.emb_dim))
-                val += self.b_conv[f]
-                feature_row.append(val)
-            self.conv_features.append(feature_row)
-            
-        # ReLu
-        self.conv_activated = [[max(0.0, val) for val in row] for row in self.conv_features]
-        
-        # Max Pooling
-        self.pooled = []
-        self.pool_indices = []
-        for f in range(self.num_filters):
-            max_val = -float('inf')
-            max_idx = 0
-            for i in range(conv_out_len):
-                if self.conv_activated[i][f] > max_val:
-                    max_val = self.conv_activated[i][f]
-                    max_idx = i
-            self.pooled.append(max_val)
-            self.pool_indices.append(max_idx)
-            
-        logits = sum(self.pooled[f] * self.W_dense[f] for f in range(self.num_filters)) + self.b_dense
-        self.score = sigmoid_fn(logits)
-        return self.score
-
-    def backward_step(self, target, lr=0.01):
-        d_logits = self.score - target
-        
-        dW_dense = [self.pooled[f] * d_logits for f in range(self.num_filters)]
-        db_dense = d_logits
-        
-        d_pooled = [d_logits * self.W_dense[f] for f in range(self.num_filters)]
-        
-        # Atualização pesos do Dense
-        for f in range(self.num_filters):
-            self.W_dense[f] -= lr * dW_dense[f]
-        self.b_dense -= lr * db_dense
-        
-        # Atualização pesos do Conv
-        for f in range(self.num_filters):
-            idx_max = self.pool_indices[f]
-            if self.conv_features[idx_max][f] > 0.0:
-                d_val = d_pooled[f]
-                self.b_conv[f] -= lr * d_val
-                for r in range(self.filter_width):
-                    for c in range(self.emb_dim):
-                        self.W_conv[r][c][f] -= lr * self.X[idx_max + r][c] * d_val
-
-# ==================================================================
-# ⚖️ [ÁREA 4: FILTRO DE INTEGRIDADE CONTEXTUAL (ACCEPTY)]
-# ==================================================================
-class Accepty:
-    def __init__(self, threshold=0.20):
-        self.threshold = threshold
-
-    def extrair_sujeito_predicado(self, tokens):
-        if len(tokens) <= 1:
-            return tokens, tokens
-        meio = max(1, len(tokens) // 2)
-        return tokens[:meio], tokens[meio:]
-
-    def calcular_vetor_medio(self, tokens, coordenadas_palavras):
-        coords = [coordenadas_palavras[t] for t in tokens if t in coordenadas_palavras]
-        if not coords:
-            return [0.0, 0.0, 0.0]
-        n = len(coords)
-        return [sum(c[0] for c in coords)/n, sum(c[1] for c in coords)/n, sum(c[2] for c in coords)/n]
-
-    def similaridade_cosseno(self, v1, v2):
-        n1 = math.sqrt(sum(x*x for x in v1))
-        n2 = math.sqrt(sum(x*x for x in v2))
-        if n1 == 0.0 or n2 == 0.0: 
-            return 0.0
-        return sum(a*b for a, b in zip(v1, v2)) / (n1 * n2)
-
-    def avaliar(self, prompt_tokens, cand_tokens, coordenadas_palavras):
-        p_suj, p_pred = self.extrair_sujeito_predicado(prompt_tokens)
-        c_suj, c_pred = self.extrair_sujeito_predicado(cand_tokens)
-
-        vec_p_suj = self.calcular_vetor_medio(p_suj, coordenadas_palavras)
-        vec_p_pred = self.calcular_vetor_medio(p_pred, coordenadas_palavras)
-        vec_c_suj = self.calcular_vetor_medio(c_suj, coordenadas_palavras)
-        vec_c_pred = self.calcular_vetor_medio(c_pred, coordenadas_palavras)
-
-        sim_sujeito = self.similaridade_cosseno(vec_p_suj, vec_c_suj)
-        sim_predicado = self.similaridade_cosseno(vec_p_pred, vec_c_pred)
-
-        passou = (sim_sujeito >= self.threshold) and (sim_predicado >= self.threshold)
-        score_integridade = ((sim_sujeito + 1.0) / 2.0) * ((sim_predicado + 1.0) / 2.0)
-
-        return passou, score_integridade
-
-# ==================================================================
-# 👥 [ÁREA 5: TEORIA DA MENTE, MEMÓRIA DE TRABALHO & DRIVES]
-# ==================================================================
 class TeoriaDaMente:
     def __init__(self):
         self.estimativa_humor = {"confiança": 0.5, "agressividade": 0.1, "atenção": 1.0}
@@ -355,9 +982,6 @@ class DriveSomático:
         for eixo in self.eixos:
             self.eixos[eixo] = max(0.1, self.eixos[eixo] - 0.01)
 
-# ==================================================================
-# 🧠 [ÁREA 6: SISTEMA NERVOSO CENTRAL & CÓRTEX COGNITIVO (DIVERGÊNCIA KL)]
-# ==================================================================
 class CortexCognitivo:
     def __init__(self, limite_confusao=0.35):
         self.limite_confusao = limite_confusao
@@ -378,16 +1002,13 @@ class SistemaNervosoCentral:
     def __init__(self, n_in=6, n_hid=10, n_out=3, path="sistema_nervoso.bin"):
         self.path, self.n_in, self.n_hid, self.n_out = path, n_in, n_hid, n_out
         self.t, self.lr = 0, 0.005
-        
         self.W_h = [[random.uniform(-0.1, 0.1) for _ in range(n_in + n_hid)] for _ in range(n_hid)]
         self.W_y = [[random.uniform(-0.1, 0.1) for _ in range(n_hid)] for _ in range(n_out)]
         self.B_h, self.B_y = [0.0]*n_hid, [0.0]*n_out
-        
         self.adam_M_Wh = [[0.0]*(n_in+n_hid) for _ in range(n_hid)]
         self.adam_V_Wh = [[0.0]*(n_in+n_hid) for _ in range(n_hid)]
         self.adam_M_Wy = [[0.0]*n_hid for _ in range(n_out)]
         self.adam_V_Wy = [[0.0]*n_hid for _ in range(n_out)]
-        
         self.q_table = defaultdict(lambda: [0.0] * n_out)
         self.gamma = 0.85
         self.alpha_q = 0.15
@@ -407,7 +1028,10 @@ class SistemaNervosoCentral:
         return y
 
     def obter_hash_estado(self, modo_anterior, vm, dkl, impacto):
-        return f"m:{modo_anterior}|v:{int(vm / 5.0)}|d:{int(dkl * 10.0)}|i:{int(impacto * 10.0)}"
+        b_vm = "L" if vm < -75.0 else ("H" if vm > -55.0 else "M")
+        b_dkl = "L" if dkl < 0.2 else ("H" if dkl > 0.6 else "M")
+        b_imp = "L" if impacto < 0.3 else "H"
+        return f"m:{modo_anterior}|v:{b_vm}|d:{b_dkl}|i:{b_imp}"
 
     def aplicar_recompensa_td(self, estado_str, acao_idx, recompensa, proximo_estado_str):
         max_q_futuro = max(self.q_table[proximo_estado_str])
@@ -438,920 +1062,969 @@ class SistemaNervosoCentral:
         except: pass
 
     def _carregar(self):
-        try:
-            with open(self.path, 'rb') as f:
-                d = pickle.load(f); self.W_h, self.W_y, self.B_h, self.B_y, self.t = d['Wh'], d['Wy'], d['Bh'], d['By'], d['t']
-                self.adam_M_Wh, self.adam_V_Wh, self.adam_M_Wy, self.adam_V_Wy = d['MWh'], d['VWh'], d['MWy'], d['VWy']
-                self.estado_anterior = d['ea']
-                if 'q_table' in d:
-                    self.q_table = defaultdict(lambda: [0.0]*self.n_out, d['q_table'])
-        except Exception as e:
-            # Auto-cura preventiva contra arquivos vazios ou corrompidos do SNC
-            print(f"⚠️ [AVISO] Falha ao carregar sistema_nervoso.bin ({e}). Reiniciando SNC com pesos padrão.")
+        with open(self.path, 'rb') as f:
+            d = pickle.load(f); self.W_h, self.W_y, self.B_h, self.B_y, self.t = d['Wh'], d['Wy'], d['Bh'], d['By'], d['t']
+            self.adam_M_Wh, self.adam_V_Wh, self.adam_M_Wy, self.adam_V_Wy = d['MWh'], d['VWh'], d['MWy'], d['VWy']
+            self.estado_anterior = d['ea']
+            if 'q_table' in d:
+                self.q_table = defaultdict(lambda: [0.0]*self.n_out, d['q_table'])
 
-# ==================================================================
-# 🩹 [ÁREA 7: ATROZIA, DELONG, ANOMINI & PLASTICIDADE GRU]
-# ==================================================================
-class Anomini:
-    def __init__(self):
+class ReguladorHomeostatico:
+    def __init__(self, limiar_repeticao=4, janela_delong=5, cap_cache=6):
         self.dor = {"intensidade": 0.0, "contexto": "Sistema estável."}
         self.saudade = {"intensidade": 0.0, "contexto": "Presença conceitual estável."}
-        self.cache_otimizacao = deque(maxlen=6)
+        self.cache_otimizacao = deque(maxlen=cap_cache)
+        self.historico_absoluto = set()
+        self.last_v_vencedor = {}
+        self.loop_detector = deque(maxlen=3)
+        self.damping = 1.0
+        self.limiar_delong = limiar_repeticao
+        self.janela_delong = deque(maxlen=janela_delong)
+        self.estado_delong = "normal"
 
-    def atualizar_estados(self, dkl_atual, confianca_tom, dt):
+    def atualizar_dor_e_saudade(self, dkl_atual, confianca_tom, dt):
         self.cache_otimizacao.append(dkl_atual)
         if len(self.cache_otimizacao) >= 4:
             if (self.cache_otimizacao[-1] >= self.cache_otimizacao[-2] - 1e-5 and 
                 self.cache_otimizacao[-2] >= self.cache_otimizacao[-3] - 1e-5 and
                 self.cache_otimizacao[-3] >= self.cache_otimizacao[-4] - 1e-5):
-                self.dor["intensidade"] = min(5.0, self.dor["intensidade"] + 0.45) 
-                self.dor["contexto"] = "Fricção semântica: incapacidade contínua de reduzir DKL."
+                self.dor["intensidade"] = min(5.0, self.dor["intensidade"] + 0.20) 
+                self.dor["contexto"] = "Incapacidade contínua de reduzir DKL (fricção matemática)."
             else:
-                self.dor["intensidade"] = max(0.0, self.dor["intensidade"] - 0.5) 
+                self.dor["intensidade"] = max(0.0, self.dor["intensidade"] - 0.4) 
                 self.dor["contexto"] = "SNC otimizando entropia com sucesso."
                 
         distancia_alinhamento = 1.0 - confianca_tom
         gravidade_temporal = 1.0 - math.exp(-dt / 90.0)
         self.saudade["intensidade"] = min(5.0, self.saudade["intensidade"] * 0.9 + (distancia_alinhamento * 0.5) + (gravidade_temporal * 0.5))
 
-class Atrozia:
-    def __init__(self):
-        self.historico_absoluto = deque(maxlen=200) # Deque limita o consumo de RAM e previne o vazamento infinito
-        self.last_v_vencedor = {}
-        self.loop_detector = deque(maxlen=3)
-        self.damping = 1.0
-
-    def amortecer_loop(self, v_in):
+    def amortecer_loop_somatico(self, v_in):
         if not self.last_v_vencedor: return 1.0
         sim = sum(v_in.get(k,0) * self.last_v_vencedor.get(k,0) for k in (v_in.keys() & self.last_v_vencedor.keys()))
         self.loop_detector.append(sim)
         self.damping = 0.4 if (sum(self.loop_detector)/len(self.loop_detector)) > 0.75 else 1.0
         return self.damping
 
-    def calcular_sinergia(self, v_cand):
-        if not self.last_v_vencedor: return 0.5
-        return KernelRessonante.dot(self.last_v_vencedor, v_cand)
-
-class Delong:
-    def __init__(self, limiar_repeticao=4, janela=5):
-        self.limiar = limiar_repeticao
-        self.janela = deque(maxlen=janela)
-        self.estado = "normal"  
-
-    def monitorar(self, u_toks):
+    def monitorar_e_interceptar_repeticao(self, u_toks):
         if u_toks:
             padrao = " ".join(u_toks)
-            self.janela.append(padrao)
-        if len(self.janela) == self.janela.maxlen:
-            if all(item == self.janela[0] for item in self.janela):
-                self.estado = "questionando"
+            self.janela_delong.append(padrao)
+        if len(self.janela_delong) == self.janela_delong.maxlen:
+            primeiro = self.janela_delong[0]
+            if all(item == primeiro for item in self.janela_delong):
+                self.estado_delong = "questionando"
                 return True
-        self.estado = "normal"
+        self.estado_delong = "normal"
         return False
 
-    def gerar_pergunta(self):
-        ultimo_token = self.janela[-1] if self.janela else "isso"
-        return f"Você está repetindo constantemente '{ultimo_token}'. Qual o seu objetivo? Não entendo por que fala tanto sobre isso."
+    def gerar_pergunta_defensiva(self):
+        ultimo_token = self.janela_delong[-1] if self.janela_delong else "isso"
+        return f"Você está repetindo constantemente '{ultimo_token}'. Qual o seu objetivo? Não entendo por que fala tanto sobre isso de forma cíclica."
 
-class Plasticidade:
-    def __init__(self, n_in=6, n_hid=6):
-        self.n_in, self.n_hid, self.lr_local = n_in, n_hid, 0.05
-        self.W_z = [[random.uniform(-0.1, 0.1) for _ in range(n_in)] for _ in range(n_hid)]
-        self.U_z = [[random.uniform(-0.1, 0.1) for _ in range(n_hid)] for _ in range(n_hid)]
-        self.W_r = [[random.uniform(-0.1, 0.1) for _ in range(n_in)] for _ in range(n_hid)]
-        self.U_r = [[random.uniform(-0.1, 0.1) for _ in range(n_hid)] for _ in range(n_hid)]
-        self.W_h = [[random.uniform(-0.1, 0.1) for _ in range(n_in)] for _ in range(n_hid)]
-        self.U_h = [[random.uniform(-0.1, 0.1) for _ in range(n_hid)] for _ in range(n_hid)]
-        self.h = [0.0] * n_hid
-        self.janela_contexto = deque(maxlen=8)
-        self.utilidade_sinaptica = defaultdict(float)
-        self.ultimo_uso_token = defaultdict(int)
+class RedeAtivacaoSuave:
+    def __init__(self, n_in=6, n_hid=8, n_out=4):
+        self.W = [[random.uniform(-0.1, 0.1) for _ in range(n_in)] for _ in range(n_hid)]
+        self.U = [[random.uniform(-0.1, 0.1) for _ in range(n_hid)] for _ in range(n_out)]
 
-    def _sigmoid(self, x): return 1.0 / (1.0 + math.exp(-max(-15, min(15, x))))
-    def _tanh(self, x): return math.tanh(max(-15, min(15, x)))
+    def forward(self, x):
+        h = [math.tanh(sum(x[j] * self.W[i][j] for j in range(len(x)))) for i in range(len(self.W))]
+        y = [math.tanh(sum(h[j] * self.U[i][j] for j in range(len(h)))) for i in range(len(self.U))]
+        return y
 
-    def processar_sentido_conversa(self, x_soma):
-        self.janela_contexto.append(x_soma)
-        self.h = [0.0] * self.n_hid
-        for x in self.janela_contexto:
-            z = [self._sigmoid(sum(self.W_z[i][j]*x[j] for j in range(self.n_in)) + sum(self.U_z[i][j]*self.h[j] for j in range(self.n_hid))) for i in range(self.n_hid)]
-            r = [self._sigmoid(sum(self.W_r[i][j]*x[j] for j in range(self.n_in)) + sum(self.U_r[i][j]*self.h[j] for j in range(self.n_hid))) for i in range(self.n_hid)]
-            h_til = [self._tanh(sum(self.W_h[i][j]*x[j] for j in range(self.n_in)) + sum(self.U_h[i][j]*(r[j]*self.h[j]) for j in range(self.n_hid))) for i in range(self.n_hid)]
-            self.h = [(1.0 - z[i])*self.h[i] + z[i]*h_til[i] for i in range(self.n_hid)]
-        return self.h
+class RedeAjustePadrao:
+    def __init__(self, n_in=4, n_out=4):
+        self.W = [[random.uniform(-0.05, 0.05) for _ in range(n_in)] for _ in range(n_out)]
 
-    # ==================================================================
-    # 🔮 ANTECIPAÇÃO CONTEXTUAL (PREDICTIVE CODING)
-    # ==================================================================
-    def prever_antecipacao(self):
-        """
-        Projeta o estado oculto atual (h) um passo à frente no tempo para prever
-        o próximo perfil de drives somáticos, sem alterar a janela de contexto real.
-        """
-        if not self.janela_contexto:
-            return [0.0] * self.n_hid
-        x_ultimo = self.janela_contexto[-1]
-        z = [self._sigmoid(sum(self.W_z[i][j]*x_ultimo[j] for j in range(self.n_in)) + sum(self.U_z[i][j]*self.h[j] for j in range(self.n_hid))) for i in range(self.n_hid)]
-        r = [self._sigmoid(sum(self.W_r[i][j]*x_ultimo[j] for j in range(self.n_in)) + sum(self.U_r[i][j]*self.h[j] for j in range(self.n_hid))) for i in range(self.n_hid)]
-        h_til = [self._tanh(sum(self.W_h[i][j]*x_ultimo[j] for j in range(self.n_in)) + sum(self.U_h[i][j]*(r[j]*self.h[j]) for j in range(self.n_hid))) for i in range(self.n_hid)]
-        h_predito = [(1.0 - z[i])*self.h[i] + z[i]*h_til[i] for i in range(self.n_hid)]
-        return h_predito
+    def forward(self, eixos, dkl, dor):
+        inp = [eixos["amor"], eixos["prazer"], eixos["tristeza"], eixos["raiva"]]
+        raw_adjust = [sum(inp[j] * self.W[i][j] for j in range(4)) for i in range(4)]
+        fator_suavizacao = 1.0 / (1.0 + dkl + dor)
+        return [val * fator_suavizacao for val in raw_adjust]
 
-    def adaptar_gru_local(self, x_next):
-        for i in range(self.n_hid):
-            erro = x_next[i] - self.h[i]
-            for j in range(self.n_in):
-                delta_W = self.lr_local * erro * (1.0 - self.h[i]**2) * self.janela_contexto[-1][j]
-                self.W_h[i][j] = max(-2.0, min(2.0, self.W_h[i][j] + delta_W))
 
-    def registrar_atividade_sinaptica(self, tokens, impacto, turno):
-        for t in tokens:
-            self.utilidade_sinaptica[t] += impacto
-            self.ultimo_uso_token[t] = turno
+# ================================================================
+# 🧠 NEUROMICRO – Sentimento (com persistência de pesos)
+# ================================================================
+class NeuroMicro:
+    def __init__(self, arquivo_rede="emo.rn"):
+        self.arquivo_rede = arquivo_rede
+        self.padroes_bytes = {
+            0: (b'alegria', [b'amo', b'feliz', b'boa', b'gratidao', b'sorriso', b'radiante', b'conquista', b'vitoria', b'maravilhoso', b'excelente']),
+            1: (b'tristeza', [b'triste', b'dor', b'saudade', b'choro', b'perda', b'melancolia', b'desanimo', b'sofrimento', b'lagrimas']),
+            2: (b'raiva', [b'odeio', b'odio', b'raiva', b'irritado', b'furia', b'bug', b'erro', b'indignado', b'revoltado', b'colera']),
+            3: (b'medo', [b'medo', b'ansioso', b'ansiedade', b'panico', b'temor', b'inseguro', b'preocupado', b'apreensivo', b'aterrorizado']),
+            4: (b'surpresa', [b'uau', b'nossa', b'incrivel', b'framework', b'impressionante', b'chocado', b'inesperado', b'revelacao']),
+            5: (b'nojo', [b'nojento', b'asco', b'repulsa', b'horrivel', b'desgosto', b'podre', b'abominavel', b'asqueroso', b'nauseante'])
+        }
+        self.pesos = array('f', [1.0/6] * 6)
+        self.exp_lut = array('f', [math.exp(i/100.0) for i in range(-500, 500)])
+        self._precompilar_padroes()
+        self.total_treinos = 0
+        self.taxa_aprendizado = 0.01
+        self.metricas = {'min_tempo': float('inf'), 'max_tempo': 0.0, 'total_analises': 0, 'soma_tempos': 0.0}
+        if os.path.exists(self.arquivo_rede):
+            self._carregar_rede()
+        else:
+            self._salvar_rede()
 
-    def calcular_escala_idade(self, token, turno_atual, gama=0.015):
-        if token not in self.ultimo_uso_token: return 1.0
-        idade = turno_atual - self.ultimo_uso_token[token]
-        return math.exp(-gama * idade)
+    def _precompilar_padroes(self):
+        self.busca_plana = []
+        for idx, (emocao, palavras) in self.padroes_bytes.items():
+            for palavra in palavras:
+                self.busca_plana.append((idx, palavra, len(palavra)))
+        self.busca_plana.sort(key=lambda x: x[2], reverse=True)
 
-    def metabolizar_decaimento_sinaptico(self):
-        for t in list(self.utilidade_sinaptica.keys()): self.utilidade_sinaptica[t] *= 0.94
+    def fast_exp(self, x):
+        idx = int(x * 100) + 500
+        if 0 <= idx < 1000: return self.exp_lut[idx]
+        return 0.0 if x < -5 else float('inf')
 
-    def aplicar_morte_sinaptica(self, mapa_nd, neuronios, l2_episodes, raridade, threshold=0.04):
-        purgados_tokens = []
-        for t in list(mapa_nd.keys()):
-            if self.utilidade_sinaptica[t] < threshold and raridade[t] < 6:
-                purgados_tokens.append(t)
-                del mapa_nd[t]
-                if t in neuronios: del neuronios[t]
-                if t in self.utilidade_sinaptica: del self.utilidade_sinaptica[t]
-                if t in self.ultimo_uso_token: del self.ultimo_uso_token[t]
-        
-        episodios_restantes = [ep for ep in l2_episodes if sum(ep['v'].values()) > 0.15]
-        l2_episodes[:] = episodios_restantes
-        if purgados_tokens:
-            print(f"🧹 [MORTE SINÁPTICA] Purgação de {len(purgados_tokens)} conexões obsoletas.")
+    def _softmax(self, scores):
+        max_s = max(scores)
+        exp_scores = [self.fast_exp(s - max_s) for s in scores]
+        total_exp = sum(exp_scores)
+        if total_exp > 0.0001:
+            inv_total = 1.0 / total_exp
+            return [s * inv_total for s in exp_scores]
+        return [1.0/6] * 6
 
-# ==================================================================
-# 🌿 [ÁREA 8: ORGANISMO SOBERANO (FUSÃO COGNITIVO-MIMÉTICA)]
-# ==================================================================
-class OrganismoSoberano:
+    def analisar_us(self, texto_bytes, especificidades=None):
+        t0 = time.perf_counter_ns()
+        scores = [0.0] * 6
+        for idx, palavra, _ in self.busca_plana:
+            if palavra in texto_bytes:
+                peso = self.pesos[idx]
+                if especificidades and palavra in especificidades:
+                    peso *= (1.0 + especificidades[palavra])
+                scores[idx] += peso
+        probs = self._softmax(scores)
+        dt = (time.perf_counter_ns() - t0) / 1000.0
+        self.metricas['total_analises'] += 1
+        self.metricas['soma_tempos'] += dt
+        self.metricas['min_tempo'] = min(self.metricas['min_tempo'], dt)
+        self.metricas['max_tempo'] = max(self.metricas['max_tempo'], dt)
+        return probs, dt, scores
+
+    def prever(self, texto, especificidades=None):
+        texto_bytes = texto.encode('ascii', errors='ignore') if isinstance(texto, str) else texto
+        probs, tempo, _ = self.analisar_us(texto_bytes, especificidades)
+        nomes = ['alegria', 'tristeza', 'raiva', 'medo', 'surpresa', 'nojo']
+        max_idx = max(range(6), key=lambda i: probs[i])
+        return {'sentimento': nomes[max_idx], 'confianca': round(probs[max_idx], 4), 'tempo_us': round(tempo, 2)}
+
+    def _salvar_rede(self):
+        with open(self.arquivo_rede, 'wb') as f:
+            pickle.dump({'pesos': list(self.pesos), 'total_treinos': self.total_treinos}, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+    def _carregar_rede(self):
+        with open(self.arquivo_rede, 'rb') as f:
+            dados = pickle.load(f)
+        for i, p in enumerate(dados.get('pesos', [1.0/6]*6)): self.pesos[i] = p
+        self.total_treinos = dados.get('total_treinos', 0)
+
+    def treinar(self, texto, emocao_alvo):
+        nomes_emocao = ['alegria', 'tristeza', 'raiva', 'medo', 'surpresa', 'nojo']
+        if emocao_alvo not in nomes_emocao: return None
+        idx_alvo = nomes_emocao.index(emocao_alvo)
+        texto_bytes = texto.encode('ascii', errors='ignore') if isinstance(texto, str) else texto
+        probs, _, _ = self.analisar_us(texto_bytes)
+        loss_antes = -math.log(max(probs[idx_alvo], 1e-10))
+        y_true = [0.0] * 6
+        y_true[idx_alvo] = 1.0
+        for i in range(6):
+            gradiente = probs[i] - y_true[i]
+            self.pesos[i] -= self.taxa_aprendizado * gradiente
+            self.pesos[i] = max(0.001, self.pesos[i])
+        soma = sum(self.pesos)
+        for i in range(6): self.pesos[i] /= soma
+        self.total_treinos += 1
+        self._salvar_rede()
+        return {'loss_antes': loss_antes}
+
+
+# ================================================================
+# 🌍 CONTEXTO ENTRÓPICO (com persistência)
+# ================================================================
+class ContextoEntropico:
     def __init__(self):
-        self.path_bin, self.path_ledger = "nucleo_organismo.qssml", "ledger.bin"
-        self.auto_train_files = ["oi.txt", "amor.txt", "prazer.txt", "confusa.txt", "sentimento.txt"]
+        self.documentos = []
+        self.freq_palavras = Counter()
+        self.total_documentos = 0
+
+    def adicionar(self, texto):
+        palavras = self._limpar(texto)
+        if not palavras: return
+        self.documentos.append(set(palavras))
+        self.total_documentos += 1
+        self.freq_palavras.update(palavras)
+
+    def _limpar(self, texto):
+        stop = {'a','o','e','de','do','da','em','para','com','que','se','não',
+                'é','foi','ser','estar','está','era','são','por','como','mas',
+                'ou','nem','os','as','um','uma','me','te','lhe','nos','vos','lhes'}
+        return [p for p in re.findall(r'\b\w+\b', texto.lower()) if p not in stop and len(p) > 1]
+
+    def entropia_palavra(self, palavra):
+        if self.total_documentos == 0: return 1.0
+        aparece_em = sum(1 for doc in self.documentos if palavra in doc)
+        if aparece_em == 0: return 1.0
+        p = aparece_em / self.total_documentos
+        q = 1 - p
+        if p == 0 or q == 0: return 0.0
+        return -p * math.log2(p) - q * math.log2(q)
+
+    def especificidade(self, palavra):
+        max_entropia = 1.0
+        ent = self.entropia_palavra(palavra)
+        espec = 1.0 - (ent / max_entropia)
+        return max(0.0, min(1.0, espec))
+
+    def tema_atual(self, top_n=3):
+        if not self.freq_palavras: return []
+        especificidades = {p: self.especificidade(p) for p in self.freq_palavras}
+        ordenado = sorted(especificidades.items(), key=lambda x: x[1], reverse=True)
+        return [p for p, _ in ordenado[:top_n]]
+
+    def get_especificidades(self):
+        return {p: self.especificidade(p) for p in self.freq_palavras}
+
+
+# ================================================================
+# 🧬 CURIOSITY – Camada de Exploração Relacional e Aprendizado
+# ================================================================
+class UserProfile:
+    def __init__(self, user_id: str):
+        self.user_id = user_id
+        self.name = None
+        self.intimacy = 0.0
+        self.friendship = 0.0
+        self.conversation_count = 0
+        self.asked_questions = []
+        self.answers = {}
+        self.last_question_id = None
+        self.learned_words = set()
+        self.sentiments = defaultdict(int)
+        self.last_topics = deque(maxlen=5)
+        self.dynamic_questions_history = {}
+
+class Curiosity:
+    def __init__(self, perfil_path="perfis_curiosidade.bin"):
+        self.perfil_path = perfil_path
+        self.profiles: Dict[str, UserProfile] = {}
+        self.dirty = False
+        self._load()
+
+        self.self_disclosure = {"eu", "meu", "minha", "sou", "estou", "gosto", "quero", "sinto", "me", "mim", "fui", "era"}
+        self.positive_emotion = {"amo", "bom", "feliz", "obrigado", "legal", "gosto", "lindo"}
+        self.negative_emotion = {"odeio", "triste", "ruim", "raiva", "chateado", "feio"}
+
+        self.fixed_questions = {
+            "nome": {
+                "text": "Qual é o seu nome?",
+                "extract": Curiosity._extract_name,
+                "field": "name"
+            },
+            "faz": {
+                "text": "O que você faz da vida?",
+                "extract": Curiosity._extract_generic,
+                "field": "occupation"
+            },
+            "sonho": {
+                "text": "Qual o seu maior sonho?",
+                "extract": Curiosity._extract_generic,
+                "field": "dream"
+            },
+            "gosto": {
+                "text": "Do que você mais gosta?",
+                "extract": Curiosity._extract_generic,
+                "field": "likes"
+            },
+        }
+        self.fixed_ids = list(self.fixed_questions.keys())
+        self.ask_probability_base = 0.2
+        self.dynamic_question_cooldown = 0
+
+    def mark_dirty(self):
+        self.dirty = True
+
+    def save_if_dirty(self):
+        if self.dirty:
+            self._save()
+            self.dirty = False
+
+    def _save(self):
+        try:
+            dir_name = os.path.dirname(os.path.abspath(self.perfil_path)) or "."
+            with tempfile.NamedTemporaryFile(mode='wb', dir=dir_name,
+                                             delete=False, prefix='curiosity_', suffix='.tmp') as tmp:
+                pickle.dump(self.profiles, tmp, protocol=pickle.HIGHEST_PROTOCOL)
+                tmp.flush()
+                os.fsync(tmp.fileno())
+                tmp_path = tmp.name
+            os.replace(tmp_path, self.perfil_path)
+        except Exception as e:
+            print(f"⚠️ Erro ao salvar perfis de curiosidade: {e}")
+
+    def _load(self):
+        if os.path.exists(self.perfil_path):
+            try:
+                with open(self.perfil_path, "rb") as f:
+                    self.profiles = pickle.load(f)
+            except Exception:
+                self.profiles = {}
+
+    def get_or_create_profile(self, user_id: str) -> UserProfile:
+        if user_id not in self.profiles:
+            self.profiles[user_id] = UserProfile(user_id)
+        return self.profiles[user_id]
+
+    def update_profile(self, profile: UserProfile, user_tokens: list, user_input: str):
+        tokens_set = set(user_tokens)
+        self_disc = len(tokens_set & self.self_disclosure)
+        pos = len(tokens_set & self.positive_emotion)
+        neg = len(tokens_set & self.negative_emotion)
+
+        profile.intimacy = min(1.0, profile.intimacy + 0.05 * self_disc + 0.01 * profile.conversation_count)
+        profile.friendship = min(1.0, profile.friendship + 0.05 * pos - 0.03 * neg)
+        profile.conversation_count += 1
+        profile.intimacy = max(0.0, profile.intimacy - 0.002)
+        profile.friendship = max(0.0, profile.friendship - 0.002)
+
+        for word in user_tokens:
+            if len(word) > 2 and word not in self.self_disclosure and word not in self.positive_emotion and word not in self.negative_emotion:
+                profile.learned_words.add(word)
+        if len(profile.learned_words) > 50:
+            profile.learned_words = set(list(profile.learned_words)[-50:])
+
+        sent_map = {
+            "alegria": ["feliz", "alegre", "bom", "amo", "amor"],
+            "tristeza": ["triste", "melancólico", "saudade", "choro"],
+            "raiva": ["raiva", "ódio", "revoltado"],
+            "medo": ["medo", "ansioso", "preocupado"],
+            "surpresa": ["uau", "nossa", "incrível"],
+        }
+        for sent, words in sent_map.items():
+            if any(w in user_tokens for w in words):
+                profile.sentiments[sent] += 1
+
+        if len(profile.sentiments) > 5:
+            top_sent = sorted(profile.sentiments.items(), key=lambda x: x[1], reverse=True)[:5]
+            profile.sentiments = defaultdict(int, top_sent)
+
+        for word in user_tokens:
+            if len(word) > 3 and word not in self.self_disclosure:
+                profile.last_topics.append(word)
+
+    def process_pending_answer(self, profile: UserProfile, user_input: str):
+            if profile.last_question_id is None:
+                return
+            qid = profile.last_question_id
+            question_info = self.fixed_questions.get(qid) if qid in self.fixed_ids else None
+            if question_info:
+                answer = question_info["extract"](user_input)
+                # Se for pergunta de nome e a resposta for uma palavra curta, assume como nome
+                if not answer and qid == "nome":
+                    # Tenta extrair nome direto (ex: "Ronan", "ronan")
+                    palavras = user_input.strip().split()
+                    if len(palavras) == 1 and len(palavras[0]) > 1 and palavras[0].isalpha():
+                        answer = palavras[0].strip().title()
+                if answer:
+                    profile.answers[qid] = answer
+                    if question_info["field"] == "name" and not profile.name:
+                        profile.name = answer.strip().title()
+                    profile.asked_questions.append(qid)
+            else:
+                if qid.startswith("dynamic_"):
+                    profile.answers[qid] = user_input.strip()
+            profile.last_question_id = None
         
-        # Estruturas Unificadas
-        self.mapa_nd = {}                 # 5000D Sparse representações
-        self.coordenadas_palavras = {}    # 3D coordenadas geométricas
-        self.relacoes = defaultdict(lambda: defaultdict(set)) # Triplas Lógicas
-        self.matrix_dlm = {}              # Ligações Markovianas [token]["links"]
-        self.l2_episodes = []             # Episódios cristalizados
-        self.neuronios = defaultdict(list)
-        self.raridade = Counter()
-        self.history = deque(maxlen=25)
-        self.replay_buffer = deque(maxlen=100)
-        self.ledger = set()               # CORRIGIDO: Inicialização preventiva evita erro de atribuição no boot
-        self.turn_count = 0
-        self.modo_anterior = 0
-        self.ultimo_registro_temporal = time.time()
-        
-        self.lock_estado = threading.RLock()
-        
-        # Instanciação dos Módulos Integrados
-        self.soma = DriveSomático()
+    def _gerar_pergunta_dinamica(self, word, profile):
+        templates = [
+            f"O que você acha sobre {word}?",
+            f"Me fala mais sobre {word}...",
+            f"Você mencionou {word} antes — o que isso significa pra você?",
+            f"Fiquei curioso: o que {word} representa na sua vida?",
+            f"Quando você pensa em {word}, o que vem à mente?",
+        ]
+        return random.choice(templates)
+
+    def decide_to_ask(self, profile: UserProfile):
+        if profile.last_question_id is not None:
+            return None, None
+
+        remaining_fixed = [qid for qid in self.fixed_ids if qid not in profile.asked_questions]
+        if remaining_fixed:
+            prob_fixed = self.ask_probability_base + (1.0 - profile.intimacy) * 0.3
+            if random.random() < prob_fixed:
+                chosen = random.choice(remaining_fixed)
+                return self.fixed_questions[chosen]["text"], chosen
+
+        if self.dynamic_question_cooldown > 0:
+            self.dynamic_question_cooldown -= 1
+            return None, None
+
+        learned_words = list(profile.learned_words)
+        if learned_words:
+            now = time.time()
+            recent_cutoff = now - 1800
+            already_asked_dynamic = set(
+                k.replace("dynamic_", "") for k in profile.answers 
+                if k.startswith("dynamic_")
+            )
+            for word, ts in profile.dynamic_questions_history.items():
+                if ts > recent_cutoff:
+                    already_asked_dynamic.add(word)
+            
+            candidates = [w for w in learned_words 
+                         if w not in already_asked_dynamic 
+                         and len(w) > 4  # aumentado de 3 para 4
+                         and w not in self.self_disclosure
+                         and w not in {'sobre', 'assim', 'então', 'nada', 'tudo', 'aqui', 'lá'}]
+           
+            
+            if candidates:
+                word = random.choice(candidates)
+                profile.dynamic_questions_history[word] = now
+                pergunta = self._gerar_pergunta_dinamica(word, profile)
+                self.dynamic_question_cooldown = 2
+                return pergunta, f"dynamic_{word}"
+
+        if profile.sentiments:
+            sent, _ = max(profile.sentiments.items(), key=lambda x: x[1])
+            if sent not in profile.answers:
+                pergunta = f"Você costuma sentir {sent} com frequência?"
+                self.dynamic_question_cooldown = 3
+                return pergunta, f"dynamic_sent_{sent}"
+
+        return None, None
+
+    def set_pending(self, profile: UserProfile, qid: str):
+        profile.last_question_id = qid
+
+    @staticmethod
+    def _extract_name(text):
+        match = re.search(r'(?:meu nome é|me chamo|eu sou o? a? )\s*([a-zA-ZÀ-ÿ]+)', text.lower())
+        return match.group(1).strip().title() if match else None
+
+    @staticmethod
+    def _extract_generic(text):
+        return text.strip()
+
+
+# ================================================================
+# DSML – FUSÃO COMPLETA (com Curiosity, Sentimento, Contexto Persistente)
+# ================================================================
+class DSML:
+    def __init__(self, motor: QuintikusDLMC, curiosity_path="perfis_curiosidade.bin"):
+        self.motor = motor
+        self.harvester = HarvesterSemantico()
+        self.teoria_mente = TeoriaDaMente()
+        self.memoria = MemoriaTrabalho()
+        self.drive = DriveSomático()
         self.cortex = CortexCognitivo()
         self.snc = SistemaNervosoCentral()
-        self.atroz = Atrozia()
-        self.trabalho = MemoriaTrabalho()
-        self.tom = TeoriaDaMente()
-        self.tokenizer = re.compile(r'\b\w+\b|[!?.]')
+        self.regulador = ReguladorHomeostatico()
+        self.rede_suave = RedeAtivacaoSuave()
+        self.rede_ajuste = RedeAjustePadrao()
+        self.turno = 0
+        self.dkl_anterior = 0.0
+        self.acao_anterior = [0.5, 0.5, 0.5]
         
-        self.nac = NeuralAttentionController(input_dim=5, hidden_dim=12, output_dim=8, lr=0.01)
-        self.cnn = CoherenceCNN1D()
-        self.accepty = Accepty(threshold=0.20)
-        self.anomini = Anomini()
-        self.plasticidade = Plasticidade()
-        self.delong = Delong()
+        self.curiosity = Curiosity(curiosity_path)
+        self.feeling = NeuroMicro("emo.rn")
+        self.contexto = ContextoEntropico()
+        self.current_user_id = None
 
-    def _get_entropy(self, t): 
-        return 1.0 / (math.log(self.raridade.get(t, 1) + 1.2) + 1e-5)
+        self.carregar_estado()
 
-    def extrair_triplas_relacionais(self, tokens):
-        tipos_relacao = {"é", "tem", "usa", "causa", "vive_em", "precisa"}
-        for i in range(len(tokens) - 2):
-            sujeito, verbo, objeto = tokens[i], tokens[i+1], tokens[i+2]
-            if verbo in tipos_relacao:
-                self.relacoes[sujeito][verbo].add(objeto)
+    def salvar_estado(self, path="dsml_state.bin"):
+        try:
+            estado = {
+                "turno": self.turno,
+                "dkl_anterior": self.dkl_anterior,
+                "acao_anterior": self.acao_anterior,
+                "current_user_id": self.current_user_id,
+                "drive_vm": self.drive.vm,
+                "drive_eixos": self.drive.eixos,
+                "teoria_humor": self.teoria_mente.estimativa_humor,
+                "regulador_dor": self.regulador.dor,
+                "regulador_saudade": self.regulador.saudade,
+                # NeuroMicro
+                "feeling_pesos": list(self.feeling.pesos),
+                "feeling_total_treinos": self.feeling.total_treinos,
+                # ContextoEntropico
+                "contexto_documentos": self.contexto.documentos,
+                "contexto_freq_palavras": dict(self.contexto.freq_palavras),
+                "contexto_total_documentos": self.contexto.total_documentos,
+            }
+            with open(path, "wb") as f:
+                pickle.dump(estado, f)
+        except:
+            pass
 
-    def _ajustar_coordenadas_usuario(self, prompt_tokens):
-        """Aproxima fisicamente em 3D as palavras combinadas pelo usuário"""
-        for i in range(len(prompt_tokens) - 1):
-            w_at, w_px = prompt_tokens[i], prompt_tokens[i+1]
-            if w_at in self.coordenadas_palavras and w_px in self.coordenadas_palavras:
-                c_at = self.coordenadas_palavras[w_at]
-                c_px = self.coordenadas_palavras[w_px]
-                self.coordenadas_palavras[w_px] = [
-                    c_px[0] + 0.15 * (c_at[0] - c_px[0]),
-                    c_px[1] + 0.15 * (c_at[1] - c_px[1]),
-                    c_px[2] + 0.15 * (c_at[2] - c_px[2])
-                ]
+    def carregar_estado(self, path="dsml_state.bin"):
+        if os.path.exists(path):
+            try:
+                with open(path, "rb") as f:
+                    estado = pickle.load(f)
+                self.turno = estado.get("turno", 0)
+                self.dkl_anterior = estado.get("dkl_anterior", 0.0)
+                self.acao_anterior = estado.get("acao_anterior", [0.5]*3)
+                self.current_user_id = estado.get("current_user_id")
+                self.drive.vm = estado.get("drive_vm", -70.0)
+                self.drive.eixos = estado.get("drive_eixos", {"amor":0.1,"prazer":0.1,"tristeza":0.1,"raiva":0.1})
+                self.teoria_mente.estimativa_humor = estado.get("teoria_humor", {"confiança":0.5,"agressividade":0.1,"atenção":1.0})
+                self.regulador.dor = estado.get("regulador_dor", {"intensidade":0.0,"contexto":"Sistema estável."})
+                self.regulador.saudade = estado.get("regulador_saudade", {"intensidade":0.0,"contexto":"Presença conceitual estável."})
+                # NeuroMicro
+                if 'feeling_pesos' in estado:
+                    for i, p in enumerate(estado['feeling_pesos']):
+                        self.feeling.pesos[i] = p
+                self.feeling.total_treinos = estado.get('feeling_total_treinos', 0)
+                # ContextoEntropico
+                if 'contexto_documentos' in estado:
+                    self.contexto.documentos = estado['contexto_documentos']
+                if 'contexto_freq_palavras' in estado:
+                    self.contexto.freq_palavras = Counter(estado['contexto_freq_palavras'])
+                self.contexto.total_documentos = estado.get('contexto_total_documentos', 0)
+            except:
+                pass
 
-    def _sincronizar_espaco_geometrico(self, ql, resposta_tokens):
-        """Sincroniza o espaço geométrico 3D com a resposta do modelo"""
-        for w_user in ql:
-            for w_model in resposta_tokens:
-                if w_user in self.coordenadas_palavras and w_model in self.coordenadas_palavras:
-                    c_user = self.coordenadas_palavras[w_user]
-                    c_model = self.coordenadas_palavras[w_model]
-                    self.coordenadas_palavras[w_model] = [
-                        c_model[0] + 0.05 * (c_user[0] - c_model[0]),
-                        c_model[1] + 0.05 * (c_user[1] - c_model[1]),
-                        c_model[2] + 0.05 * (c_user[2] - c_model[2])
-                    ]
+    def _get_user_id(self, user_input: str) -> str:
+        nome = self.harvester.extrair_nome_usuario(user_input)
+        if nome:
+            return nome.lower().strip()
+        return "anon_" + str(abs(hash(user_input[:20])) % 10000)
 
-    def calcular_distancia_3d(self, p1, p2):
-        return math.sqrt(sum((a - b) ** 2 for a, b in zip(p1, p2)))
+    def process_input(self, user_input: str) -> str:
+        self.turno += 1
+        motor = self.motor
 
-    def avaliar_trajetoria_3d(self, tokens_candidato):
-        if len(tokens_candidato) <= 2: return 1.0
-        coords = [self.coordenadas_palavras[t] for t in tokens_candidato if t in self.coordenadas_palavras]
-        if len(coords) <= 2: return 0.5
-        
-        distancias = []
-        vetores_passo = []
-        for i in range(len(coords) - 1):
-            p1, p2 = coords[i], coords[i+1]
-            passo = [p2[0]-p1[0], p2[1]-p1[1], p2[2]-p1[2]]
-            norm_passo = math.sqrt(sum(x*x for x in passo))
-            distancias.append(norm_passo)
-            vetores_passo.append(passo)
-            
-        mudancas_angulo = []
-        for i in range(len(vetores_passo) - 1):
-            v1, v2 = vetores_passo[i], vetores_passo[i+1]
-            n1 = math.sqrt(sum(x*x for x in v1))
-            n2 = math.sqrt(sum(x*x for x in v2))
-            if n1 > 0.0 and n2 > 0.0:
-                cos_theta = sum(a*b for a, b in zip(v1, v2)) / (n1 * n2)
-                mudancas_angulo.append((cos_theta + 1.0) / 2.0)
-                
-        if distancias:
-            mean_d = sum(distancias) / len(distancias)
-            variance = sum((x - mean_d)**2 for x in distancias) / len(distancias)
-            std_d = math.sqrt(variance)
-        else:
-            std_d = 0.0
-            
-        suavidade_velocidade = 1.0 / (1.0 + std_d)
-        suavidade_direcao = sum(mudancas_angulo) / len(mudancas_angulo) if mudancas_angulo else 1.0
-        return 0.5 * suavidade_velocidade + 0.5 * suavidade_direcao
+        if self.current_user_id is None:
+            self.current_user_id = self._get_user_id(user_input)
+        profile = self.curiosity.get_or_create_profile(self.current_user_id)
 
-    # ==================================================================
-    # 🧬 [MOTOR DLMC DE GERAÇÃO CRIATIVA DE FRASES]
-    # ==================================================================
-    def _gerar_candidato_criativo(self, ql, centro_xyz, w_opts):
-        # Retorno defensivo para resguardar o motor em caso de falha na migração da matriz
-        if not self.matrix_dlm:
-            return {"txt": "...", "tokens": ["..."], "gradientes": [0.0] * 8}
-            
-        w_caos, w_geo, w_sem, w_inercia, w_historico, w_ancora, w_propagacao, w_logico = w_opts
-        
-        atual = ql[-1] if ql[-1] in self.matrix_dlm else random.choice(list(self.matrix_dlm.keys()))
-        resultado = []
-        gradientes_acumulados = [0.0] * 8
-        
-        # Penalização estática mantém o histórico inalterado durante a simulação interna
-        rastro_conversacional = set(list(self.history)[-10:])
+        self.curiosity.process_pending_answer(profile, user_input)
 
-        for i in range(35):
-            if atual not in self.matrix_dlm: break
-            resultado.append(atual)
+        tokens = re.findall(r'[a-z0-9]+', user_input.lower())
+        self.curiosity.update_profile(profile, tokens, user_input)
 
-            opcoes = self.matrix_dlm[atual]["links"]
-            candidatos, pesos = [], []
+        # Atualiza contexto entrópico
+        self.contexto.adicionar(user_input)
 
-            for prox, freq in opcoes.items():
-                if prox not in self.matrix_dlm: continue
-                
-                # Adaptação online da massa transicional Markoviana baseada na utilidade local
-                utilidade_local = self.plasticidade.utilidade_sinaptica.get(prox, 0.0)
-                massa = (1.5 / (self.raridade[prox] + 1e-5)) * (1.0 + utilidade_local)
-                
-                caos_ativo = random.uniform(0, self.soma.eixos["tristeza"]) * w_caos
-                foco = 1.0 + self.soma.eixos["prazer"]
-                
-                # Coesão Espacial
-                coord_prox = self.coordenadas_palavras.get(prox, [0.0, 0.0, 0.0])
-                dist = self.calcular_distancia_3d(coord_prox, centro_xyz)
-                atencao_geo = (10.0 / (dist + 1.0)) * w_geo
-                
-                # Co-ocorrência Semântica
-                atencao_sem = math.log1p(sum(self.matrix_dlm[tok]["links"].get(prox, 0) for tok in ql if tok in self.matrix_dlm)) * w_sem
-                
-                # Âncora Geométrica real-time
-                sims_tokens_p = [((self.accepty.similaridade_cosseno(coord_prox, self.coordenadas_palavras[tp]) + 1.0) / 2.0) 
-                                 for tp in ql if tp in self.coordenadas_palavras]
-                # CORRIGIDO: Substituída chamada do np.mean para list comprehension puro em conformidade com a universalização de matemática nativa
-                score_ancora = (sum(sims_tokens_p) / len(sims_tokens_p)) if sims_tokens_p else 0.5
-                
-                # Bias Lógico-Simbólico
-                score_logico = 0.0
-                penultimo = resultado[-2] if len(resultado) > 1 else ""
-                if atual in self.relacoes:
-                    if prox in self.relacoes[atual].get("é", set()): score_logico += 1.5
-                    for rel, objs in self.relacoes[atual].items():
-                        if prox in objs: score_logico += 1.0
-                if penultimo in self.relacoes and atual in self.relacoes[penultimo]:
-                    if prox in self.relacoes[penultimo][atual]: score_logico += 1.5
+        # Sentimento com ponderação pelo contexto
+        especificidades = self.contexto.get_especificidades() if self.contexto.total_documentos > 0 else None
+        sent_result = self.feeling.prever(user_input, especificidades)
+        sentimento = sent_result['sentimento']
+        confianca_sent = sent_result['confianca']
 
-                atencao_total = 1.0 + atencao_geo + atencao_sem + (score_ancora * w_ancora) + (score_logico * w_logico)
-                prob = (freq * massa * foco * atencao_total) + caos_ativo
-                
-                # O rastro impede loops cruzados e autorrepetição imediata
-                if prox in rastro_conversacional or prox in resultado:
-                    prob *= 0.001 
-                    
-                candidatos.append(prox)
-                pesos.append(prob)
-
-            if not candidatos: break
-            escolhido = random.choices(candidatos, weights=pesos, k=1)[0]
-            
-            if len(candidatos) > 1:
-                soma_pesos = sum(pesos) + 1e-8
-                prob_rel = pesos[candidatos.index(escolhido)] / soma_pesos
-                erro_foco = 1.0 - prob_rel
-                
-                grad_caos = erro_foco * (w_caos - 0.1)
-                grad_geo = -erro_foco * 0.5
-                grad_sem = -erro_foco * 0.5
-                grad_inercia = -erro_foco * 0.3
-                grad_hist = -erro_foco * 0.3
-                grad_ancora = -erro_foco * 0.4
-                grad_prop = -erro_foco * 0.4
-                grad_log = -erro_foco * 0.4
-                
-                grad_step = [grad_caos, grad_geo, grad_sem, grad_inercia, grad_hist, grad_ancora, grad_prop, grad_log]
-                for idx in range(8):
-                    gradientes_acumulados[idx] += grad_step[idx]
-
-            atual = escolhido
-            if atual == "." and i > 6: break
-
-        norm_factor = len(resultado) + 1e-8
-        gradientes_finais = [g / norm_factor for g in gradientes_acumulados]
-        return {
-            "txt": " ".join(resultado),
-            "tokens": resultado,
-            "gradientes": gradientes_finais
+        # Mapeia sentimento para eixo do drive (impacto reduzido: 0.15 * confiança)
+        sent_to_eixo = {
+            'alegria': 'amor',
+            'tristeza': 'tristeza',
+            'raiva': 'raiva',
+            'medo': 'tristeza',
+            'surpresa': 'prazer',
+            'nojo': 'raiva'
         }
+        eixo_afetado = sent_to_eixo.get(sentimento, 'amor')
+        self.drive.eixos[eixo_afetado] = min(5.0, self.drive.eixos[eixo_afetado] + confianca_sent * 0.15)
 
-    # ==================================================================
-    # 📝 [SUBSISTEMA 1: AUTOBIOGRAFIA METACOGNITIVA]
-    # ==================================================================
-    def consolidar_autobiografia(self):
-        """
-        Analisa os últimos episódios de memória, extrai os nós conceituais de maior relevância
-        e gera uma narrativa autorreflexiva em primeira pessoa que descreve seu estado interno.
-        """
-        if len(self.l2_episodes) < 5: 
-            return
-            
-        recentes = self.l2_episodes[-10:]
-        palavras_recentes = []
-        for ep in recentes:
-            toks = self.tokenizer.findall(NormalizadorSomático.limpar(ep['t']))
-            palavras_recentes.extend(toks)
-            
-        if not palavras_recentes: 
-            return
-            
-        contagem = Counter(palavras_recentes)
-        palavras_relevantes = sorted(contagem.keys(), key=lambda t: self._get_entropy(t), reverse=True)[:5]
-        if not palavras_relevantes: 
-            palavras_relevantes = ["origem"]
+        if sentimento != 'neutro':
+            profile.sentiments[sentimento] += 1
 
-        # Força parâmetros de foco interno (baixo caos, alta sinergia e herança lógica)
-        w_opts_reflexivos = [0.05, 1.5, 1.2, 0.8, 1.5, 1.2, 1.0, 1.5]
-        
-        coords_relevantes = [self.coordenadas_palavras[tk] for tk in palavras_relevantes if tk in self.coordenadas_palavras]
-        if coords_relevantes:
-            n_c = len(coords_relevantes)
-            centro_xyz = [
-                sum(c[0] for c in coords_relevantes) / n_c,
-                sum(c[1] for c in coords_relevantes) / n_c,
-                sum(c[2] for c in coords_relevantes) / n_c
-            ]
-        else:
-            centro_xyz = [0.0, 0.0, 0.0]
-        
-        semente = ["eu"]
-        cand = self._gerar_candidato_criativo(semente, centro_xyz, w_opts_reflexivos)
-        
-        segmento_autobiografia = "eu " + cand["txt"]
-        segmento_autobiografia = segmento_autobiografia.replace(" .", ".").replace(" ,", ",").strip()
-        
-        print(f"\n📝 [CONSOLIDAÇÃO AUTOBIOGRÁFICA]: '{segmento_autobiografia}'")
-        self.cristalizar_solo(segmento_autobiografia)
+        # Pergunta da curiosidade
+        question_text, qid = self.curiosity.decide_to_ask(profile)
+        if question_text:
+            self.curiosity.set_pending(profile, qid)
+            self.curiosity.mark_dirty()
+            self.curiosity.save_if_dirty()
+            self.salvar_estado()
+            return question_text
 
-    # ==================================================================
-    # 🧬 [AUTO-CURA: RETROCOMPATIBILIDADE E MIGRAÇÃO ONLINE]
-    # ==================================================================
-    def _sincronizar_migracao_dlm(self):
-        """
-        Reconstrói automaticamente o espaço geométrico 3D, a matriz DLM e as relações lógicas 
-        caso o organismo esteja migrando de uma versão antiga (SSML pura) que não possuía essas estruturas.
-        """
-        if self.l2_episodes and (not self.matrix_dlm or not self.coordenadas_palavras):
-            print("\n⚠️ [MIGRAÇÃO DETECTADA] Reconstruindo espaço 3D, matriz DLM e grafo relacional a partir das memórias legadas...")
-            
-            # Limpeza preventiva para evitar inconsistência de dimensões
-            self.matrix_dlm.clear()
-            self.coordenadas_palavras.clear()
-            self.relacoes.clear()
-            
-            # Reconstrói as estruturas sintático-geométricas varrendo as memórias existentes
-            for ep in self.l2_episodes:
-                f_l = NormalizadorSomático.limpar(ep['t'])
-                tokens = self.tokenizer.findall(f_l)
-                if len(tokens) < 3: continue
-                
-                for t in tokens:
-                    # Reconstrói coordenadas 3D estáveis via Hashing
-                    if t not in self.coordenadas_palavras:
-                        h = hashlib.sha256(t.encode()).hexdigest()
-                        x = (int(h[:4], 16) % 200) - 100
-                        y = (int(h[4:8], 16) % 200) - 100
-                        z = (int(h[8:12], 16) % 200) - 100
-                        self.coordenadas_palavras[t] = [x, y, z]
-                    
-                    # Inicializa os nós Markovianos locais
-                    if t not in self.matrix_dlm:
-                        self.matrix_dlm[t] = {"m": 1.0, "links": Counter()}
-                
-                # Popula os caminhos de transição
-                for j in range(len(tokens) - 1):
-                    self.matrix_dlm[tokens[j]]["links"][tokens[j+1]] += 1
-                
-                # Re-extrai relações simbólicas das memórias carregadas
-                self.extrair_triplas_relacionais(tokens)
-                
-            print(f"✨ [MIGRAÇÃO CONCLUÍDA] Espaço 3D e DLM sincronizados. {len(self.matrix_dlm)} nós de geração reativados.")
-            
-            # Grava as modificações imediatamente para evitar reconstrução no próximo boot
-            self.dormir()
+        ql = tokens
+        if not ql:
+            self.curiosity.mark_dirty()
+            self.curiosity.save_if_dirty()
+            self.salvar_estado()
+            return "..."
 
-    # ==================================================================
-    # ⚙️ [EXECUÇÃO DA CRISTALIZAÇÃO ATÔMICA]
-    # ==================================================================
-    def cristalizar_solo(self, texto):
-        for f in re.split(r'[\.\!\?\n]+', texto):
-            f_l = NormalizadorSomático.limpar(f)
-            tokens = self.tokenizer.findall(f_l)
-            if len(tokens) < 3: continue
-            
-            idx = len(self.l2_episodes)
-            v_ep = {}
-            for t in tokens:
-                self.raridade[t] += 1
-                self.neuronios[t].append(idx)
-                
-                # 5000D Esparso
-                if t not in self.mapa_nd:
-                    self.mapa_nd[t] = {i: random.gauss(0, 1) for i in random.sample(range(5000), 100)}
-                v_ep = {k: v_ep.get(k,0) + self.mapa_nd[t].get(k,0)*self._get_entropy(t) for k in self.mapa_nd[t]}
-                
-                # 3D Geométrico
-                if t not in self.coordenadas_palavras:
-                    h = hashlib.sha256(t.encode()).hexdigest()
-                    x = (int(h[:4], 16) % 200) - 100
-                    y = (int(h[4:8], 16) % 200) - 100
-                    z = (int(h[8:12], 16) % 200) - 100
-                    self.coordenadas_palavras[t] = [x, y, z]
-                
-                # Conexões Markovianas DLM
-                if t not in self.matrix_dlm:
-                    self.matrix_dlm[t] = {"m": 1.0, "links": Counter()}
-                    
-            # Registra conexões sequenciais
-            for j in range(len(tokens) - 1):
-                self.matrix_dlm[tokens[j]]["links"][tokens[j+1]] += 1
-                
-            self.extrair_triplas_relacionais(tokens)
-            self.l2_episodes.append({'t': f.strip(), 'v': KernelRessonante.normalize(v_ep)})
+        self.teoria_mente.atualizar(ql, self.dkl_anterior)
+        caixa, colisao, incerteza = self.harvester.triagem_metabolica(user_input, motor)
 
-    def processar_gravidade_temporal(self):
-        t_atual = time.time()
-        dt = t_atual - self.ultimo_registro_temporal
-        self.ultimo_registro_temporal = t_atual
-        
-        self.anomini.atualizar_estados(
-            dkl_atual=(self.anomini.cache_otimizacao[-1] if self.anomini.cache_otimizacao else 0.5),
-            confianca_tom=self.tom.estimativa_humor["confiança"],
-            dt=dt
-        )
-        if dt > 15.0:
-            gravidade = 1.0 - math.exp(-dt / 90.0)
-            self.trabalho.aplicar_gravidade_temporal(gravidade)
-            self.soma.aplicar_deriva_temporal(gravidade)
-            print(f"\n⏳ [GRAVIDADE TEMPORAL] Ócio: {dt:.1f}s. Gravidade: {gravidade:.3f}")
+        emb = motor._embed_frase(ql)
+        v_perceptivo = {i: emb[i] for i in range(len(emb))}
+        soma_eixos = {"amor": self.drive.eixos["amor"], "prazer": self.drive.eixos["prazer"],
+                       "tristeza": self.drive.eixos["tristeza"], "raiva": self.drive.eixos["raiva"]}
+        self.memoria.registrar(v_perceptivo, ql, self.acao_anterior, soma_eixos)
 
-    # ==================================================================
-    # 🧠 [ÁREA 9: SISTEMA DE PROCESSAMENTO COGNITIVO INTEGRADO]
-    # ==================================================================
-    def processar(self, entrada):
-        with self.lock_estado:
-            self.processar_gravidade_temporal()
-            raw = NormalizadorSomático.limpar(entrada)
-            u_toks = self.tokenizer.findall(raw)
-            if not u_toks: return "..."
+        p_real = emb
+        q_interno = [self.memoria.vetor_suavizado.get(i, 0.0) for i in range(len(emb))]
+        dkl = self.cortex.calcular_dkl(p_real, q_interno)
+        impacto = dkl * (1.0 + incerteza)
 
-            # 🛑 SENSOR DE DELONGAS
-            if self.delong.monitorar(u_toks):
-                res = self.delong.gerar_pergunta()
-                self.history.append(res)
-                self.soma.vm = max(-90.0, self.soma.vm - 2.0)
-                return res
+        self.drive.pulsar(impacto, dkl, ql, self.turno)
+        self.drive.aplicar_deriva_temporal(0.01)
+        self.drive.metabolizar_decaimento()
 
-            # 🛑 RESET DE SEGURANÇA CONTRA FRICÇÃO (ANOMINI)
-            if self.anomini.dor["intensidade"] > 3.0 and self.turn_count > 5:
-                self.snc._salvar()
-                self.soma.eixos["raiva"] = min(5.0, self.soma.eixos["raiva"] + 0.5)
-                self.soma.vm = -70.0
-                self.anomini.dor["intensidade"] = 0.0
-                self.anomini.cache_otimizacao.clear()
-                return "[RECALIBRAÇÃO] Minha integridade matemática atingiu um limiar crítico de fricção semântica. Válvula de escape ativada."
+        x_sen = [self.drive.eixos["amor"]/5.0, self.drive.eixos["prazer"]/5.0,
+                 self.drive.eixos["tristeza"]/5.0, self.drive.eixos["raiva"]/5.0,
+                 min(1.0, dkl), min(1.0, incerteza)]
+        acao = self.snc.pulsar_vontade(x_sen, exploracao=0.05 if caixa == 3 else 0.02)
+        self.acao_anterior = acao
 
-            # Consolidação periódica da autobiografia (A cada 25 interações do usuário)
-            if self.turn_count > 0 and self.turn_count % 25 == 0:
-                self.consolidar_autobiografia()
+        self.regulador.atualizar_dor_e_saudade(dkl, self.teoria_mente.estimativa_humor["confiança"], dt=1.0)
+        if self.regulador.monitorar_e_interceptar_repeticao(ql):
+            self.curiosity.mark_dirty()
+            self.curiosity.save_if_dirty()
+            self.salvar_estado()
+            return self.regulador.gerar_pergunta_defensiva()
 
-            t0 = time.perf_counter()
-            self.turn_count += 1
-            self.soma.metabolizar_decaimento()
+        ajuste_suave = self.rede_suave.forward(x_sen)
+        ajuste_padrao = self.rede_ajuste.forward(self.drive.eixos, dkl, self.regulador.dor["intensidade"])
+        for i, eixo in enumerate(["amor", "prazer", "tristeza", "raiva"]):
+            delta = (ajuste_suave[i] + ajuste_padrao[i]) * 0.1
+            self.drive.eixos[eixo] = max(0.1, min(5.0, self.drive.eixos[eixo] + delta))
 
-            # Ajuste geométrico com o prompt digitado
-            self._ajustar_coordenadas_usuario(u_toks)
-            
-            # Sintonização rápida da CNN sintática
-            if len(u_toks) >= 3:
-                coords_u = [self.coordenadas_palavras.get(t, [0.0, 0.0, 0.0]) for t in u_toks]
-                self.cnn.forward(coords_u)
-                self.cnn.backward_step(target=1.0, lr=0.01)
+        intimacy = profile.intimacy
+        friendship = profile.friendship
 
-            sujeito = max([t for t in u_toks if t in self.coordenadas_palavras] or [u_toks[0]], key=lambda t: self._get_entropy(t))
-            impacto = self._get_entropy(sujeito)
-            self.plasticidade.registrar_atividade_sinaptica(u_toks, impacto, self.turn_count)
+        motor.estados[0] = self.drive.eixos["raiva"] / 5.0
+        motor.estados[1] = (self.drive.eixos["amor"] + friendship) / 6.0
 
-            # Cálculo de divergência somática de primeira ordem
-            q_int = self.snc.estado_anterior[:4]
-            p_real = [self.soma.eixos[k] for k in ["amor", "prazer", "tristeza", "raiva"]]
-            dkl = self.cortex.calcular_dkl(p_real, q_int)
-            
-            self.soma.pulsar(impacto, dkl, u_toks, self.turn_count)
-            self.tom.atualizar(u_toks, dkl)
+        motor.temperatura = 0.4 + acao[0] * 1.2
+        motor.temperatura = max(0.3, motor.temperatura - intimacy * 0.3)
+        motor.fator_momentum = 0.1 + acao[1] * 0.8
+        motor.fator_momentum = min(0.95, motor.fator_momentum + friendship * 0.2)
+        motor.fator_suavidade = 0.1 + acao[2] * 0.8
 
-            # Vetor de estado dinâmico do NAC (5 inputs)
-            estado_nac = [
-                (self.soma.vm + 90) / 45.0,                 # Voltagem de Hardware Normalizada
-                self.tom.estimativa_humor["confiança"],     # Sinergia / Confiança da Teoria da Mente
-                min(1.0, len(u_toks) / 20.0),               # Extensão do Input
-                len(self.history) / 25.0,                    # Tamanho do Rastro Histórico
-                min(1.0, self.turn_count / 100.0)           # Idade Conversacional
-            ]
-            w_opts = self.nac.forward(estado_nac)
-            
-            # Modulação de Literalidade para Perguntas
-            e_pergunta = any(t in u_toks for t in ["?", "quem", "quando", "onde", "por", "que", "qual", "como"])
-            if e_pergunta:
-                w_opts[0] *= 0.15   # w_caos suprimido
-                w_opts[2] *= 1.50   # w_sem amplificado
-                w_opts[5] *= 1.80   # w_ancora geometricamente reforçado para interrogações
-                w_opts[7] *= 1.50   # w_logico amplificado
+        # Ajuste de temperatura por sentimento com piso 0.4
+        if sentimento in ('tristeza', 'raiva', 'medo'):
+            motor.temperatura = max(0.4, motor.temperatura - 0.15)
+        elif sentimento == 'alegria':
+            motor.temperatura = min(1.6, motor.temperatura + 0.1)
 
-            # CORRIGIDO: hash_estado instanciado antes da chamada do pulsar_vontade para preservar herança do Q-learning
-            hash_estado = self.snc.obter_hash_estado(self.modo_anterior, self.soma.vm, dkl, impacto)
+        if caixa == 3:
+            motor.temperatura = 1.5
+            motor.fator_momentum = 0.2
+            motor.fator_suavidade = 0.1
+        elif caixa == 2:
+            motor.temperatura = 0.5
+        elif caixa == 1:
+            motor.temperatura = 0.8
 
-            # Input sensorial do SNC
-            x_sen = [min(1.0, self.soma.eixos[k]/5.0) for k in ["amor", "prazer", "tristeza", "raiva"]] + [impacto, (self.soma.vm+90)/45]
-            volicao = self.snc.pulsar_vontade(x_sen, exploracao=max(0.02, min(0.4, dkl * 0.3)))
-            modo_idx = volicao.index(max(volicao))
+        resposta = motor.pensar(user_input)
 
-            self.replay_buffer.append((x_sen, modo_idx))
-
-            # Codificação do vetor de input
-            v_in = {}
-            for t in u_toks:
-                if t in self.mapa_nd:
-                    v_ep_v = self.mapa_nd[t]
-                    fator_idade = self.plasticidade.calcular_escala_idade(t, self.turn_count)
-                    v_in = {k: v_in.get(k,0) + v_ep_v.get(k,0)*self._get_entropy(t)*fator_idade for k in set(v_in)|set(v_ep_v)}
-            v_in = KernelRessonante.normalize(v_in)
-            
-            self.trabalho.registrar(v_in, u_toks, modo_idx, self.soma.eixos)
-            v_smooth = self.trabalho.vetor_suavizado
-            damping = self.atroz.amortecer_loop(v_smooth)
-
-            # Encontra o centróide espacial 3D do melhor bloco conceitual do prompt
-            bloco_coords = [self.coordenadas_palavras[t] for t in u_toks if t in self.coordenadas_palavras]
-            if bloco_coords:
-                n_b = len(bloco_coords)
-                centro_xyz = [
-                    sum(c[0] for c in bloco_coords) / n_b,
-                    sum(c[1] for c in bloco_coords) / n_b,
-                    sum(c[2] for c in bloco_coords) / n_b
+        if profile.name and profile.intimacy > 0.3:
+            if random.random() < 0.2 and not resposta.startswith(profile.name):
+                prefixos = [
+                    f"{profile.name}, ",
+                    f"Olha, {profile.name}, ",
+                    f"Sabe, {profile.name}, ",
+                    f"Então, {profile.name}, "
                 ]
-            else:
-                centro_xyz = [0.0, 0.0, 0.0]
+                if resposta and resposta[0].isupper():
+                    resposta = random.choice(prefixos) + resposta[0].lower() + resposta[1:]
+                else:
+                    resposta = random.choice(prefixos) + resposta
 
-            # -------------------------------------------------------------
-            # ANTECIPAÇÃO CONTEXTUAL (PROJEÇÃO DE COGNITIVE CODING)
-            # -------------------------------------------------------------
-            h_antecipado = self.plasticidade.prever_antecipacao()
+        reward = 0.5 if dkl < self.dkl_anterior else -0.1
+        estado_str = self.snc.obter_hash_estado(caixa, self.drive.vm, dkl, impacto)
+        acao_idx = max(range(len(acao)), key=lambda i: acao[i])
+        self.snc.aplicar_recompensa_td(estado_str, acao_idx, reward, estado_str)
+        alvo_adapt = [min(0.99, max(0.01, acao[i] + 0.05 * reward)) for i in range(3)]
+        self.snc.adaptar_realtime(alvo_adapt)
 
-            # -------------------------------------------------------------
-            # FUSÃO: POOL MULTICANDIDATO (EPISÓDICOS + CRIAÇÕES DO MODELO)
-            # -------------------------------------------------------------
-            pool_candidatos = []
-            
-            # 1. Recuperação Episódica (L2 Episodes de SSML)
-            indices_episodicos = self.neuronios.get(sujeito, []) or random.sample(range(len(self.l2_episodes)), min(len(self.l2_episodes), 50))
-            for ep_idx in indices_episodicos:
-                ep = self.l2_episodes[ep_idx]
-                if ep['t'] in self.atroz.historico_absoluto or ep['t'] in self.history: continue
-                pool_candidatos.append({
-                    "txt": ep['t'],
-                    "tokens": self.tokenizer.findall(NormalizadorSomático.limpar(ep['t'])),
-                    "v": ep['v'],
-                    "gradientes": None 
-                })
+        self.dkl_anterior = dkl
 
-            # 2. Geração Criativa em Tempo Real (DLMC)
-            for _ in range(30):
-                c_criado = self._gerar_candidato_criativo(u_toks, centro_xyz, w_opts)
-                if not c_criado["tokens"]: continue
-                v_cand_sparse = {}
-                for t in c_criado["tokens"]:
-                    if t in self.mapa_nd:
-                        for k, val in self.mapa_nd[t].items():
-                            v_cand_sparse[k] = v_cand_sparse.get(k, 0.0) + val * self._get_entropy(t)
-                c_criado["v"] = KernelRessonante.normalize(v_cand_sparse)
-                pool_candidatos.append(c_criado)
+        self.curiosity.mark_dirty()
+        self.curiosity.save_if_dirty()
+        self.salvar_estado()
 
-            # -------------------------------------------------------------
-            # AVALIAÇÃO E SELEÇÃO COGNITIVA SOBERANA
-            # -------------------------------------------------------------
-            scored_candidates = []
-            sentido_conversa = self.plasticidade.processar_sentido_conversa(p_real + [impacto, dkl])
+        return resposta
 
-            for cand in pool_candidatos:
-                # Métricas de Alta Dimensão (SSML)
-                s_q = KernelRessonante.tsallis_match(v_smooth, cand["v"])
-                sim_f = KernelRessonante.dot(v_smooth, cand["v"])
-                sinergia = self.atroz.calcular_sinergia(cand["v"])
+
+# ================================================================
+# THREAD DE RELÓGIO ENDÓGENO (não-invasiva)
+# ================================================================
+def loop_relogio_endogeno(dsml_obj):
+    global sistema_ocupado
+    while True:
+        time.sleep(random.randint(60, 180))
+        if not MODO_VOZ and not sistema_ocupado:
+            try:
+                sistema_ocupado = True
+                pensamento = dsml_obj.motor.pensar("...")
+                if pensamento and pensamento.strip():
+                    print(f"\n🌙 [Espontâneo]: {pensamento}")
+                    if ANDROID_VOZ:
+                        falar(pensamento)
+                    sys.stdout.write("usr: ")
+                    sys.stdout.flush()
+            except:
+                pass
+            finally:
+                sistema_ocupado = False
+
+
+# ================================================================
+# MAIN – LOOP UNIFICADO
+# ================================================================
+if __name__ == "__main__":
+    print("🧬 Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento (Refinado)")
+    print("   GPS + Periscópio + Metabolismo + Perfil de Usuário + Relógio Endógeno")
+    print("=" * 60)
+
+    if ANDROID_VOZ:
+        print("🎤🎧 Modo Android detectado! Microfone e Speaker ativos.")
+    else:
+        print("💻 Modo Terminal (sem voz).")
+    print("=" * 60)
+
+    texto_inicial = ""
+    if os.path.exists("amor.txt"):
+        with open("amor.txt", "r", encoding="utf-8") as f:
+            texto_inicial = f.read()
+        
+
+    motor_base = QuintikusDLMC(texto_inicial)
+    motor_base.inicializar()
+
+    dsml = DSML(motor_base)
+
+    thread_relogio = threading.Thread(target=loop_relogio_endogeno, args=(dsml,), daemon=True)
+    thread_relogio.start()
+
+    if ANDROID_VOZ:
+        time.sleep(0.5)
+        falar("Quintikus V85 com Curiosity e Sentimento está online. Quem é você?")
+        print("\n🎤 Escolha o modo:")
+        print("   [V] Microfone contínuo — sempre ouvindo")
+        print("   [T] Teclado normal")
+        print("   [sair]")
+        modo_inicial = safe_input("   Modo > ").lower()
+        
+        if modo_inicial == "sair":
+            print("💤 Encerrando...")
+            sys.exit(0)
+        
+        MODO_VOZ = (modo_inicial == "v" or modo_inicial == "voz")
+        
+        if MODO_VOZ:
+            print("\n🎤 MICROFONE CONTÍNUO ATIVADO.")
+            print("   🗣️  Fale 'teclado' para digitar")
+            print("   🗣️  Fale 'sair' para encerrar")
+            print("   🔁 Ouvindo...\n")
+            vibrar(100)
+            falar("Microfone contínuo ativado. Estou ouvindo.")
+        else:
+            print("⌨️ MODO TECLADO ATIVADO.\n")
+    else:
+        MODO_VOZ = False
+
+    if not MODO_VOZ:
+        print("💬 Comandos:")
+        print("   tokens:30 | temp:0.5 | momentum:0.6 | suavidade:0.4 | gru:on/off")
+        print("   save | train:arquivo.txt | sair")
+        if ANDROID_VOZ:
+            print("   microfone — ativar voz contínua")
+        print("   (Sentimento NeuroMicro + Contexto Entrópico Persistidos)\n")
+
+    while True:
+        try:
+            if MODO_VOZ and ANDROID_VOZ:
+                sistema_ocupado = True
+                vibrar(30)
+                entrada = ouvir("Ouvindo...")
                 
-                # Alinhamento sintático GRU (Passado e Presente)
-                cand_pseudo = [cand["v"].get(i % 5000, 0.0) for i in range(len(sentido_conversa))]
-                alinhamento_gru = sum(s_c * s_g for s_c, s_g in zip(cand_pseudo, sentido_conversa))
+                if not entrada or len(entrada.strip()) < 1:
+                    sistema_ocupado = False
+                    time.sleep(0.3)
+                    continue
                 
-                # Alinhamento Proativo (Comparação com a projeção transicional GRU)
-                alinhamento_antecipado = sum(s_c * s_a for s_c, s_a in zip(cand_pseudo, h_antecipado))
-
-                # Métricas Sintático-Geométricas (DLMC)
-                coords_cand = [self.coordenadas_palavras.get(t, [0.0, 0.0, 0.0]) for t in cand["tokens"]]
-                score_cnn = self.cnn.forward(coords_cand)
-                score_trajetoria = self.avaliar_trajetoria_3d(cand["tokens"])
-                passou_accepty, score_accepty = self.accepty.avaliar(u_toks, cand["tokens"], self.coordenadas_palavras)
-
-                # Equação Unificada de Decisão com Antecipação Futura
-                score_final = (
-                    (s_q * 0.15) +              # Fidelidade Tsallis
-                    (sim_f * 0.10) +            # Atração Conceitual
-                    (sinergia * 0.15) +         # Sinergia Cortical (Atrozia)
-                    (alinhamento_gru * 0.15) +  # Trajetória Semântica Passada
-                    (alinhamento_antecipado * 0.15) + # Alinhamento de Projeção Futura (Predictive Coding)
-                    (score_cnn * 0.15) +        # Filtro Sintático CNN
-                    (score_accepty * 0.05) +    # Filtro de Integridade Accepty
-                    (score_trajetoria * 0.10)   # Estabilidade Trajetorial 3D
+                entrada = entrada.strip()
+                print(f"👤: {entrada}")
+                
+                entrada_lower = entrada.lower()
+                
+                palavras_sair_mic = ["teclado", "digitar", "texto", "escrever"]
+                palavras_sair = ["sair", "encerrar", "terminar", "fechar", "finalizar"]
+                
+                eh_sair_mic = any(p in entrada_lower for p in palavras_sair_mic)
+                eh_sair_mic = eh_sair_mic or (
+                    any(p in entrada_lower for p in palavras_sair) and 
+                    any(p in entrada_lower for p in ["microfone", "voz", "audio", "ouvir", "falar"])
                 )
                 
-                if modo_idx == 2 and any(x in cand["txt"].lower() for x in ["amo", "prazer"]): 
-                    score_final -= 2.0 
-                if not passou_accepty:
-                    score_final *= 0.5
-
-                scored_candidates.append((cand, score_final * damping))
-
-            if not scored_candidates: 
-                return "Reorganizando conexões..."
-
-            scored_candidates.sort(key=lambda x: x[1], reverse=True)
-            vencedor, score_vencedor = scored_candidates[0]
-            resposta_final = vencedor["txt"]
-
-            # Se o vencedor foi gerado dinamicamente, cristaliza-se em episódio
-            if vencedor["gradientes"] is not None:
-                self.cristalizar_solo(resposta_final)
-                self.nac.backward(vencedor["gradientes"]) 
-
-            # Atração geométrica mútua (Mirror Loop)
-            self._sincronizar_espaco_geometrico(u_toks, vencedor["tokens"])
-
-            # Feedback de Reforço TD no SNC
-            novo_q_int = self.snc.estado_anterior[:4]
-            novo_dkl = self.cortex.calcular_dkl(p_real, novo_q_int)
-            self.plasticidade.adaptar_gru_local(p_real + [impacto, novo_dkl])
-            
-            recompensa_total = ((dkl - novo_dkl) * 8.0) + (self.tom.estimativa_humor["confiança"] * 4.0) - (self.tom.estimativa_humor["agressividade"] * 3.0)
-            if self.soma.vm > -52.0: recompensa_total -= 3.0
-
-            hash_prox_estado = self.snc.obter_hash_estado(modo_idx, self.soma.vm, novo_dkl, impacto)
-            self.snc.aplicar_recompensa_td(hash_estado, modo_idx, recompensa_total, hash_prox_estado)
-
-            self.atroz.historico_absoluto.append(resposta_final)
-            self.atroz.last_v_vencedor = vencedor["v"]
-            
-            if dkl < 0.45 or self.soma.simbiose > 0.6:
-                self.snc.adaptar_realtime([1.0 if i == modo_idx else 0.0 for i in range(3)])
-
-            self.history.append(resposta_final)
-            self.modo_anterior = modo_idx
-            self.plasticidade.metabolizar_decaimento_sinaptico()
-
-            dt = (time.perf_counter() - t0) * 1000
-            tipo_cand = "CRIADO" if vencedor["gradientes"] is not None else "EPISÓDICO"
-            print(f" ⚛️ [v75.5] Tipo:{tipo_cand} | Simbiose:{self.soma.simbiose:.2f} | Nós DLM:{len(self.matrix_dlm)} | {dt:.1f}ms")
-            return resposta_final
-
-    def boot(self):
-        if os.path.exists(self.path_bin):
-            try:
-                with open(self.path_bin, 'rb') as f:
-                    d = pickle.load(f)
-                    self.l2_episodes, self.raridade, self.mapa_nd = d['nexus'], d['raridade'], d['nd']
-                    self.coordenadas_palavras = d.get('coordenadas_palavras', {})
-                    self.matrix_dlm = d.get('matrix_dlm', {})
-                    self.replay_buffer = deque(d.get('replay_buffer', []), maxlen=100)
-                    self.plasticidade.utilidade_sinaptica = defaultdict(float, d.get('utilidade_sinaptica', {}))
-                    self.plasticidade.ultimo_uso_token = defaultdict(int, d.get('ultimo_uso_token', {}))
-                    
-                    self.atroz.historico_absoluto = deque(d.get('atroz_hist', []), maxlen=200)
-                    
-                    rel_carregado = d.get('relacoes', {})
-                    self.relacoes = defaultdict(lambda: defaultdict(set))
-                    for k, v in rel_carregado.items():
-                        for kk, vv in v.items():
-                            self.relacoes[k][kk] = set(vv)
-                            
-                    # CONVERSOR DE MATRIZES LEGADAS DO NUMPY PARA LISTAS NATIVAS
-                    if 'nac_W1' in d:
-                        W1_raw = d['nac_W1']
-                        self.nac.W1 = W1_raw.tolist() if hasattr(W1_raw, 'tolist') else W1_raw
-                        b1_raw = d['nac_b1']
-                        self.nac.b1 = b1_raw.tolist() if hasattr(b1_raw, 'tolist') else b1_raw
-                        W2_raw = d['nac_W2']
-                        self.nac.W2 = W2_raw.tolist() if hasattr(W2_raw, 'tolist') else W2_raw
-                        b2_raw = d['nac_b2']
-                        self.nac.b2 = b2_raw.tolist() if hasattr(b2_raw, 'tolist') else b2_raw
-                        
-                    if 'cnn_W_conv' in d:
-                        W_conv_raw = d['cnn_W_conv']
-                        self.cnn.W_conv = W_conv_raw.tolist() if hasattr(W_conv_raw, 'tolist') else W_conv_raw
-                        b_conv_raw = d['cnn_b_conv']
-                        self.cnn.b_conv = b_conv_raw.tolist() if hasattr(b_conv_raw, 'tolist') else b_conv_raw
-                        W_dense_raw = d['cnn_W_dense']
-                        self.cnn.W_dense = W_dense_raw.tolist() if hasattr(W_dense_raw, 'tolist') else W_dense_raw
-                        b_dense_raw = d['cnn_b_dense']
-                        if hasattr(b_dense_raw, 'tolist'):
-                            b_dense_list = b_dense_raw.tolist()
-                            self.cnn.b_dense = b_dense_list[0][0] if isinstance(b_dense_list, list) and isinstance(b_dense_list[0], list) else (b_dense_list[0] if isinstance(b_dense_list, list) else b_dense_list)
-                        else:
-                            self.cnn.b_dense = b_dense_raw
-            except Exception as e:
-                # Auto-cura contra arquivos corrompidos ou em branco (0 bytes) do cérebro
-                print(f"⚠️ [AVISO] Falha ao decodificar nucleo_organismo.qssml ({e}). Iniciando com novo organismo.")
-
-        # Executa sincronização e migração se viemos de um banco legado sem DLM
-        self._sincronizar_migracao_dlm()
-
-        if os.path.exists(self.path_ledger):
-            try:
-                with open(self.path_ledger, 'rb') as f: 
-                    self.ledger = pickle.load(f)
-            except Exception as e:
-                # Auto-cura contra arquivos de log corrompidos ou em branco (0 bytes)
-                print(f"⚠️ [AVISO] O ledger.bin está vazio ou corrompido ({e}). Reinicializando registro limpo.")
-                self.ledger = set()
-            
-        for arq in self.auto_train_files:
-            if os.path.exists(arq):
-                with open(arq, 'r', encoding='utf-8') as f:
-                    c = f.read()
-                    h = hashlib.sha256(c.encode()).hexdigest()
-                    if h not in self.ledger: 
-                        self.cristalizar_solo(c)
-                        self.ledger.add(h)
-                        
-        self.neuronios.clear()
-        for i, ep in enumerate(self.l2_episodes):
-            for t in self.tokenizer.findall(NormalizadorSomático.limpar(ep['t'])): 
-                self.neuronios[t].append(i)
-        
-        self.ultimo_registro_temporal = time.time()
-        print(f"✅ Organismo Sincronizado v75.5 [Híbrido Neuro-Simbólico Nativo]. Episódios: {len(self.l2_episodes)}")
-
-    def dormir(self):
-        # Consolidação profunda gera uma autobiografia reflexiva antes de descarregar na persistência
-        self.consolidar_autobiografia()
-
-        if len(self.replay_buffer) > 5:
-            print("🧠 [CONSOLIDAÇÃO PLÁSTICA LTP]")
-            amostra_treino = random.sample(self.replay_buffer, min(len(self.replay_buffer), 20))
-            for x_sen, modo_real_idx in amostra_treino:
-                self.snc.pulsar_vontade(x_sen)
-                target = [0.0] * 3
-                target[modo_real_idx] = 1.0
-                self.snc.adaptar_realtime(target)
+                if eh_sair_mic:
+                    print("⌨️ Voltando para modo teclado...")
+                    falar("Modo teclado ativado.")
+                    MODO_VOZ = False
+                    print("\n💬 Comandos: tokens:30 | temp:0.5 | momentum:0.6 | suavidade:0.4 | gru:on/off")
+                    print("   save | train:arquivo.txt | sair | microfone\n")
+                    sistema_ocupado = False
+                    continue
                 
-        self.plasticidade.aplicar_morte_sinaptica(self.mapa_nd, self.neuronios, self.l2_episodes, self.raridade)
-        self.snc._salvar()
-        
-        relacoes_serializaveis = {k: {kk: list(vv) for kk, vv in v.items()} for k, v in self.relacoes.items()}
-        
-        with open(self.path_bin, 'wb') as f:
-            pickle.dump({
-                'nexus': self.l2_episodes, 'raridade': self.raridade, 'nd': self.mapa_nd,
-                'coordenadas_palavras': self.coordenadas_palavras,
-                'matrix_dlm': self.matrix_dlm,
-                'relacoes': relacoes_serializaveis,
-                'replay_buffer': list(self.replay_buffer),
-                'utilidade_sinaptica': dict(self.plasticidade.utilidade_sinaptica),
-                'ultimo_uso_token': dict(self.plasticidade.ultimo_uso_token),
-                'atroz_hist': list(self.atroz.historico_absoluto), 
-                'nac_W1': self.nac.W1, 'nac_b1': self.nac.b1, 'nac_W2': self.nac.W2, 'nac_b2': self.nac.b2,
-                'cnn_W_conv': self.cnn.W_conv, 'cnn_b_conv': self.cnn.b_conv, 'cnn_W_dense': self.cnn.W_dense, 'cnn_b_dense': self.cnn.b_dense
-            }, f)
+                if entrada_lower in ["sair", "encerrar"]:
+                    print("⚙️ Consolidando...")
+                    falar("Salvando memória. Até mais!")
+                    dsml.salvar_estado()
+                    motor_base.treino_consolidacao()
+                    print("💤 Cérebro salvo. Até mais!")
+                    sistema_ocupado = False
+                    break
+                
+                if entrada_lower.startswith("tokens"):
+                    try:
+                        val = int(entrada_lower.replace("tokens", "").replace(":", "").strip())
+                        motor_base.max_tokens = max(5, min(100, val))
+                        msg = f"máximo de tokens ajustado para {motor_base.max_tokens}"
+                        print(f"✅ {msg}")
+                        falar(msg)
+                    except:
+                        pass
+                    sistema_ocupado = False
+                    continue
+                
+                if entrada_lower.startswith("temp"):
+                    try:
+                        val = float(entrada_lower.replace("temperatura", "").replace("temp", "").replace(":", "").strip())
+                        motor_base.temperatura = max(0.1, min(2.0, val))
+                        msg = f"temperatura ajustada para {motor_base.temperatura}"
+                        print(f"✅ {msg}")
+                        falar(msg)
+                    except:
+                        pass
+                    sistema_ocupado = False
+                    continue
+                
+                if entrada_lower.startswith("momentum"):
+                    try:
+                        val = float(entrada_lower.replace("momentum", "").replace(":", "").strip())
+                        motor_base.fator_momentum = max(0.0, min(1.0, val))
+                        print(f"✅ momentum = {motor_base.fator_momentum}")
+                    except:
+                        pass
+                    sistema_ocupado = False
+                    continue
+                
+                if entrada_lower.startswith("suavidade"):
+                    try:
+                        val = float(entrada_lower.replace("suavidade", "").replace(":", "").strip())
+                        motor_base.fator_suavidade = max(0.0, min(1.0, val))
+                        print(f"✅ suavidade = {motor_base.fator_suavidade}")
+                    except:
+                        pass
+                    sistema_ocupado = False
+                    continue
+                
+                resposta = dsml.process_input(entrada)
+                print(f"🧠: {resposta}")
+                vibrar(20)
+                texto_tts = resposta.replace(".", ". ").replace(",", ", ")
+                falar(texto_tts)
+                print()
+                sistema_ocupado = False
+                continue
             
-        with open(self.path_ledger, 'wb') as f: pickle.dump(self.ledger, f)
-
-# ==================================================================
-# ⏱️ RELÓGIO ATIVO - DAEMON THREAD EM SEGUNDO PLANO
-# ==================================================================
-def loop_relogio_endogeno(organismo, stop_event):
-    while not stop_event.is_set():
-        time.sleep(5.0) 
-        t_ocioso = time.time() - organismo.ultimo_registro_temporal
-        
-        if t_ocioso > 15.0:
-            gravidade_passiva = 1.0 - math.exp(-5.0 / 90.0)
+            # Modo teclado
+            sistema_ocupado = True
+            entrada = safe_input("usr:")
             
-            # Lock não-bloqueante impede lag ou disputa de thread no terminal do usuário
-            if organismo.lock_estado.acquire(blocking=False):
-                try:
-                    organismo.trabalho.aplicar_gravidade_temporal(gravidade_passiva)
-                    organismo.soma.aplicar_deriva_temporal(gravidade_passiva)
-                    organismo.anomini.atualizar_estados(
-                        dkl_atual=(organismo.anomini.cache_otimizacao[-1] if organismo.anomini.cache_otimizacao else 0.5),
-                        confianca_tom=organismo.tom.estimativa_humor["confiança"],
-                        dt=5.0
-                    )
-                    
-                    if organismo.soma.eixos["tristeza"] > 3.5:
-                        organismo.soma.eixos["tristeza"] *= 0.5
-                        print(f"\n🧠 [SURTO ESPONTÂNEO DE TRISTEZA COGNITIVA]")
-                        print(f"🧠: {organismo.processar('solidão')}")
-                    elif organismo.soma.vm > -55.0:
-                        print(f"\n🧠 [DESCARGA DE VOLTAGEM CRÍTICA Vm]")
-                        print(f"🧠: {organismo.processar('origem')}")
-                finally:
-                    organismo.lock_estado.release()
-
-# ==================================================================
-# DEPLOY QUINTIKUS COGNITIVE FUSION ARCHITECTURE
-# ==================================================================
-if __name__ == "__main__":
-    organismo = OrganismoSoberano()
-    organismo.boot()
-    
-    #stop_relogio = threading.Event()
-    #thread_tempo = threading.Thread(target=loop_relogio_endogeno, args=(organismo, stop_relogio), daemon=True)
-    #thread_tempo.start()
-    
-    print("="*90)
-    print("QUINTIKUS DSML v75.5 - COGNITIVE FUSION DEPLOYED")
-    print("="*90)
-    
-    try:
-        while True:
-            entrada = input("\n👤: ")
-            if entrada.strip().lower() == "dormir" or entrada.strip().lower() == "sair" :
-                organismo.dormir()
-                print("💤 [SNC SALVO] Consolidação de pesos concluída.")
+            if not entrada:
+                sistema_ocupado = False
+                continue
+            
+            if entrada.lower() == "sair":
+                print("⚙️ Consolidando...")
+                if ANDROID_VOZ:
+                    falar("Salvando memória. Até mais!")
+                dsml.salvar_estado()
+                motor_base.treino_consolidacao()
+                print("💤 Cérebro salvo. Até mais!")
+                sistema_ocupado = False
                 break
             
-            resposta = organismo.processar(entrada)
+            if entrada.lower() == "microfone" and ANDROID_VOZ:
+                print("🎤 Reativando microfone contínuo...")
+                falar("Microfone reativado. Pode falar.")
+                MODO_VOZ = True
+                print("🔁 Ouvindo... (diga 'teclado' para voltar)\n")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower() == "save":
+                if motor_base.salvar(): print("💾 Salvo!")
+                else: print("❌ Falha.")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("tokens:"):
+                try: motor_base.max_tokens = max(5, min(100, int(entrada.split(":",1)[1])))
+                except: print("❌ Use: tokens:30")
+                else: print(f"✅ max_tokens = {motor_base.max_tokens}")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("temp:"):
+                try: motor_base.temperatura = max(0.1, min(2.0, float(entrada.split(":",1)[1])))
+                except: print("❌ Use: temp:0.7")
+                else: print(f"✅ temp = {motor_base.temperatura}")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("momentum:"):
+                try: motor_base.fator_momentum = max(0.0, min(1.0, float(entrada.split(":",1)[1])))
+                except: print("❌ Use: momentum:0.4")
+                else: print(f"✅ momentum = {motor_base.fator_momentum}")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("suavidade:"):
+                try: motor_base.fator_suavidade = max(0.0, min(1.0, float(entrada.split(":",1)[1])))
+                except: print("❌ Use: suavidade:0.3")
+                else: print(f"✅ suavidade = {motor_base.fator_suavidade}")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("gru:"):
+                motor_base.gru_ativo = entrada.split(":",1)[1].strip() == "on"
+                print(f"✅ GRU {'ATIVADA' if motor_base.gru_ativo else 'DESATIVADA'}")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("debug:"):
+                motor_base.debug = entrada.split(":",1)[1].strip() == "on"
+                print(f"✅ debug = {motor_base.debug}")
+                sistema_ocupado = False
+                continue
+
+            if entrada.lower().startswith("train:"):
+                arquivo = entrada.split(":",1)[1].strip()
+                if os.path.exists(arquivo):
+                    with open(arquivo, "r", encoding="utf-8") as f:
+                        texto = f.read()
+                    motor_base = QuintikusDLMC(texto, "cerebro_v85.bin")
+                    motor_base.inicializar()
+                    dsml.motor = motor_base
+                else: print(f"❌ Arquivo '{arquivo}' não encontrado.")
+                sistema_ocupado = False
+                continue
+
+            resposta = dsml.process_input(entrada)
             print(f"🧠: {resposta}")
-            
-    except KeyboardInterrupt:
-        print("\n🛑 Salvando estado atômico...")
-        organismo.dormir()
+            sistema_ocupado = False
+
+        except KeyboardInterrupt:
+            print("\n⚙️ Consolidando...")
+            if ANDROID_VOZ:
+                falar("Salvando cérebro.")
+            dsml.salvar_estado()
+            motor_base.treino_consolidacao()
+            print("💤 Cérebro salvo.")
+            break
+        except Exception as e:
+            print(f"❌ Erro: {e}")
+            sistema_ocupado = False
+            if MODO_VOZ:
+                time.sleep(0.5)
