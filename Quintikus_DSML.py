@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento (Deep Sea Meta-Learning)
+Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento + Metacognitivo
 Fusão completa: GPS + Periscópio + Computador de Bordo + Metabolismo +
 SNC + Homeostase + Perfil de Usuário + Relógio Endógeno Não-Invasivo +
-NeuroMicro (Sentimento) + Contexto Entrópico
-Versão Final – Corrigida, Persistente e com Aprendizado Emocional Refinado
+NeuroMicro (Sentimento) + Contexto Entrópico + Organismo Metacognitivo
+Versão Final – Relógio Endógeno com Parada Correta
 """
 
 import hashlib, math, random, time, pickle, os, tempfile, sys, re, threading
 from array import array
 from collections import defaultdict, deque, Counter
+from datetime import datetime
 from typing import List, Tuple, Dict, Optional
 
 # ============================================
@@ -1512,7 +1513,295 @@ class Curiosity:
 
 
 # ================================================================
-# DSML – FUSÃO COMPLETA (com Curiosity, Sentimento, Contexto Persistente)
+# 🧠 ORGANISMO METACOGNITIVO (v5.5) – Integrado com Relatório por Turnos
+# ================================================================
+class GeradorPerguntas:
+    def __init__(self):
+        self.templates_tema = [
+            "O que você sente quando {sujeito} {verbo} {contexto}",
+            "Por que você acha que {sujeito} {verbo} {contexto}",
+            "Como você lida quando {sujeito} {verbo} {contexto}",
+            "De que forma {sujeito} {verbo} {contexto}",
+            "O que significa para você quando {sujeito} {verbo} {contexto}"
+        ]
+        self.templates_estado = [
+            "Percebi que agora você está sentindo {emocao_ultima}. Antes parecia {emocao_anterior}. O que mudou?",
+            "Sua energia mudou: estava {emocao_anterior} e agora sinto {emocao_ultima}. Quer falar sobre isso?",
+            "Notei uma transição de {emocao_anterior} para {emocao_ultima}. Como você está se sentindo de verdade?",
+            "Você foi de {emocao_anterior} para {emocao_ultima} em pouco tempo. Isso é normal, mas se quiser desabafar...",
+            "Antes {emocao_anterior}, agora {emocao_ultima}. O que aconteceu no meio do caminho?"
+        ]
+        self.lexico = {
+            "a vida": ["te desafia", "te transforma", "te ensina", "te faz crescer"],
+            "a paciência": ["te ensina", "te acalma", "te fortalece", "te traz paz"],
+            "o momento": ["te desafia", "te inspira", "te transforma", "te faz mudar"],
+            "a tristeza": ["te desafia", "te ensina", "te transforma", "te perturba"],
+            "a alegria": ["te transforma", "te acalma", "te inspira", "te faz sorrir"],
+            "o amor": ["te transforma", "te acalma", "te faz crescer", "te traz paz"],
+            "o medo": ["te desafia", "te preocupa", "te paralisa", "te ensina"],
+            "a solidão": ["te desafia", "te perturba", "te ensina", "te faz refletir"],
+            "a saudade": ["te transforma", "te ensina", "te aperta", "te faz lembrar"],
+            "o passado": ["te ensina", "te prende", "te faz mudar", "te traz lições"],
+            "o futuro": ["te preocupa", "te inspira", "te motiva", "te desafia"],
+            "o silêncio": ["te acalma", "te ensina", "te perturba", "te faz ouvir"],
+            "a raiva": ["te consome", "te ensina", "te transforma", "te faz explodir"],
+            "a esperança": ["te inspira", "te acalma", "te motiva", "te faz sonhar"]
+        }
+        self.contextos = [
+            "em dias difíceis?", "quando tudo parece incerto?", "no seu cotidiano?",
+            "olhando para o passado?", "quando você está sozinho?", "nos momentos de alegria?",
+            "quando o cansaço bate?", "ao acordar de manhã?", "antes de dormir?",
+            "quando alguém te decepciona?"
+        ]
+        self.historico = deque(maxlen=30)
+
+    def gerar_tematico(self, sujeito=None):
+        for _ in range(30):
+            s = sujeito if sujeito and sujeito in self.lexico else random.choice(list(self.lexico.keys()))
+            v = random.choice(self.lexico[s])
+            c = random.choice(self.contextos)
+            t = random.choice(self.templates_tema)
+            pergunta = t.format(sujeito=s, verbo=v, contexto=c)
+            if pergunta not in self.historico:
+                self.historico.append(pergunta)
+                return pergunta
+        return pergunta
+
+    def gerar_estado(self, emocao_ultima, emocao_anterior=None):
+        if not emocao_anterior:
+            t = random.choice([
+                "Você está sentindo {emocao_ultima}? Se quiser conversar, estou aqui.",
+                "Percebi {emocao_ultima} em você. O que está acontecendo?",
+                "Senti {emocao_ultima} nas suas palavras. Quer desabafar?"
+            ])
+            pergunta = t.format(emocao_ultima=emocao_ultima)
+        else:
+            t = random.choice(self.templates_estado)
+            pergunta = t.format(emocao_ultima=emocao_ultima, emocao_anterior=emocao_anterior)
+        if pergunta not in self.historico:
+            self.historico.append(pergunta)
+        return pergunta
+
+class BufferMaturacao:
+    def __init__(self, threshold=3, max_entradas=6):
+        self.th = threshold
+        self.mx = max_entradas
+        self.entradas = deque(maxlen=max_entradas)
+        self.sujeitos_unicos = set()
+        self.emocoes_unicas = []
+        self.contexto_total = ""
+
+    def alimentar(self, entrada, sujeito_detectado=None, emocoes_detectadas=None):
+        self.entradas.append(entrada)
+        self.contexto_total += " " + entrada
+        if sujeito_detectado:
+            self.sujeitos_unicos.add(sujeito_detectado)
+        if emocoes_detectadas:
+            for e in emocoes_detectadas:
+                if e not in self.emocoes_unicas:
+                    self.emocoes_unicas.append(e)
+
+    def esta_maduro(self):
+        return len(self.sujeitos_unicos) >= self.th or len(self.emocoes_unicas) >= self.th or len(self.entradas) >= self.mx
+
+    def esvaziar(self):
+        sujeitos = list(self.sujeitos_unicos)
+        emocoes = list(self.emocoes_unicas)
+        self.entradas.clear()
+        self.sujeitos_unicos.clear()
+        self.emocoes_unicas.clear()
+        self.contexto_total = ""
+        return sujeitos, emocoes
+
+class OrganismoMetacognitivo:
+    def __init__(self, nome="Quintikus", threshold_buffer=3, min_turnos_entre_falas=5):
+        self.nome = nome
+        self.gerador = GeradorPerguntas()
+        self.buffer = BufferMaturacao(threshold=threshold_buffer)
+        self.min_turnos_fala = min_turnos_entre_falas
+
+        self.emocoes_contagem = {'alegria':0,'tristeza':0,'raiva':0}
+        self.historico_estados = deque(maxlen=5)
+        self.ultimo_estado = "inicio"
+        self.turnos_total = 0
+        self.turnos_desde_ultima_fala = 0
+
+        self.registro_diario = {}
+        self.ultimo_relatorio = datetime.now()
+        self.intervalos = {'alegria':9, 'raiva':6, 'tristeza':3}
+        self.met = {'falas':0, 'silencios':0}
+
+        # Vetor de estado público
+        self.vetor_estado = {
+            'emocoes': self.emocoes_contagem.copy(),
+            'estado': 'inicio',
+            'sujeitos_unicos': 0,
+            'ultima_emocao': None,
+            'preocupacao': 0.0,
+            'tempo_desde_ultima_fala': 0,
+            'timestamp': datetime.now().isoformat()
+        }
+
+        if os.path.exists("organismo.id"):
+            self._carregar()
+
+    def _analisar(self, frase):
+        f = frase.lower()
+        detectadas = []
+        if re.search(r'feliz|alegr|amo|gosto|bom|legal|rindo|risada', f):
+            self.emocoes_contagem['alegria'] += 1
+            detectadas.append('alegria')
+        if re.search(r'triste|choro|dor|sofrendo|difícil|mal', f):
+            self.emocoes_contagem['tristeza'] += 1
+            detectadas.append('tristeza')
+        if re.search(r'raiva|ódio|irritado|odeio|revoltado', f):
+            self.emocoes_contagem['raiva'] += 1
+            detectadas.append('raiva')
+        return detectadas
+
+    def _estado_atual(self):
+        total = sum(self.emocoes_contagem.values()) or 1
+        if self.emocoes_contagem['tristeza'] > self.emocoes_contagem['alegria']: return "pesar"
+        if self.emocoes_contagem['raiva'] > total * 0.4: return "tenso"
+        if self.emocoes_contagem['alegria'] > total * 0.4: return "leveza"
+        return "neutro"
+
+    def _sujeito_na_frase(self, frase):
+        match = re.search(r'\b(vida|paciência|momento|tristeza|alegria|amor|medo|solidão|saudade|passado|futuro|silêncio|raiva|esperança)\b', frase.lower())
+        if match:
+            mapa = {'vida':'a vida','paciência':'a paciência','momento':'o momento',
+                    'tristeza':'a tristeza','alegria':'a alegria','amor':'o amor',
+                    'medo':'o medo','solidão':'a solidão','saudade':'a saudade',
+                    'passado':'o passado','futuro':'o futuro','silêncio':'o silêncio',
+                    'raiva':'a raiva','esperança':'a esperança'}
+            return mapa.get(match.group(0))
+        return None
+
+    def _atualizar_vetor(self, ultima_emocao=None):
+        total = sum(self.emocoes_contagem.values()) or 1
+        preocupacao = (self.emocoes_contagem['tristeza'] + self.emocoes_contagem['raiva']) / total
+        self.vetor_estado = {
+            'emocoes': self.emocoes_contagem.copy(),
+            'estado': self._estado_atual(),
+            'sujeitos_unicos': len(self.buffer.sujeitos_unicos),
+            'ultima_emocao': ultima_emocao,
+            'preocupacao': round(preocupacao, 3),
+            'tempo_desde_ultima_fala': self.turnos_desde_ultima_fala,
+            'timestamp': datetime.now().isoformat()
+        }
+
+    def ciclo(self, entrada_usuario):
+        self.turnos_total += 1
+        self.turnos_desde_ultima_fala += 1
+        emocoes_frase = self._analisar(entrada_usuario)
+
+        hoje = datetime.now().strftime("%Y-%m-%d")
+        self.registro_diario[hoje] = {k: self.emocoes_contagem[k] for k in self.emocoes_contagem}
+
+        self._atualizar_vetor(emocoes_frase[-1] if emocoes_frase else None)
+
+        # Relatório cíclico por tempo (alta prioridade)
+        rel = self._relatorio_ciclico()
+        if rel:
+            self.buffer.esvaziar()
+            self.met['falas'] += 1
+            self.turnos_desde_ultima_fala = 0
+            self._atualizar_vetor(emocoes_frase[-1] if emocoes_frase else None)
+            return rel
+
+        # 🔥 Relatório por turnos (a cada 30 interações)
+        if self.turnos_total % 30 == 0 and self.turnos_total > 0:
+            total = sum(self.emocoes_contagem.values()) or 1
+            if self.emocoes_contagem['tristeza'] > total * 0.4:
+                tema = 'a tristeza'
+            elif self.emocoes_contagem['alegria'] > total * 0.4:
+                tema = 'a alegria'
+            elif self.emocoes_contagem['raiva'] > total * 0.4:
+                tema = 'a raiva'
+            else:
+                tema = None
+            if tema:
+                pergunta = self.gerador.gerar_tematico(tema)
+                self.buffer.esvaziar()
+                self.met['falas'] += 1
+                self.turnos_desde_ultima_fala = 0
+                self._atualizar_vetor()
+                return pergunta
+
+        estado = self._estado_atual()
+        if estado != self.ultimo_estado and estado != "neutro" and len(self.historico_estados) >= 2:
+            self.ultimo_estado = estado
+            self.historico_estados.append(estado)
+            if self.turnos_desde_ultima_fala >= self.min_turnos_fala:
+                pergunta = self.gerador.gerar_estado(emocoes_frase[-1] if emocoes_frase else None)
+                self.buffer.esvaziar()
+                self.met['falas'] += 1
+                self.turnos_desde_ultima_fala = 0
+                self._atualizar_vetor(emocoes_frase[-1] if emocoes_frase else None)
+                return pergunta
+
+        self.historico_estados.append(estado)
+
+        sujeito = self._sujeito_na_frase(entrada_usuario)
+        self.buffer.alimentar(entrada_usuario, sujeito, emocoes_frase)
+
+        if self.buffer.esta_maduro() and self.turnos_desde_ultima_fala >= self.min_turnos_fala:
+            sujeitos, emocoes = self.buffer.esvaziar()
+            if len(emocoes) >= 2:
+                pergunta = self.gerador.gerar_estado(emocoes[-1], emocoes[-2])
+            elif len(emocoes) == 1:
+                pergunta = self.gerador.gerar_estado(emocoes[0])
+            else:
+                sujeito_escolhido = sujeitos[-1] if sujeitos else None
+                pergunta = self.gerador.gerar_tematico(sujeito_escolhido)
+            self.met['falas'] += 1
+            self.turnos_desde_ultima_fala = 0
+            self._atualizar_vetor(emocoes[-1] if emocoes else None)
+            return pergunta
+        else:
+            self.met['silencios'] += 1
+            return None
+
+    def _relatorio_ciclico(self):
+        agora = datetime.now()
+        for emocao, dias in self.intervalos.items():
+            if (agora - self.ultimo_relatorio).days >= dias:
+                total = sum(self.registro_diario.get(d, {}).get(emocao, 0) for d in self.registro_diario)
+                self.ultimo_relatorio = agora
+                if total > 0:
+                    mapa = {'alegria':'a alegria','raiva':'a raiva','tristeza':'a tristeza'}
+                    return self.gerador.gerar_tematico(mapa[emocao])
+        return None
+
+    def salvar(self, arquivo="organismo.id"):
+        with open(arquivo, 'wb') as f:
+            pickle.dump({
+                'nome': self.nome,
+                'met': self.met,
+                'turnos': self.turnos_total,
+                'ultimo_relatorio': self.ultimo_relatorio.strftime("%Y-%m-%d %H:%M:%S"),
+                'registro_diario': self.registro_diario,
+                'vetor_estado': self.vetor_estado,
+                'emocoes_contagem': self.emocoes_contagem
+            }, f)
+
+    def _carregar(self, arquivo="organismo.id"):
+        try:
+            with open(arquivo, 'rb') as f:
+                data = pickle.load(f)
+            self.nome = data.get('nome', 'Quintikus')
+            self.met = data.get('met', {'falas':0,'silencios':0})
+            self.turnos_total = data.get('turnos', 0)
+            self.ultimo_relatorio = datetime.strptime(data['ultimo_relatorio'], "%Y-%m-%d %H:%M:%S")
+            self.registro_diario = data.get('registro_diario', {})
+            self.vetor_estado = data.get('vetor_estado', self.vetor_estado)
+            self.emocoes_contagem = data.get('emocoes_contagem', self.emocoes_contagem)
+            print(f"🧠 {self.nome}: Voltando de onde paramos...")
+        except: pass
+
+
+# ================================================================
+# DSML – FUSÃO COMPLETA (com Curiosity, Sentimento, Contexto, Metacognitivo)
 # ================================================================
 class DSML:
     def __init__(self, motor: QuintikusDLMC, curiosity_path="perfis_curiosidade.bin"):
@@ -1535,6 +1824,11 @@ class DSML:
         self.contexto = ContextoEntropico()
         self.current_user_id = None
 
+        # Metacognitivo (organismo que faz perguntas baseadas em emoções)
+        self.metacognitivo = OrganismoMetacognitivo(
+            nome="Quintikus", threshold_buffer=3, min_turnos_entre_falas=5
+        )
+
         self.carregar_estado()
 
     def salvar_estado(self, path="dsml_state.bin"):
@@ -1556,6 +1850,23 @@ class DSML:
                 "contexto_documentos": self.contexto.documentos,
                 "contexto_freq_palavras": dict(self.contexto.freq_palavras),
                 "contexto_total_documentos": self.contexto.total_documentos,
+                # Metacognitivo
+                "metacognitivo": {
+                    "nome": self.metacognitivo.nome,
+                    "turnos_total": self.metacognitivo.turnos_total,
+                    "emocoes_contagem": self.metacognitivo.emocoes_contagem,
+                    "historico_estados": list(self.metacognitivo.historico_estados),
+                    "ultimo_estado": self.metacognitivo.ultimo_estado,
+                    "registro_diario": self.metacognitivo.registro_diario,
+                    "ultimo_relatorio": self.metacognitivo.ultimo_relatorio.strftime("%Y-%m-%d %H:%M:%S"),
+                    "buffer_entradas": list(self.metacognitivo.buffer.entradas),
+                    "buffer_sujeitos": list(self.metacognitivo.buffer.sujeitos_unicos),
+                    "buffer_emocoes": list(self.metacognitivo.buffer.emocoes_unicas),
+                    "buffer_contexto": self.metacognitivo.buffer.contexto_total,
+                    "met": self.metacognitivo.met,
+                    "turnos_desde_ultima_fala": self.metacognitivo.turnos_desde_ultima_fala,
+                    "vetor_estado": self.metacognitivo.vetor_estado
+                }
             }
             with open(path, "wb") as f:
                 pickle.dump(estado, f)
@@ -1587,6 +1898,24 @@ class DSML:
                 if 'contexto_freq_palavras' in estado:
                     self.contexto.freq_palavras = Counter(estado['contexto_freq_palavras'])
                 self.contexto.total_documentos = estado.get('contexto_total_documentos', 0)
+                # Metacognitivo
+                meta_data = estado.get('metacognitivo')
+                if meta_data:
+                    m = self.metacognitivo
+                    m.nome = meta_data.get('nome', m.nome)
+                    m.turnos_total = meta_data.get('turnos_total', 0)
+                    m.emocoes_contagem = meta_data.get('emocoes_contagem', m.emocoes_contagem)
+                    m.historico_estados = deque(meta_data.get('historico_estados', []), maxlen=5)
+                    m.ultimo_estado = meta_data.get('ultimo_estado', "inicio")
+                    m.registro_diario = meta_data.get('registro_diario', {})
+                    m.ultimo_relatorio = datetime.strptime(meta_data['ultimo_relatorio'], "%Y-%m-%d %H:%M:%S") if meta_data.get('ultimo_relatorio') else datetime.now()
+                    m.buffer.entradas = deque(meta_data.get('buffer_entradas', []), maxlen=m.buffer.mx)
+                    m.buffer.sujeitos_unicos = set(meta_data.get('buffer_sujeitos', []))
+                    m.buffer.emocoes_unicas = meta_data.get('buffer_emocoes', [])
+                    m.buffer.contexto_total = meta_data.get('buffer_contexto', "")
+                    m.met = meta_data.get('met', {'falas':0,'silencios':0})
+                    m.turnos_desde_ultima_fala = meta_data.get('turnos_desde_ultima_fala', 0)
+                    m.vetor_estado = meta_data.get('vetor_estado', m.vetor_estado)
             except:
                 pass
 
@@ -1641,6 +1970,15 @@ class DSML:
             self.curiosity.save_if_dirty()
             self.salvar_estado()
             return question_text
+
+        # 🔥 Metacognitivo – só fala se já conhece o usuário (intimidade > 0.3)
+        if profile.intimacy > 0.3:
+            resposta_meta = self.metacognitivo.ciclo(user_input)
+            if resposta_meta:
+                self.curiosity.mark_dirty()
+                self.curiosity.save_if_dirty()
+                self.salvar_estado()
+                return resposta_meta
 
         ql = tokens
         if not ql:
@@ -1713,6 +2051,13 @@ class DSML:
         elif caixa == 1:
             motor.temperatura = 0.8
 
+        # 🔥 Ajuste fino baseado no vetor de estado metacognitivo
+        preocupacao = self.metacognitivo.vetor_estado.get('preocupacao', 0.0)
+        if preocupacao > 0.6:
+            motor.temperatura = max(0.3, motor.temperatura - 0.15)   # mais cauteloso
+        elif preocupacao < 0.25:
+            motor.temperatura = min(1.6, motor.temperatura + 0.1)    # mais leve
+
         resposta = motor.pensar(user_input)
 
         if profile.name and profile.intimacy > 0.3:
@@ -1745,16 +2090,23 @@ class DSML:
 
 
 # ================================================================
-# THREAD DE RELÓGIO ENDÓGENO (não-invasiva)
+# THREAD DE RELÓGIO ENDÓGENO (com parada correta)
 # ================================================================
-def loop_relogio_endogeno(dsml_obj):
+def loop_relogio_endogeno(dsml_obj, stop_event):
+    """Gera pensamentos espontâneos apenas quando o sistema está livre e não foi encerrado."""
     global sistema_ocupado
-    while True:
+    while not stop_event.is_set():
         time.sleep(random.randint(60, 180))
+        if stop_event.is_set():
+            break
         if not MODO_VOZ and not sistema_ocupado:
             try:
                 sistema_ocupado = True
-                pensamento = dsml_obj.motor.pensar("...")
+                # Reduz a temperatura temporariamente para pensamentos mais coerentes
+                temp_original = dsml_obj.motor.temperatura
+                dsml_obj.motor.temperatura = max(0.4, temp_original * 0.7)
+                pensamento = dsml_obj.motor.pensar("...pensando...")
+                dsml_obj.motor.temperatura = temp_original
                 if pensamento and pensamento.strip():
                     print(f"\n🌙 [Espontâneo]: {pensamento}")
                     if ANDROID_VOZ:
@@ -1771,8 +2123,9 @@ def loop_relogio_endogeno(dsml_obj):
 # MAIN – LOOP UNIFICADO
 # ================================================================
 if __name__ == "__main__":
-    print("🧬 Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento (Refinado)")
+    print("🧬 Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento + Metacognitivo")
     print("   GPS + Periscópio + Metabolismo + Perfil de Usuário + Relógio Endógeno")
+    print("   ✨ Gatilho por Turnos + Modulação de Temperatura por Preocupação")
     print("=" * 60)
 
     if ANDROID_VOZ:
@@ -1782,22 +2135,24 @@ if __name__ == "__main__":
     print("=" * 60)
 
     texto_inicial = ""
-    if os.path.exists("amor.txt"):
-        with open("amor.txt", "r", encoding="utf-8") as f:
+    if os.path.exists("bd-mega.txt"):
+        with open("bd-mega.txt", "r", encoding="utf-8") as f:
             texto_inicial = f.read()
-        
+        print(f"📁 bd-mega.txt carregado ({len(texto_inicial)} caracteres).")
 
     motor_base = QuintikusDLMC(texto_inicial)
     motor_base.inicializar()
 
     dsml = DSML(motor_base)
 
-    thread_relogio = threading.Thread(target=loop_relogio_endogeno, args=(dsml,), daemon=True)
+    # Evento de parada para o relógio endógeno
+    stop_event = threading.Event()
+    thread_relogio = threading.Thread(target=loop_relogio_endogeno, args=(dsml, stop_event), daemon=True)
     thread_relogio.start()
 
     if ANDROID_VOZ:
         time.sleep(0.5)
-        falar("Quintikus V85 com Curiosity e Sentimento está online. Quem é você?")
+        falar("Quintikus V85 com Curiosity, Sentimento e Metacognição está online. Quem é você?")
         print("\n🎤 Escolha o modo:")
         print("   [V] Microfone contínuo — sempre ouvindo")
         print("   [T] Teclado normal")
@@ -1806,6 +2161,7 @@ if __name__ == "__main__":
         
         if modo_inicial == "sair":
             print("💤 Encerrando...")
+            stop_event.set()
             sys.exit(0)
         
         MODO_VOZ = (modo_inicial == "v" or modo_inicial == "voz")
@@ -1828,7 +2184,7 @@ if __name__ == "__main__":
         print("   save | train:arquivo.txt | sair")
         if ANDROID_VOZ:
             print("   microfone — ativar voz contínua")
-        print("   (Sentimento NeuroMicro + Contexto Entrópico Persistidos)\n")
+        print("   (Metacognição + Sentimento + Contexto ativos)\n")
 
     while True:
         try:
@@ -1868,6 +2224,8 @@ if __name__ == "__main__":
                 if entrada_lower in ["sair", "encerrar"]:
                     print("⚙️ Consolidando...")
                     falar("Salvando memória. Até mais!")
+                    stop_event.set()  # Para a thread do relógio
+                    thread_relogio.join(timeout=2)
                     dsml.salvar_estado()
                     motor_base.treino_consolidacao()
                     print("💤 Cérebro salvo. Até mais!")
@@ -1939,6 +2297,8 @@ if __name__ == "__main__":
                 print("⚙️ Consolidando...")
                 if ANDROID_VOZ:
                     falar("Salvando memória. Até mais!")
+                stop_event.set()  # Para a thread do relógio
+                thread_relogio.join(timeout=2)
                 dsml.salvar_estado()
                 motor_base.treino_consolidacao()
                 print("💤 Cérebro salvo. Até mais!")
@@ -2019,6 +2379,8 @@ if __name__ == "__main__":
             print("\n⚙️ Consolidando...")
             if ANDROID_VOZ:
                 falar("Salvando cérebro.")
+            stop_event.set()
+            thread_relogio.join(timeout=2)
             dsml.salvar_estado()
             motor_base.treino_consolidacao()
             print("💤 Cérebro salvo.")
