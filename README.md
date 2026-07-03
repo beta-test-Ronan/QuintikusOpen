@@ -273,7 +273,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 
 <p>Versão:Topological DLM: Dynamic Linguistic Modular Model.<br>
     
-## 💸 Se o Quintikus rodou no seu J2
+## 💸 Se o Quintikus rodou:
 Esse projeto me custou 3 anos, 
 café e paciência.<br> 
 coffee help:
