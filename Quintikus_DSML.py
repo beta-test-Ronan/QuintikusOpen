@@ -5,7 +5,7 @@ Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento + Metacognitivo
 Fusão completa: GPS + Periscópio + Computador de Bordo + Metabolismo +
 SNC + Homeostase + Perfil de Usuário + Relógio Endógeno Não-Invasivo +
 NeuroMicro (Sentimento) + Contexto Entrópico + Organismo Metacognitivo
-Versão Final – Relógio Endógeno com Parada Correta
+Versão Final – Fluxo de Conversa Natural + Validação de Resposta
 """
 
 import hashlib, math, random, time, pickle, os, tempfile, sys, re, threading
@@ -365,6 +365,7 @@ class QuintikusDLMC:
         self.auto_salvar = True
         self.salvar_intervalo = 5
         self.last_scale_idx = 0
+        self.ultimas_respostas = deque(maxlen=10)  # Para evitar repetições
 
     def _curar_modulos(self):
         curados = False
@@ -594,7 +595,11 @@ class QuintikusDLMC:
                 p = links.get(prox, 1)
                 if prox in ultimos: p *= 0.001
                 if not self.matrix.get(prox,{}).get("nexts"): p *= 0.1
-                if prox in ql: p *= (1.5+(w_coerencia or 0.5))
+                # Reforço de coerência: bônus maior para tokens do prompt
+                if prox in ql:
+                    p *= (2.0 + w_coerencia * 2.0)
+                elif self.coords.get(prox) and any(cosine_sim(self.coords[prox], self.coords[t]) > 0.5 for t in ql if t in self.coords):
+                    p *= (1.3 + w_coerencia)
                 if len(prox)>5 and (w_palavras_longas or 0.5)>0.5: p *= 1.5
                 if prox in (',','.') and (w_pontuacao or 0.3)>0.5: p *= 2.0
                 if self.coords.get(prox):
@@ -1936,7 +1941,12 @@ class DSML:
         self.curiosity.process_pending_answer(profile, user_input)
 
         tokens = re.findall(r'[a-z0-9]+', user_input.lower())
+        # Filtra tokens para o Curiosity apenas com palavras conhecidas pelo motor
+        tokens_validos = [t for t in tokens if t in motor.matrix and len(t) > 5]
+        # Atualiza perfil com tokens originais para intimidade/amizade, mas ajusta learned_words depois
         self.curiosity.update_profile(profile, tokens, user_input)
+        # Filtra learned_words para conter apenas palavras conhecidas e com tamanho adequado
+        profile.learned_words = {w for w in profile.learned_words if w in motor.matrix and len(w) > 5}
 
         # Atualiza contexto entrópico
         self.contexto.adicionar(user_input)
@@ -1962,23 +1972,18 @@ class DSML:
         if sentimento != 'neutro':
             profile.sentiments[sentimento] += 1
 
-        # Pergunta da curiosidade
+        # Pergunta da curiosidade (não interrompe, apenas agenda)
+        pending_question = None
         question_text, qid = self.curiosity.decide_to_ask(profile)
         if question_text:
             self.curiosity.set_pending(profile, qid)
-            self.curiosity.mark_dirty()
-            self.curiosity.save_if_dirty()
-            self.salvar_estado()
-            return question_text
+            pending_question = question_text
 
-        # 🔥 Metacognitivo – só fala se já conhece o usuário (intimidade > 0.3)
-        if profile.intimacy > 0.3:
+        # Metacognitivo (agenda se não houver pergunta da curiosidade)
+        if not pending_question and profile.intimacy > 0.3:
             resposta_meta = self.metacognitivo.ciclo(user_input)
             if resposta_meta:
-                self.curiosity.mark_dirty()
-                self.curiosity.save_if_dirty()
-                self.salvar_estado()
-                return resposta_meta
+                pending_question = resposta_meta
 
         ql = tokens
         if not ql:
@@ -2060,6 +2065,43 @@ class DSML:
 
         resposta = motor.pensar(user_input)
 
+        # Evitar repetição de respostas recentes
+        tentativas = 0
+        while resposta in motor.ultimas_respostas and tentativas < 3:
+            motor.temperatura = min(1.8, motor.temperatura + 0.2)
+            resposta = motor.pensar(user_input)
+            tentativas += 1
+        motor.ultimas_respostas.append(resposta)
+
+        # Validação da resposta: similaridade mínima com o prompt
+        if len(resposta.split()) > 3:  # só valida respostas maiores que 3 palavras
+            emb_resposta = motor._embed_frase(resposta.split())
+            emb_prompt = motor._embed_frase(ql)
+            sim = cosine_sim(emb_resposta, emb_prompt)
+            
+            tentativas = 0
+            while sim < 0.08 and tentativas < 3:  # limiar baixo de similaridade
+                motor.temperatura = min(1.8, motor.temperatura + 0.2)
+                resposta = motor.pensar(user_input)
+                # Verifica repetição novamente
+                while resposta in motor.ultimas_respostas and tentativas < 3:
+                    motor.temperatura = min(1.8, motor.temperatura + 0.2)
+                    resposta = motor.pensar(user_input)
+                    tentativas += 1
+                motor.ultimas_respostas.append(resposta)
+                emb_resposta = motor._embed_frase(resposta.split())
+                sim = cosine_sim(emb_resposta, emb_prompt)
+                tentativas += 1
+            
+            if sim < 0.08:
+                resposta = "Entendi... mas pode me explicar melhor?"
+
+        # Anexar pergunta pendente, se houver, e se a resposta não for já uma pergunta
+        if pending_question and not resposta.strip().endswith('?'):
+            # Pequena chance de anexar para não sobrecarregar
+            if random.random() < 0.6:  # 60% de chance de anexar a pergunta
+                resposta = f"{resposta} {pending_question}"
+
         if profile.name and profile.intimacy > 0.3:
             if random.random() < 0.2 and not resposta.startswith(profile.name):
                 prefixos = [
@@ -2125,7 +2167,7 @@ def loop_relogio_endogeno(dsml_obj, stop_event):
 if __name__ == "__main__":
     print("🧬 Quintikus DLMC V85.2 + DSML + Curiosity + Sentimento + Metacognitivo")
     print("   GPS + Periscópio + Metabolismo + Perfil de Usuário + Relógio Endógeno")
-    print("   ✨ Gatilho por Turnos + Modulação de Temperatura por Preocupação")
+    print("   ✨ Fluxo Natural de Conversa + Validação de Resposta")
     print("=" * 60)
 
     if ANDROID_VOZ:
