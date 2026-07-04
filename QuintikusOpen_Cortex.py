@@ -98,6 +98,131 @@ class AreaDeBroca:
 # ==================================================================
 # 3. LOGIC CORTEX (Filtro Contextual e Probabilidade Linear)
 # ==================================================================
+
+class MathAGI:
+    @staticmethod
+    def sigmoid(x):
+        return 1 / (1 + math.exp(-max(-500, min(500, x))))
+
+    @staticmethod
+    def d_sigmoid(x):
+        return x * (1 - x)
+
+    @staticmethod
+    def dot(A, B):
+        # Multiplicação de Matriz por Vetor (A: Matriz, B: Vetor)
+        return [sum(row[i] * B[i] for i in range(len(B))) for row in A]
+
+
+class TRM_Brain:
+    def __init__(self):
+        # Dimensões: x(4) + y(4) + z(8) = 16 entradas para o nível latente
+        self.dim_x, self.dim_y, self.dim_z = 4, 4, 8
+        
+        # Pesos da Rede Neural Atômica (Iniciados aleatoriamente)
+        self.w_z = [[random.uniform(-0.2, 0.2) for _ in range(16)] for _ in range(8)]
+        self.w_y = [[random.uniform(-0.2, 0.2) for _ in range(12)] for _ in range(4)]
+        
+        self.z = [0.1] * self.dim_z # Estado Latente (Raciocínio)
+        self.y = [0.0] * self.dim_y # Predição (Ação)
+        self.lr = 0.15 # Taxa de Aprendizado
+
+    def processar_recursivo(self, x_input, ciclos=6):
+        """Implementação do Fast-Slow Loop (Ponto 1 do HRM)"""
+        self.y = [0.0] * self.dim_y
+        self.z = [0.1] * self.dim_z
+        
+        for _ in range(ciclos):
+            # 1. Update Latent z: f(x, y, z) - Raciocínio Hierárquico
+            concat_z = x_input + self.y + self.z
+            self.z = [MathAGI.sigmoid(s) for s in MathAGI.dot(self.w_z, concat_z)]
+            
+            # 2. Update Answer y: f(y, z) - Refinamento da Resposta
+            concat_y = self.y + self.z
+            self.y = [MathAGI.sigmoid(s) for s in MathAGI.dot(self.w_y, concat_y)]
+            
+            # Halting Head (Ponto 2 do HRM): Para se estiver confiante
+            if (sum(self.y)/4) > 0.85: break
+        return self.y
+
+    def aprender_backprop(self, x_input, alvo_y):
+        """Aprendizado por Experiência (Ponto 10)"""
+        # Ajusta Pesos de Y
+        concat_y = self.y + self.z
+        for i in range(self.dim_y):
+            erro = alvo_y[i] - self.y[i]
+            delta = erro * MathAGI.d_sigmoid(self.y[i])
+            for j in range(len(concat_y)):
+                self.w_y[i][j] += self.lr * delta * concat_y[j]
+                
+class MotorCausalAGI:
+    def __init__(self, raw_dataset):
+        # O "Solo" agora é mais rico em informações de causa e efeito
+        self.solo = self._normalizar(raw_dataset)
+        self.memoria_trabalho = {}
+
+    def _normalizar(self, texto):
+        """Remove acentos e pontuação para o robô não se perder."""
+        nfd = "".join(c for c in unicodedata.normalize('NFD', texto.lower()) if unicodedata.category(c) != 'Mn')
+        for p in "?!,.;":
+            nfd = nfd.replace(p, "")
+        return nfd
+
+    def processar(self, entrada_usuario):
+        entrada_limpa = self._normalizar(entrada_usuario)
+        # Extrai a palavra principal (ex: copo)
+        alvo = self._extrair_alvo(entrada_limpa)
+        
+        print(f"\n[SINAL]: '{entrada_usuario}'")
+        print("-" * 60)
+
+        # --- PASSO 1: EXPLICAÇÃO (O que o texto diz que É) ---
+        print(f"  [PASSO 1]: Buscando definições de '{alvo}' no solo...")
+        definicao = self._buscar_sentenca(alvo, "e") # Busca "Copo é..."
+        time.sleep(0.5)
+
+        # --- PASSO 2: PENSAR (O que PODE ACONTECER - Causalidade) ---
+        print(f"  [PASSO 2]: Simulando causalidade (Ação -> Efeito) para '{alvo}'...")
+        # Busca no texto palavras como "se", "quebra", "cai", "entao"
+        causa_efeito = self._buscar_causalidade(alvo)
+        time.sleep(0.5)
+
+        # --- PASSO 3: AJUSTAR (Construir o entendimento final) ---
+        print(f"  [PASSO 3]: Ajustando resposta baseada na simulação física...")
+        
+        return self._sintetizar(alvo, definicao, causa_efeito)
+
+    def _extrair_alvo(self, texto):
+        # Pega a palavra mais importante da pergunta
+        palavras = [p for p in texto.split() if len(p) > 3]
+        for p in palavras:
+            if p in self.solo: return p
+        return palavras[-1] if palavras else "objeto"
+
+    def _buscar_sentenca(self, alvo, conectivo):
+        frases = self.solo.split("\n")
+        for f in frases:
+            if alvo in f:
+                return f.strip()
+        return f"Não há dados sobre a natureza de {alvo}"
+
+    def _buscar_causalidade(self, alvo):
+        # Varre o solo procurando a lógica de causa (se derrubar -> quebra)
+        palavras_causais = ["quebra", "cai", "estraga", "muda", "acontece", "se"]
+        frases = self.solo.split("\n")
+        relacoes = []
+        for f in frases:
+            if alvo in f and any(pc in f for pc in palavras_causais):
+                relacoes.append(f.strip())
+        return relacoes if relacoes else ["Nenhuma lei causal encontrada"]
+
+    def _sintetizar(self, alvo, definicao, causa_efeito):
+        # Monta a estrutura de entendimento
+        res =  f"1. EXPLICAÇÃO: {definicao}.\n"
+        res += f"2. PENSAMENTO: Analisei que para o {alvo}, as leis do solo dizem: '{causa_efeito[0]}'.\n"
+        res += f"3. AJUSTE: Portanto, entendo que ações sobre o {alvo} geram resultados físicos reais."
+        return res
+        
 class LogicCortex:
     def __init__(self, sub):
         self.sub = sub
