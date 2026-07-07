@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 import math
 import struct
-import subprocess
 import random
+import pyaudio # Biblioteca multiplataforma
 
 SAMPLE_RATE = 16000
 
@@ -16,7 +16,7 @@ class WaveOscillator:
     def tick(self, f0):
         self.phase += f0 / SAMPLE_RATE
         if self.phase >= 1.0: self.phase -= 1.0
-        return 2.0 * self.phase - 1.0 # Dente de Serra (Rico em harmônicos)
+        return 2.0 * self.phase - 1.0 # Dente de Serra
 
 class BiquadFilter:
     def __init__(self, freq, bw=80.0):
@@ -35,8 +35,9 @@ class BiquadFilter:
         return y
 
 # ═══════════════════════════════════════════════════════════════
-# DICIONÁRIO INTEGRAL PT-BR (Sem cortes)
+# DICIONÁRIOS DE GEOMETRIAS (PT-BR e EN)
 # ═══════════════════════════════════════════════════════════════
+
 GEOMETRIAS_PTBR = {
     'a': [[730, 60, 1.0], [1100, 80, 0.8], [2450, 120, 0.4]],
     'e': [[500, 55, 1.0], [1800, 85, 0.7], [2500, 120, 0.4]],
@@ -75,21 +76,18 @@ GEOMETRIAS_PTBR = {
     '.': [[0, 0, 0.0], [0, 1, 0.0], [0, 1, 0.0]],
 }
 
-# ═══════════════════════════════════════════════════════════════
-# DICIONÁRIO INTEGRAL EN (Sem cortes)
-# ═══════════════════════════════════════════════════════════════
 GEOMETRIAS_EN = {
     'a': [[730, 60, 1.0], [1100, 80, 0.8], [2450, 120, 0.4]],
     'e': [[500, 55, 1.0], [1800, 85, 0.7], [2500, 120, 0.4]],
     'i': [[280, 40, 1.0], [2300, 90, 0.8], [3500, 150, 0.5]],
     'o': [[450, 50, 1.0], [800, 70, 0.7], [2300, 140, 0.3]],
     'u': [[320, 40, 1.0], [800, 65, 0.6], [2200, 120, 0.2]],
-    'â': [[600, 60, 1.0], [1200, 80, 0.7], [2300, 130, 0.4]],   # cup /ʌ/
-    'î': [[400, 50, 1.0], [2000, 80, 0.7], [2800, 130, 0.4]],   # sit /ɪ/
-    'ô': [[500, 55, 1.0], [850, 75, 0.7], [2400, 130, 0.3]],    # caught /ɔ/
-    'ê': [[660, 60, 1.0], [1700, 80, 0.8], [2500, 130, 0.4]],   # cat /æ/
-    'û': [[350, 45, 1.0], [1000, 70, 0.6], [2000, 120, 0.3]],   # foot /ʊ/
-    'ë': [[500, 50, 0.5], [1500, 70, 0.4], [2500, 100, 0.2]],   # schwa
+    'â': [[600, 60, 1.0], [1200, 80, 0.7], [2300, 130, 0.4]],
+    'î': [[400, 50, 1.0], [2000, 80, 0.7], [2800, 130, 0.4]],
+    'ô': [[500, 55, 1.0], [850, 75, 0.7], [2400, 130, 0.3]],
+    'ê': [[660, 60, 1.0], [1700, 80, 0.8], [2500, 130, 0.4]],
+    'û': [[350, 45, 1.0], [1000, 70, 0.6], [2000, 120, 0.3]],
+    'ë': [[500, 50, 0.5], [1500, 70, 0.4], [2500, 100, 0.2]],
     'p': [[160, 20, 1.2], [450, 80, 0.2], [900, 150, 0.1]],
     'b': [[180, 20, 1.2], [500, 80, 0.2], [1000, 150, 0.1]],
     't': [[180, 25, 1.1], [1500, 80, 0.3], [2500, 150, 0.1]],
@@ -104,35 +102,36 @@ GEOMETRIAS_EN = {
     'n': [[250, 35, 1.0], [1500, 70, 0.4], [2500, 130, 0.2]],
     'l': [[350, 45, 0.9], [1500, 75, 0.4], [2500, 150, 0.2]],
     'r': [[450, 40, 0.8], [1500, 80, 0.4], [2500, 150, 0.1]],
-    'h': [[0, 1, 0.0], [0, 1, 0.0], [0, 1, 0.0]],               # h (sopro)
-    'w': [[300, 40, 1.0], [800, 65, 0.6], [2200, 120, 0.2]],    # w
-    'y': [[280, 40, 1.0], [2300, 90, 0.8], [3500, 150, 0.5]],   # y
-    'x': [[3000, 400, 0.4], [5000, 600, 0.5], [6500, 800, 0.3]], # sh
-    'j': [[300, 50, 0.8], [2000, 90, 0.5], [3000, 150, 0.3]],   # zh
-    'c': [[200, 25, 1.0], [3000, 400, 0.4], [5000, 600, 0.5]],  # ch
+    'h': [[0, 1, 0.0], [0, 1, 0.0], [0, 1, 0.0]],
+    'w': [[300, 40, 1.0], [800, 65, 0.6], [2200, 120, 0.2]],
+    'y': [[280, 40, 1.0], [2300, 90, 0.8], [3500, 150, 0.5]],
+    'x': [[3000, 400, 0.4], [5000, 600, 0.5], [6500, 800, 0.3]],
+    'j': [[300, 50, 0.8], [2000, 90, 0.5], [3000, 150, 0.3]],
+    'c': [[200, 25, 1.0], [3000, 400, 0.4], [5000, 600, 0.5]],
     ' ': [[0, 0, 0.0], [0, 0, 0.0], [0, 0, 0.0]],
 }
 
-# Identificação Global de Consoantes Surdas (Sopro)
 SURDAS = {'p', 't', 'k', 'f', 's', 'x', 'c', 'h'}
 
 # ═══════════════════════════════════════════════════════════════
-# MOTOR DE SÍNTESE LINEAR UNIFICADO
+# MOTOR DE SÍNTESE LINEAR UNIFICADO (PyAudio)
 # ═══════════════════════════════════════════════════════════════
 
 def arquinet_stream(texto, idioma='pt'):
     banco = GEOMETRIAS_PTBR if idioma == 'pt' else GEOMETRIAS_EN
-    print(f"🚀 Quintikus V10.0 [{idioma.upper()}] - Fluxo Linear Ativado")
+    print(f"🚀 Quintikus V10.0 [{idioma.upper()}] - Ativado (Multiplataforma)")
     
     osc = WaveOscillator()
     filtros = [BiquadFilter(500), BiquadFilter(1500), BiquadFilter(2500)]
     f_atual = [500.0, 1500.0, 2500.0]
 
-    # Driver de Áudio (ALSA)
-    cmd = ['aplay', '-t', 'raw', '-f', 'S16_LE', '-c', '1', '-r', str(SAMPLE_RATE)]
-    proc = subprocess.Popen(cmd, stdin=subprocess.PIPE)
+    # Inicializa PyAudio
+    p = pyaudio.PyAudio()
+    stream = p.open(format=pyaudio.paInt16,
+                    channels=1,
+                    rate=SAMPLE_RATE,
+                    output=True)
 
-    # Parser EN para Digraphs
     if idioma == 'en':
         texto = texto.lower().replace("sh", "x").replace("ch", "c").replace("th", "t")
 
@@ -140,17 +139,15 @@ def arquinet_stream(texto, idioma='pt'):
         if char not in banco: continue
         geo_alvo = banco[char]
         
-        # Duração Base e Inflexão
         dur_sec = 0.11 if idioma == 'en' else 0.14
         if char in ' ,.': dur_sec = 0.2
-        dur_amostras = int(SAMPLE_RATE * dur_sec+200)
+        dur_amostras = int(SAMPLE_RATE * dur_sec + 200)
 
         chunk = []
         for i in range(dur_amostras):
             t = i / dur_amostras
-            f0_delta = 125.0 * (1.0 - 0.06 * t) # Hertz Precisos
+            f0_delta = 125.0 * (1.0 - 0.06 * t)
 
-            # Fonte de Excitação (Voz ou Sopro)
             if char in SURDAS:
                 fonte = random.uniform(-1.0, 1.0)
             elif char in ' ,.':
@@ -158,27 +155,27 @@ def arquinet_stream(texto, idioma='pt'):
             else:
                 fonte = osc.tick(f0_delta)
 
-            # Processamento de Campo Harmônico
             saida = 0.0
             for j in range(3):
-                # Deslize Linear Sem Gargalo (Inércia)
                 f_atual[j] += (geo_alvo[j][0] - f_atual[j]) * 0.02
                 filtros[j].update(f_atual[j], bw=geo_alvo[j][1])
                 saida += filtros[j].process(fonte) * geo_alvo[j][2]
 
-            # Saturação Vocal (Estruturação) + Cadência
             envelope = math.sin(math.pi * t)
             sample = math.tanh(saida * envelope * 1.5)
             chunk.append(int(sample * 30000))
 
-        proc.stdin.write(struct.pack(f'<{len(chunk)}h', *chunk))
+        # Escreve os bytes diretamente na saída de áudio do sistema
+        stream.write(struct.pack(f'<{len(chunk)}h', *chunk))
 
-    proc.stdin.close()
-    proc.wait()
+    # Encerra stream
+    stream.stop_stream()
+    stream.close()
+    p.terminate()
 
 if __name__ == '__main__':
-    # Exemplo em Português (Com acentos e pontuação completa)
-    arquinet_stream("Olá, eu sou o robô do Arquinét. O rato roeu a roupa do rei de Roma.", idioma='pt')
+    # Teste PT
+    arquinet_stream("Olá, este código agora funciona no Windows, Mac e Linux.", idioma='pt')
     
-    # Exemplo em Inglês (Fluidez rítmica)
-    arquinet_stream("I am a robot. This is a linear semantic test.", idioma='en')
+    # Teste EN
+    arquinet_stream("I am a robot. I can talk on Windows and Mac too.", idioma='en')
