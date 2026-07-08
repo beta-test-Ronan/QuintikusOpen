@@ -2,40 +2,47 @@
 import math
 import struct
 import random
-import pyaudio # Biblioteca multiplataforma
+import pyaudio
 
-SAMPLE_RATE = 16000
+# Configurações Globais
+SAMPLE_RATE = 22050
+VGS_HEADER = "Quintikus TTS VGS v1.2 - Vibração Geométrica Sonora"
 
 # ═══════════════════════════════════════════════════════════════
-# ESTRUTURA FÍSICA (OSCILADOR + FILTRO + SATURAÇÃO)
+# FÍSICA VGS (FONTES E CÂMARAS)
 # ═══════════════════════════════════════════════════════════════
 
-class WaveOscillator:
+class VGSPulse:
+    """ Fonte de Ação e Reação (Glotal) """
     def __init__(self):
         self.phase = 0.0
     def tick(self, f0):
         self.phase += f0 / SAMPLE_RATE
         if self.phase >= 1.0: self.phase -= 1.0
-        return 2.0 * self.phase - 1.0 # Dente de Serra
+        # Geometria de colisão: Subida gradual, queda súbita
+        return math.sin(math.pi * (self.phase / 0.75)) if self.phase < 0.75 else 0.0
 
-class BiquadFilter:
-    def __init__(self, freq, bw=80.0):
+class VGSChamber:
+    """ Câmara de Colisão Sonora (Filtro de Ressonância) """
+    def __init__(self, freq, bw):
         self.x1 = self.x2 = self.z1 = self.z2 = 0.0
+        self.b = (0,0,0); self.a = (1,0,0)
         self.update(freq, bw)
     def update(self, freq, bw):
-        freq = max(80, min(freq, SAMPLE_RATE // 2 - 100))
+        freq = max(50, min(freq, SAMPLE_RATE // 2 - 500))
+        bw = max(10, bw)
         omega = 2 * math.pi * freq / SAMPLE_RATE
-        alpha = math.sin(omega) * math.sinh(math.log(2) / 2 * bw / freq * omega / math.sin(omega))
-        b0, b2 = alpha, -alpha
-        a0, a1, a2 = 1 + alpha, -2 * math.cos(omega), 1 - alpha
-        self.b, self.a = (b0/a0, 0, b2/a0), (1.0, a1/a0, a2/a0)
+        alpha = math.sin(omega) * math.sinh(math.log(2)/2 * bw/freq * omega/math.sin(omega))
+        a0 = 1 + alpha
+        self.b = (alpha / a0, 0, -alpha / a0)
+        self.a = (1.0, -2 * math.cos(omega) / a0, (1 - alpha) / a0)
     def process(self, x):
         y = (self.b[0]*x + self.b[1]*self.x1 + self.b[2]*self.x2 - self.a[1]*self.z1 - self.a[2]*self.z2)
         self.x2, self.x1, self.z2, self.z1 = self.x1, x, self.z1, y
         return y
 
 # ═══════════════════════════════════════════════════════════════
-# DICIONÁRIOS DE GEOMETRIAS (PT-BR e EN)
+# DICIONÁRIOS INTEGRAIS (VGS MAPPED)
 # ═══════════════════════════════════════════════════════════════
 
 GEOMETRIAS_PTBR = {
@@ -111,71 +118,76 @@ GEOMETRIAS_EN = {
     ' ': [[0, 0, 0.0], [0, 0, 0.0], [0, 0, 0.0]],
 }
 
+# Identificação de Colisões Surdas (Sopro)
 SURDAS = {'p', 't', 'k', 'f', 's', 'x', 'c', 'h'}
 
 # ═══════════════════════════════════════════════════════════════
-# MOTOR DE SÍNTESE LINEAR UNIFICADO (PyAudio)
+# MOTOR DE SÍNTESE VGS (VIBRAÇÃO GEOMÉTRICA SONORA)
 # ═══════════════════════════════════════════════════════════════
 
-def arquinet_stream(texto, idioma='pt'):
+def quintikus_vgs_engine(texto, idioma='pt'):
     banco = GEOMETRIAS_PTBR if idioma == 'pt' else GEOMETRIAS_EN
-    print(f"🚀 Quintikus V10.0 [{idioma.upper()}] - Ativado (Multiplataforma)")
+    print(f"🎙️ {VGS_HEADER} | Idioma: {idioma.upper()}")
     
-    osc = WaveOscillator()
-    filtros = [BiquadFilter(500), BiquadFilter(1500), BiquadFilter(2500)]
-    f_atual = [500.0, 1500.0, 2500.0]
-
-    # Inicializa PyAudio
     p = pyaudio.PyAudio()
-    stream = p.open(format=pyaudio.paInt16,
-                    channels=1,
-                    rate=SAMPLE_RATE,
-                    output=True)
+    stream = p.open(format=pyaudio.paInt16, channels=1, rate=SAMPLE_RATE, output=True)
 
+    pulse = VGSPulse()
+    chambers = [VGSChamber(500, 80) for _ in range(3)]
+    picos_atuais = [500.0, 1500.0, 2500.0]
+
+    # Pre-processamento para Inglês (Digraphs)
     if idioma == 'en':
         texto = texto.lower().replace("sh", "x").replace("ch", "c").replace("th", "t")
 
     for char in texto.lower():
         if char not in banco: continue
-        geo_alvo = banco[char]
+        alvo = banco[char]
         
-        dur_sec = 0.11 if idioma == 'en' else 0.14
-        if char in ' ,.': dur_sec = 0.2
-        dur_amostras = int(SAMPLE_RATE * dur_sec + 200)
+        # Duração baseada na colisão (Vogais são mais longas, Consoantes mais curtas)
+        dur_sec = 0.14 if char in 'aeiouáàâãéêíóôõú' else 0.10
+        if char in ' ,.': dur_sec = 0.25
+        num_amostras = int(SAMPLE_RATE * dur_sec)
 
         chunk = []
-        for i in range(dur_amostras):
-            t = i / dur_amostras
-            f0_delta = 125.0 * (1.0 - 0.06 * t)
+        for i in range(num_amostras):
+            t = i / num_amostras
+            f0_base = 120.0 * (1.0 - 0.05 * t) # Queda natural de pitch
 
+            # Definição da Fonte de Excitação
             if char in SURDAS:
-                fonte = random.uniform(-1.0, 1.0)
+                fonte = random.uniform(-1.0, 1.0) * 0.25 # Colisão de Ruído
             elif char in ' ,.':
                 fonte = 0.0
             else:
-                fonte = osc.tick(f0_delta)
+                fonte = pulse.tick(f0_base) # Choque Glotal
 
+            # Processamento nas Câmaras de Geometria
             saida = 0.0
             for j in range(3):
-                f_atual[j] += (geo_alvo[j][0] - f_atual[j]) * 0.02
-                filtros[j].update(f_atual[j], bw=geo_alvo[j][1])
-                saida += filtros[j].process(fonte) * geo_alvo[j][2]
+                # Deslize de Trajetória (Inércia da boca)
+                picos_atuais[j] += (alvo[j][0] - picos_atuais[j]) * 0.1
+                chambers[j].update(picos_atuais[j], alvo[j][1])
+                saida += chambers[j].process(fonte) * alvo[j][2]
 
-            envelope = math.sin(math.pi * t)
-            sample = math.tanh(saida * envelope * 1.5)
-            chunk.append(int(sample * 30000))
+            # Envelope de Colisão Vocal e Saturação Física
+            env = math.sin(math.pi * t)
+            # Saturação math.tanh simula a compressão do ar no trato vocal
+            final = math.tanh(saida * env * 2.0)
+            chunk.append(int(final * 30000))
 
-        # Escreve os bytes diretamente na saída de áudio do sistema
         stream.write(struct.pack(f'<{len(chunk)}h', *chunk))
 
-    # Encerra stream
+    # Finalização
     stream.stop_stream()
     stream.close()
     p.terminate()
 
 if __name__ == '__main__':
-    # Teste PT
-    arquinet_stream("Olá, este código agora funciona no Windows, Mac e Linux.", idioma='pt')
+    # Teste em Português com acentos completos
+    texto_pt = "Olá! A vibração geométrica sonora agora entende acentuação como á, ê, õ e ú."
+    quintikus_vgs_engine(texto_pt, idioma='pt')
     
-    # Teste EN
-    arquinet_stream("I am a robot. I can talk on Windows and Mac too.", idioma='en')
+    # Teste em Inglês com fonemas especiais
+    texto_en = "I am a robot. This is the sitting and caught test with schwa sound."
+    quintikus_vgs_engine(texto_en, idioma='en')
