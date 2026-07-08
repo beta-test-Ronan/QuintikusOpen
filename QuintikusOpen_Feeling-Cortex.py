@@ -4,7 +4,7 @@ import os
 import time
 
 # ==============================================================================
-# BLOCO 1: UTILITÁRIOS E FEELING-CORTEX (O SEU MOTOR v14)
+# BLOCO 1: UTILITÁRIOS E FEELING-CORTEX (MOTOR v14)
 # ==============================================================================
 
 def l2_normalize(x):
@@ -64,8 +64,7 @@ class TGNC_NeuralCortex_v14:
         nexo_f, acao_f = self._buscar_proximo(v_n, "concepts"), self._buscar_proximo(v_a, "actions")
         sim_geo = float(np.dot(v_n, self.concepts.get(nexo_f, np.zeros(self.dim))))
         conf_final = (sim_geo * 0.7) + (conf_n * 0.3)
-        mood = "ALERTA" if any(c in texto.lower() for c in ["perigo", "quebrar", "bater", "erro"]) else "ESTÁVEL"
-        return nexo_f, acao_f, float(conf_final), mood
+        return nexo_f, acao_f, float(conf_final), "ESTÁVEL"
 
     def _buscar_proximo(self, vetor, space):
         target = {"concepts": self.concepts, "actions": self.actions}[space]
@@ -95,28 +94,24 @@ class TGNC_NeuralCortex_v14:
             except: pass
 
 # ==============================================================================
-# BLOCO 2: MÓDULOS DE AGI PERSISTENTES (MUNDO, MEMÓRIA E SENTIMENTOS)
+# BLOCO 2: MÓDULOS DE AGI (SNC, MUNDO E SEMÂNTICA)
 # ==============================================================================
 
 class FeelingModule:
-    """ SNC: Sistema Nervoso Central para regras de sentimentos """
     def __init__(self):
         self.path = "feeling_rules.json"
-        self.rules = [] # List of dicts: {"perceber": nexo/txt, "v1": float, "v2": float, "mood": str}
+        self.rules = []
         self.carregar()
 
-    def adicionar_regra(self, perceber, v1, v2, mood):
-        nova_regra = {"perceber": perceber.upper(), "v1": float(v1), "v2": float(v2), "mood": mood.upper()}
-        self.rules.append(nova_regra)
+    def adicionar(self, perceber, v1, v2, mood):
+        self.rules = [r for r in self.rules if not (r["perceber"] == perceber.upper() and r["v1"] == v1)]
+        self.rules.append({"perceber": perceber.upper(), "v1": float(v1), "v2": float(v2), "mood": mood.upper()})
         self.salvar()
-        print(f"❤️ [SNC]: Sentimento '{mood}' mapeado para '{perceber}'.")
 
-    def avaliar(self, nexo, conf, current_mood):
+    def avaliar(self, nexo, conf, current):
         for r in self.rules:
-            if r["perceber"] in nexo.upper():
-                if r["v1"] <= conf <= r["v2"]:
-                    return r["mood"]
-        return current_mood
+            if r["perceber"] in nexo.upper() and r["v1"] <= conf <= r["v2"]: return r["mood"]
+        return current
 
     def salvar(self):
         with open(self.path, "w") as f: json.dump(self.rules, f)
@@ -128,14 +123,13 @@ class FeelingModule:
 class WorldModel:
     def __init__(self):
         self.path = "world_rules.json"
-        self.rules = {"BATER": {"risco": 0.8, "consequencia": "deforma/quebra"}}
+        self.rules = {}
         self.carregar()
 
-    def simular(self, acao, objeto_props):
+    def simular(self, acao, props):
         rule = self.rules.get(acao.upper(), {"risco": 0.5})
-        if objeto_props.get("fragil") and rule["risco"] > 0.3:
-            return f"PERIGO: {rule.get('consequencia', 'Dano iminente')}", rule["risco"]
-        return "SEGURO", 0.0
+        if props.get("fragil") and rule["risco"] > 0.4: return "PERIGO: Risco de quebra", rule["risco"]
+        return "OK", 0.0
 
     def salvar(self):
         with open(self.path, "w") as f: json.dump(self.rules, f)
@@ -147,18 +141,15 @@ class WorldModel:
 class SemanticMemory:
     def __init__(self):
         self.path = "memoria_objetos.json"
-        self.entities = {"copo": {"fragil": True}}
+        self.entities = {}
         self.carregar()
-
-    def salvar(self):
-        with open(self.path, "w") as f: json.dump(self.entities, f)
 
     def carregar(self):
         if os.path.exists(self.path):
             with open(self.path, "r") as f: self.entities = json.load(f)
 
 # ==============================================================================
-# BLOCO 3: CONSCIOUS CORE (O MAESTRO)
+# BLOCO 3: CONSCIOUS CORE (O ORQUESTRADOR DE ONE-SHOT LEARNING)
 # ==============================================================================
 
 class ConsciousCore:
@@ -167,71 +158,83 @@ class ConsciousCore:
         self.world = WorldModel()
         self.memory = SemanticMemory()
         self.snc = FeelingModule()
-        self.objetivos = ["PRESERVAR_OBJETOS"]
 
     def pensar(self, entrada):
-        print(f"\n--- 🧠 CICLO COGNITIVO ATIVO ---")
-        nexo, acao, conf, mood_neural = self.tgnc.analisar(entrada)
+        print(f"\n--- 🧠 CICLO COGNITIVO ---")
+        nexo, acao, conf, mood_n = self.tgnc.analisar(entrada)
+        mood = self.snc.avaliar(nexo, conf, mood_n)
         
-        # O SNC avalia se deve sobrepor o sentimento neural baseado nas regras
-        mood_final = self.snc.avaliar(nexo, conf, mood_neural)
-        
-        objeto_alvo = self._extrair_entidade(entrada)
+        objeto_alvo = self._extrair_objeto(entrada)
         props = self.memory.entities.get(objeto_alvo, {"fragil": False})
-
-        print(f"  [ESTADO]: Confiança: {conf:.2f} | Sentimento: {mood_final}")
         
-        if conf < 0.4 or nexo == "Indefinido":
-            return "❓ [CURIOSIDADE]: Explique melhor ou use 'ensinar'."
-
-        previsao, risco = self.world.simular(acao, props)
+        info, risco = self.world.simular(acao, props)
+        print(f"  [ESTADO]: Nexo: {nexo} | Ação: {acao} | Humor: {mood} | Risco: {risco}")
         
-        if risco > 0.6:
-            decisao = f"INTERROMPER: Risco para {objeto_alvo}."
-        else:
-            decisao = f"EXECUTAR: {acao} (Nexo: {nexo})."
+        if conf < 0.4: return f"❓ [CURIOSIDADE]: Pouca confiança ({conf:.2f})."
+        
+        decisao = "INTERROMPER" if risco > 0.6 else "EXECUTAR"
+        return f"🤖 STATUS: {mood}\n🎯 DECISÃO: {decisao} ({info})"
 
-        self.tgnc.salvar_cortex()
-        return f"\n🤖 MOOD: {mood_final}\n🎯 DECISÃO: {decisao}"
+    def aprender_unificado(self, partes):
+        # aprender|quadro|MARCENARIA|BATER|fragil:False|massa:1.5|risco:0.3|sentimento:SEGURO|0.6|0.9
+        try:
+            txt, nexo, acao = partes[1], partes[2], partes[3]
+            
+            # 1. Comportamento (Neural)
+            self.tgnc.ensinar(txt, nexo, acao)
+            self.tgnc.salvar_cortex()
+            
+            # 2. Objeto e Mundo (Simbólico)
+            if partes[1].lower() not in self.memory.entities: self.memory.entities[partes[1].lower()] = {}
+            
+            for p in partes[4:]:
+                if ":" in p:
+                    k, v = p.split(":")
+                    if k == "risco":
+                        self.world.rules[acao.upper()] = {"risco": float(v)}
+                    elif k == "sentimento":
+                        # sentimento:NOME está na mesma 'parte', os limites vêm depois
+                        mood_name = v
+                        v_min = partes[partes.index(p)+1]
+                        v_max = partes[partes.index(p)+2]
+                        self.snc.adicionar(nexo, v_min, v_max, mood_name)
+                    else:
+                        # Propriedades genéricas (fragil, massa, etc)
+                        val = (v.lower() == "true") if v.lower() in ["true", "false"] else v
+                        self.memory.entities[partes[1].lower()][k] = val
 
-    def _extrair_entidade(self, texto):
+            with open(self.memory.path, "w") as f: json.dump(self.memory.entities, f)
+            self.world.salvar()
+            print(f"🌟 [ONE-SHOT]: Organismo evoluiu com '{txt}'.")
+        except Exception as e:
+            print(f"❌ Erro no aprendizado: {e}")
+
+    def _extrair_objeto(self, texto):
         for k in self.memory.entities.keys():
             if k in texto.lower(): return k
         return "desconhecido"
 
 # ==============================================================================
-# EXECUÇÃO DA AGI v110
+# EXECUÇÃO
 # ==============================================================================
 
 if __name__ == "__main__":
     agi = ConsciousCore()
-    print("\n--- 🧠 AGI CONSCIOUS CORE v110 ---")
-    print("Comandos:\n- ensinar|frase|nexo|acao\n- objeto|nome|fragil(true/false)\n- regra|acao|risco|desc\n- sentimento|perceber|val_min|val_max|nome")
+    print("\n--- 🧠 AGI CORE v120 ATIVA ---")
+    print("Use o comando One-Shot:")
+    print("aprender|quadro|MARCENARIA|BATER|fragil:False|massa:1.5|risco:0.3|sentimento:SEGURO|0.6|0.9")
     
     while True:
         try:
-            user_input = input("\nLog > ").strip()
-            if user_input.lower() == 'sair': break
+            cmd = input("\nLog > ").strip()
+            if cmd.lower() == 'sair': break
+            partes = cmd.split("|")
             
-            partes = user_input.split("|")
-            
-            if partes[0] == "ensinar" and len(partes) == 4:
-                agi.tgnc.ensinar(partes[1], partes[2], partes[3])
-                agi.tgnc.salvar_cortex()
-                print("🎓 Neural aprendido.")
-            elif partes[0] == "objeto" and len(partes) == 3:
-                agi.memory.entities[partes[1].lower()] = {"fragil": (partes[2].lower() == "true")}
-                agi.memory.salvar()
-                print("📦 Objeto salvo.")
-            elif partes[0] == "regra" and len(partes) == 4:
-                agi.world.rules[partes[1].upper()] = {"risco": float(partes[2]), "consequencia": partes[3]}
-                agi.world.salvar()
-                print("⚖️ Regra salva.")
-            elif partes[0] == "sentimento" and len(partes) == 5:
-                # perceber > valor x > valor y = sentimento
-                agi.snc.adicionar_regra(partes[1], partes[2], partes[3], partes[4])
+            if partes[0] == "aprender":
+                agi.aprender_unificado(partes)
+            elif cmd.lower() == 'consolidar':
+                agi.tgnc.consolidar_mente()
             else:
-                print(agi.pensar(user_input))
-
+                print(agi.pensar(cmd))
         except Exception as e:
             print(f"Erro: {e}")
