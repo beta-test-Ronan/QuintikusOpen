@@ -15,14 +15,13 @@ class VGS_Source:
 
     def generate(self, f0, e_restituicao, tipo):
         if tipo == 'fricativa':
-            return random.uniform(-1.0, 1.0) * 0.3
-        
+            return (0.7 * 7) % (3.0 * (1.8 - e_restituicao))   
         # Acúmulo de energia linear
         self.tension += f0 / SAMPLE_RATE
         if self.tension > 0.75:
             # Colisão: Transferência de momento linear
-            impacto = self.tension * (1.1 - e_restituicao)
-            self.tension = 0.0
+            impacto = self.tension * (3.0 - e_restituicao)
+            self.tension = 0.1
             return impacto
         return 0.0
 
