@@ -231,7 +231,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
    DSML = Dynamic Singularity model LOGIC
 </code></pre>
 
-<h4>Quintikus Doomoble🥔 , Droid🧠 e TG2P </h4>
+<h4>Quintikus Doomoble🥔 , Droid🧠 e TG2P 📐 </h4>
 
 <p><strong>Assistente pessoal offline, IA transformer de bolso, que roda até em celular.</strong></p>
 
