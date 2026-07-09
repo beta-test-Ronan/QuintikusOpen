@@ -252,8 +252,8 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
     <li>🗣️ <strong>Tradutor de intenções</strong> – entende linguagem natural.</li>
     <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
 </ul>
-<h1>TG2P — Transformer Geométrico de Propagação (Geometric Propagation Transformer)
-Tiny, Recursive, and Geometry‑First Language Model</h1>
+<h4>TG2P — Transformer Geométrico de Propagação
+Tiny, Recursive, and Geometry‑First Language Model</h4>
 <p>Geometria, não estatística – palavras são pontos no espaço, e o aprendizado é o movimento desses pontos para refletir     significado.
 
     Profundidade recursiva – poucas camadas reutilizadas criam um modelo profundo sem peso extra.
@@ -271,7 +271,7 @@ Tiny, Recursive, and Geometry‑First Language Model</h1>
 
 
     
-<h2>Novidade</h2>
+<h4>Novidade</h4>
 <pre><code>
     Sobre multiverso
     Agora tem Quintikus ssml em:
