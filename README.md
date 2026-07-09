@@ -231,7 +231,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
    DSML = Dynamic Singularity model LOGIC
 </code></pre>
 
-<h1>Quintikus Doomoble🥔 Droid🧠</h1>
+<h4>Quintikus Doomoble🥔 , Droid🧠 e TG2P </h4>
 
 <p><strong>Assistente pessoal offline, IA transformer de bolso, que roda até em celular.</strong></p>
 
@@ -252,8 +252,8 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
     <li>🗣️ <strong>Tradutor de intenções</strong> – entende linguagem natural.</li>
     <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
 </ul>
-<h4>TG2P — Transformer Geométrico de Propagação
-Tiny, Recursive, and Geometry‑First Language Model</h4>
+<h5>TG2P : Transformer Geométrico de Propagação
+Tiny, Recursive, and Geometry‑First Language Model</h5>
 <p>
 Geometria, não estatística – palavras são pontos no espaço, 
 e o aprendizado é o movimento desses pontos para refletir     significado.
