@@ -253,7 +253,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
     <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
 </ul>
 <h1>TG2P — Transformer Geométrico de Propagação (Geometric Propagation Transformer)
-Tiny, Recursive, and Geometry‑First Language Model<h1>
+Tiny, Recursive, and Geometry‑First Language Model</h1>
 <p>Geometria, não estatística – palavras são pontos no espaço, e o aprendizado é o movimento desses pontos para refletir     significado.
 
     Profundidade recursiva – poucas camadas reutilizadas criam um modelo profundo sem peso extra.
