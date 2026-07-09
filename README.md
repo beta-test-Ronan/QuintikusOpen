@@ -254,15 +254,13 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 </ul>
 <h4>TG2P — Transformer Geométrico de Propagação
 Tiny, Recursive, and Geometry‑First Language Model</h4>
-<p>Geometria, não estatística – palavras são pontos no espaço, e o aprendizado é o movimento desses pontos para refletir     significado.
-
-    Profundidade recursiva – poucas camadas reutilizadas criam um modelo profundo sem peso extra.
-
-    Aprendizado online contínuo – cada frase ajusta a geometria e a memória, sem depender de grandes datasets.
-
-    NumPy puro – toda a arquitetura, incluindo backpropagation manual, roda sem frameworks de ML.
-
-    Autonomia leve – um modelo minúsculo que aprende como um organismo vivo, ideal para borda e experimentação.</p>
+<p>
+Geometria, não estatística – palavras são pontos no espaço, 
+e o aprendizado é o movimento desses pontos para refletir     significado.
+Profundidade recursiva – poucas camadas reutilizadas criam um modelo profundo sem peso extra.
+Aprendizado online contínuo – cada frase ajusta a geometria e a memória, sem depender de grandes datasets.
+NumPy puro – toda a arquitetura, incluindo backpropagation manual, roda sem frameworks de ML.
+Autonomia leve – um modelo minúsculo que aprende como um organismo vivo, ideal para borda e experimentação.</p>
 
 
 <h2>Como usar</h2>
