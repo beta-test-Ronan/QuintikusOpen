@@ -254,7 +254,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 </ul>
 <h5> TGP-2: Geometry‑First Language Model</h5>
 <p>
-TGP-2 traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em
+TGP traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em
 Python puro e NumPy, viabilizando inferência de linguagem natural sem GPUs ou redes neurais profundas tradicionais
 baseadas em backpropagation.</p>
 
