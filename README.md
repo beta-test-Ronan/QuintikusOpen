@@ -252,10 +252,9 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
     <li>🗣️ <strong>Tradutor de intenções</strong> – entende linguagem natural.</li>
     <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
 </ul>
-<h5> TGP-2: Geometry‑First Language Model</h5>
+<h5> TGP-2:Transpassagem Geométrica de Propagação </h5>
 <p>
-TGP traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em
-Python puro e NumPy, viabilizando inferência de linguagem natural sem GPUs ou redes neurais profundas tradicionais
+Geometry‑First Language Model,TGP traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em Python puro e NumPy, viabilizando inferência de linguagem natural sem GPUs ou redes neurais profundas tradicionais
 baseadas em backpropagation.</p>
 
 
