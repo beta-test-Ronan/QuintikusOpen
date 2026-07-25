@@ -1,879 +1,516 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-TRM‑v4 – Weight Tying + Deep Supervision + Recursive Latent Transformer
-VERSÃO FINAL ESTÁVEL – sem erros, pronta para rodar.
-"""
 import numpy as np
-import json
-import random
-import string
-import sys
+import re
+import pickle
 import os
-from collections import deque
+from collections import defaultdict, Counter
+import sys
+import time
+import unicodedata
 
-# ======================== CONFIGURAÇÃO ========================
-ARQUIVO_MODELO = 'modelo_trm_v4.npz'
-ARQUIVO_TOKENIZER = 'tokenizer_trm_v4.json'
-ARQUIVO_EMBEDDINGS = 'embeddings.npy'
+# ============================================================
+# MÓDULOS MATEMÁTICOS E FÍSICOS (Geo-Quânticos)
+# ============================================================
 
-DIM = 128
-NUM_HEADS = 4
-NUM_LAYERS = 2
-NUM_RECURSIONS = 4
-FF_HIDDEN = DIM * 4
-VOCAB_SIZE = 5000
-MAX_LEN = 64
-LR = 0.001
-MEMORY_BETA = 0.9
-BUFFER_CAPACITY = 1000
-BUFFER_K = 5
-TAMANHO_LOTE = 50
-TEMPERATURA = 0.8
-MAX_GERACAO = 15
-DEEP_SUPERVISION_WEIGHT = 0.1
-GRAD_NOISE = 0.001
-RESET_PACIENCIA = 20
-
-# ======================== JSON BASE ========================
-BASE_JSON = {
-    "sujeitos": {
-        "eu":    { "pronome": "eu",    "ir_presente": "vou",    "ir_passado": "fui",
-                   "ser_presente": "sou",  "ser_passado": "fui",
-                   "estar_presente": "estou", "estar_passado": "estive" },
-        "voce":  { "pronome": "você",  "ir_presente": "vai",    "ir_passado": "foi",
-                   "ser_presente": "é",    "ser_passado": "foi",
-                   "estar_presente": "está", "estar_passado": "esteve" },
-        "ele":   { "pronome": "ele",   "ir_presente": "vai",    "ir_passado": "foi",
-                   "ser_presente": "é",    "ser_passado": "foi",
-                   "estar_presente": "está", "estar_passado": "esteve" },
-        "ela":   { "pronome": "ela",   "ir_presente": "vai",    "ir_passado": "foi",
-                   "ser_presente": "é",    "ser_passado": "foi",
-                   "estar_presente": "está", "estar_passado": "esteve" },
-        "nos":   { "pronome": "nós",   "ir_presente": "vamos",  "ir_passado": "fomos",
-                   "ser_presente": "somos", "ser_passado": "fomos",
-                   "estar_presente": "estamos", "estar_passado": "estivemos" },
-        "eles":  { "pronome": "eles",  "ir_presente": "vão",    "ir_passado": "foram",
-                   "ser_presente": "são",   "ser_passado": "foram",
-                   "estar_presente": "estão", "estar_passado": "estiveram" },
-        "elas":  { "pronome": "elas",  "ir_presente": "vão",    "ir_passado": "foram",
-                   "ser_presente": "são",   "ser_passado": "foram",
-                   "estar_presente": "estão", "estar_passado": "estiveram" }
-    },
-    "verbos_ir": {
-        "comer":   ["pão", "arroz", "feijão", "salada", "uma maçã", "bolo", "chocolate"],
-        "beber":   ["água", "café", "suco", "refrigerante", "cerveja", "chá"],
-        "dormir":  ["cedo", "tarde", "a noite toda", "um pouco", "depois do almoço"],
-        "trabalhar": ["no escritório", "em casa", "até tarde", "com o computador", "na obra"],
-        "estudar": ["matemática", "português", "para a prova", "de manhã", "na biblioteca"],
-        "dirigir": ["o carro", "com cuidado", "na estrada", "até o centro", "devagar"],
-        "comprar": ["pão", "leite", "roupa", "um presente", "frutas", "no supermercado"],
-        "falar":  ["com o amigo", "no telefone", "baixo", "alto", "sobre o trabalho"],
-        "ouvir":  ["música", "o rádio", "um podcast", "conselhos", "com atenção"],
-        "assistir":["TV", "um filme", "a novela", "o jogo", "uma série"],
-        "caminhar":["no parque", "na praia", "depois do jantar", "com o cachorro"],
-        "cozinhar":["o almoço", "o jantar", "macarrão", "arroz", "frango"],
-        "limpar": ["a casa", "o quarto", "a cozinha", "o banheiro", "a janela"],
-        "reclamar":["do trânsito", "do calor", "do preço", "da demora", "do chefe"],
-        "perguntar":["as horas", "o caminho", "o preço", "se está bem", "sobre a festa"],
-        "responder":["a pergunta", "a mensagem", "o e-mail", "com educação"],
-        "esperar": ["o ônibus", "a vez", "a resposta", "ansiosamente", "pacientemente"],
-        "gostar":  ["de música", "de praia", "de cinema", "de viajar", "de bolo"],
-        "precisar":["de ajuda", "de dinheiro", "de descanso", "de um médico"],
-        "querer":  ["água", "sair", "comer", "dormir", "viajar"]
-    },
-    "ser_complementos": {
-        "adjetivos": ["bonito", "feio", "alto", "baixo", "inteligente", "engraçado", "tímido", "extrovertido", "jovem", "idoso"],
-        "profissoes": ["professor", "médico", "engenheiro", "advogado", "estudante", "motorista", "cozinheiro"]
-    },
-    "estar_complementos": {
-        "lugares": ["em casa", "no trabalho", "na escola", "no parque", "na praia", "no shopping", "aqui", "ali", "lá"],
-        "estados": ["cansado", "feliz", "triste", "com fome", "com sede", "bem", "mal", "atrasado", "adiantado"]
-    },
-    "adverbios": {
-        "tempo": ["hoje", "amanhã", "agora", "já", "ainda", "sempre", "nunca", "cedo", "tarde"],
-        "modo":  ["bem", "mal", "depressa", "devagar", "calmamente", "rapidamente"],
-        "lugar": ["aqui", "ali", "lá", "perto", "longe", "em casa", "no trabalho"]
-    },
-    "estruturas": [
-        "{sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}.",
-        "{sujeito} não {conjugacao_ir} {verbo_ir} {complemento_ir}.",
-        "{adverbio} {sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}.",
-        "{sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}?",
-        "{adverbio} {sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}?",
-        "Será que {sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}?",
-        "Por que {sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}?",
-        "{sujeito} {conjugacao_ser} {complemento_ser}.",
-        "{sujeito} não {conjugacao_ser} {complemento_ser}.",
-        "{sujeito} {conjugacao_estar} {complemento_estar}.",
-        "{sujeito} não {conjugacao_estar} {complemento_estar}.",
-        "{adverbio} {sujeito} {conjugacao_estar} {complemento_estar}.",
-        "Que {adjetivo} {sujeito} {conjugacao_ser}!",
-        "{sujeito} sempre {conjugacao_ser} {complemento_ser}.",
-        "{sujeito} nunca {conjugacao_estar} {complemento_estar}."
-    ],
-    "adjetivos_exclamacao": ["bom", "ruim", "grande", "pequeno", "rápido", "lento", "bonito", "feio", "novo", "velho"]
-}
-
-# ======================== UTILITÁRIOS ========================
-def l2_normalize(x, axis=-1, eps=1e-8):
-    norm = np.linalg.norm(x, axis=axis, keepdims=True)
-    return x / (norm + eps)
-
-def softmax(x, axis=-1):
-    e_x = np.exp(x - np.max(x, axis=axis, keepdims=True))
-    return e_x / e_x.sum(axis=axis, keepdims=True)
-
-def relu(x):
-    return np.maximum(0, x)
-
-def drelu(x):
-    return (x > 0).astype(float)
-
-# ======================== TOKENIZADOR ========================
-class Tokenizer:
-    def __init__(self, vocab_size):
-        self.vocab_size = vocab_size
-        self.pad_id = 0
-        self.unk_id = 1
-        self.word2idx = {'<PAD>': 0, '<UNK>': 1}
-        self.idx2word = {0: '<PAD>', 1: '<UNK>'}
-        self.next_id = 2
-
-    def add_word(self, word):
-        if word not in self.word2idx and self.next_id < self.vocab_size:
-            self.word2idx[word] = self.next_id
-            self.idx2word[self.next_id] = word
-            self.next_id += 1
-
-    def fit(self, textos):
-        for texto in textos:
-            texto_limpo = texto.replace('.', ' .').replace('?', ' ?').replace('!', ' !').replace(',', ' ,')
-            for palavra in texto_limpo.split():
-                self.add_word(palavra)
-
-    def encode(self, texto):
-        texto_limpo = texto.replace('.', ' .').replace('?', ' ?').replace('!', ' !').replace(',', ' ,')
-        return [self.word2idx.get(p, self.unk_id) for p in texto_limpo.split()]
-
-    def decode(self, ids):
-        return ' '.join(self.idx2word.get(i, '<UNK>') for i in ids)
-
-    def salvar(self, caminho):
-        with open(caminho, 'w', encoding='utf-8') as f:
-            json.dump({'word2idx': self.word2idx, 'idx2word': {str(k): v for k, v in self.idx2word.items()}}, f)
-
-    def carregar(self, caminho):
-        with open(caminho, 'r', encoding='utf-8') as f:
-            dados = json.load(f)
-            self.word2idx = dados['word2idx']
-            self.idx2word = {int(k): v for k, v in dados['idx2word'].items()}
-            self.next_id = len(self.word2idx)
-
-# ======================== GERADOR DE FRASES ========================
-class GeradorFrases:
-    def __init__(self, base):
-        self.base = base
-        self.verbos_ir = base.get('verbos_ir', {})
-        self.ser_adj = base.get('ser_complementos', {}).get('adjetivos', [])
-        self.ser_prof = base.get('ser_complementos', {}).get('profissoes', [])
-        self.estar_lug = base.get('estar_complementos', {}).get('lugares', [])
-        self.estar_est = base.get('estar_complementos', {}).get('estados', [])
-        self.adverbios_tempo = base.get('adverbios', {}).get('tempo', [])
-        self.adjetivos_exc = base.get('adjetivos_exclamacao', [])
-        self.ultimo_sujeito = None
-        self.ultimo_verbo = None
-        self.ultimo_complemento = None
-
-    def escolher_aleatorio(self, lista):
-        if isinstance(lista, dict):
-            return random.choice(list(lista.keys()))
-        return random.choice(lista)
-
-    def gerar(self):
-        if self.ultimo_sujeito and random.random() < 0.5:
-            suj = self.ultimo_sujeito
-            verbo = self.ultimo_verbo if random.random() < 0.7 else self.escolher_aleatorio(self.verbos_ir)
-            comp_ir = self.ultimo_complemento if random.random() < 0.7 else random.choice(self.verbos_ir[verbo])
-            estrutura = "{sujeito} {conjugacao_ir} {verbo_ir} {complemento_ir}."
-        else:
-            suj = self.escolher_aleatorio(list(self.base['sujeitos'].values()))
-            verbo = self.escolher_aleatorio(self.verbos_ir)
-            comp_ir = random.choice(self.verbos_ir[verbo])
-            estrutura = random.choice(self.base['estruturas'])
-
-        self.ultimo_sujeito = suj
-        self.ultimo_verbo = verbo
-        self.ultimo_complemento = comp_ir
-
-        valores = {}
-        if '{conjugacao_ir}' in estrutura:
-            tempo = random.choice(['ir_presente', 'ir_passado'])
-            conj_ir = suj[tempo]
-            valores['conjugacao_ir'] = conj_ir
-            valores['verbo_ir'] = verbo
-            valores['complemento_ir'] = comp_ir
-
-        if '{conjugacao_ser}' in estrutura or '{complemento_ser}' in estrutura:
-            tempo_ser = random.choice(['ser_presente', 'ser_passado'])
-            conj_ser = suj[tempo_ser]
-            tipo = random.choice(['adjetivos', 'profissoes'])
-            if tipo == 'adjetivos' and self.ser_adj:
-                comp_ser = self.escolher_aleatorio(self.ser_adj)
-            else:
-                comp_ser = self.escolher_aleatorio(self.ser_prof)
-            valores['conjugacao_ser'] = conj_ser
-            valores['complemento_ser'] = comp_ser
-
-        if '{conjugacao_estar}' in estrutura or '{complemento_estar}' in estrutura:
-            tempo_estar = random.choice(['estar_presente', 'estar_passado'])
-            conj_estar = suj[tempo_estar]
-            tipo = random.choice(['lugares', 'estados'])
-            if tipo == 'lugares':
-                comp_estar = self.escolher_aleatorio(self.estar_lug)
-            else:
-                comp_estar = self.escolher_aleatorio(self.estar_est)
-            valores['conjugacao_estar'] = conj_estar
-            valores['complemento_estar'] = comp_estar
-
-        if '{adverbio}' in estrutura:
-            valores['adverbio'] = self.escolher_aleatorio(self.adverbios_tempo)
-
-        if '{adjetivo}' in estrutura:
-            valores['adjetivo'] = self.escolher_aleatorio(self.adjetivos_exc)
-
-        chaves = [p[1] for p in string.Formatter().parse(estrutura) if p[1]]
-        valores_filtrados = {k: v for k, v in valores.items() if k in chaves}
-        if 'sujeito' in chaves:
-            valores_filtrados['sujeito'] = suj['pronome']
-
-        frase = estrutura.format(**valores_filtrados).capitalize().strip()
-        return frase
-
-# ======================== CAMADAS DA REDE ========================
-class Linear:
-    def __init__(self, in_dim, out_dim):
-        self.W = np.random.randn(in_dim, out_dim) * np.sqrt(2.0 / in_dim)
-        self.b = np.zeros(out_dim)
-        self.dW = np.zeros_like(self.W)
-        self.db = np.zeros_like(self.b)
-        self.x = None
-
-    def forward(self, x):
-        self.x = x
-        return x @ self.W + self.b
-
-    def backward(self, dout):
-        if dout.ndim == 1:
-            dout = dout.reshape(1, -1)
-        self.dW += self.x.T @ dout
-        self.db += dout.sum(axis=0)
-        if GRAD_NOISE > 0:
-            self.dW += np.random.randn(*self.dW.shape) * GRAD_NOISE
-            self.db += np.random.randn(*self.db.shape) * GRAD_NOISE
-        return dout @ self.W.T
-
-class LayerNorm:
-    def __init__(self, dim, eps=1e-6):
-        self.gamma = np.ones(dim)
-        self.beta = np.zeros(dim)
-        self.eps = eps
-        self.dgamma = np.zeros(dim)
-        self.dbeta = np.zeros(dim)
-        self.x = None
-        self.mean = None
-        self.var = None
-        self.std_inv = None
-        self.norm = None
-
-    def forward(self, x):
-        self.x = x
-        self.mean = x.mean(axis=-1, keepdims=True)
-        self.var = x.var(axis=-1, keepdims=True)
-        self.std_inv = 1.0 / np.sqrt(self.var + self.eps)
-        self.norm = (x - self.mean) * self.std_inv
-        return self.gamma * self.norm + self.beta
-
-    def backward(self, dout):
-        N = self.x.shape[-1]
-        dx_norm = dout * self.gamma
-        dvar = (dx_norm * self.norm).sum(axis=-1, keepdims=True) * -0.5 * self.std_inv**2
-        dmean = (dx_norm * -self.std_inv).sum(axis=-1, keepdims=True) + dvar * (-2 * self.norm).mean(axis=-1, keepdims=True)
-        dx = dx_norm * self.std_inv + dvar * 2 * self.norm / N + dmean / N
-        self.dgamma += (dout * self.norm).sum(axis=0)
-        self.dbeta += dout.sum(axis=0)
-        if GRAD_NOISE > 0:
-            self.dgamma += np.random.randn(*self.dgamma.shape) * GRAD_NOISE
-            self.dbeta += np.random.randn(*self.dbeta.shape) * GRAD_NOISE
-        return dx
-
-class MultiHeadGeometricAttention:
-    def __init__(self, dim, num_heads):
-        assert dim % num_heads == 0
+class DiscoPoincare:
+    def __init__(self, dim=64):
         self.dim = dim
-        self.num_heads = num_heads
-        self.d_k = dim // num_heads
-        self.Wq = Linear(dim, dim)
-        self.Wk = Linear(dim, dim)
-        self.Wv = Linear(dim, dim)
-        self.Wo = Linear(dim, dim)
-        self.seq_len = 0
-        self.Q = None
-        self.K = None
-        self.V = None
-        self.Q_norm = None
-        self.K_norm = None
-        self.attn = None
+    
+    def distancia(self, x, y):
+        norma_x = np.clip(np.linalg.norm(x), 0, 0.99)
+        norma_y = np.clip(np.linalg.norm(y), 0, 0.99)
+        x_proj = x / (np.linalg.norm(x) + 1e-8) * norma_x
+        y_proj = y / (np.linalg.norm(y) + 1e-8) * norma_y
+        diff_sq = np.sum((x_proj - y_proj)**2)
+        num = 2 * diff_sq
+        den = (1 - norma_x**2) * (1 - norma_y**2) + 1e-12
+        cosh_val = 1 + num / den
+        cosh_val = np.clip(cosh_val, 1.0, None)
+        return np.arccosh(cosh_val)
+    
+    def mover_para_borda(self, ponto, intensidade=0.01):
+        norma = np.linalg.norm(ponto)
+        if norma < 0.99:
+            direcao = ponto / (norma + 1e-8)
+            return ponto + direcao * intensidade
+        return ponto
 
-    def forward(self, x, mask=None):
-        self.seq_len = x.shape[0]
-        Q = self.Wq.forward(x)
-        K = self.Wk.forward(x)
-        V = self.Wv.forward(x)
+class TokenQuantico:
+    def __init__(self, dim=64, num_estados=4):
+        self.dim = dim
+        self.num_estados = num_estados
+        self.estados = {} 
+    
+    def inicializar_base(self, token, vetor_base):
+        if token not in self.estados:
+            self.estados[token] = [vetor_base.copy()]
 
-        self.Q = Q.reshape(self.seq_len, self.num_heads, self.d_k).transpose(1, 0, 2)
-        self.K = K.reshape(self.seq_len, self.num_heads, self.d_k).transpose(1, 0, 2)
-        self.V = V.reshape(self.seq_len, self.num_heads, self.d_k).transpose(1, 0, 2)
+    def adicionar_interpretacao(self, token, contexto_vetor, peso=0.3):
+        if token not in self.estados:
+            return
+        estado_base = self.estados[token][0]
+        novo_estado = estado_base * (1 - peso) + contexto_vetor * peso
+        norma = np.linalg.norm(novo_estado)
+        if norma > 0.99:
+            novo_estado = novo_estado / norma * 0.99
+        self.estados[token].append(novo_estado)
+        if len(self.estados[token]) > self.num_estados:
+            self.estados[token].pop(1) 
+    
+    def colapsar(self, token, consulta_vetor, disco):
+        if token not in self.estados:
+            return None
+        melhores = []
+        for estado in self.estados[token]:
+            dist = disco.distancia(consulta_vetor, estado)
+            sim = 1.0 / (1.0 + dist)
+            melhores.append((sim, estado))
+        melhores.sort(key=lambda x: x[0], reverse=True)
+        sims = np.array([m[0] for m in melhores])
+        probs = sims**2
+        probs_soma = probs.sum()
+        if probs_soma == 0:
+            return melhores[0][1]
+        probs /= probs_soma
+        idx = np.random.choice(len(melhores), p=probs)
+        return melhores[idx][1]
 
-        self.Q_norm = l2_normalize(self.Q, axis=-1)
-        self.K_norm = l2_normalize(self.K, axis=-1)
+class MPSTransicao:
+    def __init__(self, dim_token=64, bond_dim=2):
+        self.dim_token = dim_token
+        self.bond_dim = bond_dim
+        self.A = np.random.randn(dim_token, bond_dim) * 0.05
+        self.B = np.random.randn(bond_dim, bond_dim) * 0.05
+        self.C = np.random.randn(bond_dim, dim_token) * 0.05
+    
+    def transicao(self, vetor_entrada):
+        h1 = np.dot(vetor_entrada, self.A)
+        h2 = np.dot(h1, self.B)
+        saida = np.dot(h2, self.C)
+        norma = np.linalg.norm(saida)
+        if norma > 0.99:
+            saida = saida / norma * 0.99
+        elif norma == 0:
+            saida = np.random.randn(self.dim_token) * 0.01
+        return saida
 
-        scores = self.Q_norm @ self.K_norm.transpose(0, 2, 1)
-        if mask is not None:
-            scores += mask * -1e9
-        self.attn = softmax(scores, axis=-1)
+# ============================================================
+# CLASSE TGP-2.5 COM INÉRCIA LINEAR ANTI-REPETIÇÃO
+# ============================================================
 
-        out = self.attn @ self.V
-        out = out.transpose(1, 0, 2).reshape(self.seq_len, self.dim)
-        return self.Wo.forward(out)
-
-    def backward(self, dout):
-        dout = self.Wo.backward(dout)
-        dout = dout.reshape(self.seq_len, self.num_heads, self.d_k).transpose(1, 0, 2)
-
-        dV = self.attn.transpose(0, 2, 1) @ dout
-        dattn = dout @ self.V.transpose(0, 2, 1)
-        dattn = dattn * self.attn
-        dattn -= self.attn * dattn.sum(axis=-1, keepdims=True)
-
-        dQ_norm = dattn @ self.K_norm
-        dK_norm = dattn.transpose(0, 2, 1) @ self.Q_norm
-
-        def l2_norm_backward(dy, y, x):
-            norm = np.linalg.norm(x, axis=-1, keepdims=True) + 1e-8
-            y_exp = y[..., np.newaxis]
-            y_t = y[..., np.newaxis, :]
-            dy_dx = (np.eye(x.shape[-1]) - y_exp @ y_t) / norm[..., np.newaxis]
-            if dy.ndim > 2:
-                dy_exp = dy[..., np.newaxis, :]
-                dx = np.squeeze(dy_exp @ dy_dx, axis=-2)
-            else:
-                dx = dy @ dy_dx
-            return dx
-
-        dQ = l2_norm_backward(dQ_norm, self.Q_norm, self.Q)
-        dK = l2_norm_backward(dK_norm, self.K_norm, self.K)
-
-        dQ = dQ.transpose(1, 0, 2).reshape(self.seq_len, self.dim)
-        dK = dK.transpose(1, 0, 2).reshape(self.seq_len, self.dim)
-        dV = dV.transpose(1, 0, 2).reshape(self.seq_len, self.dim)
-
-        dx_q = self.Wq.backward(dQ)
-        dx_k = self.Wk.backward(dK)
-        dx_v = self.Wv.backward(dV)
-        return dx_q + dx_k + dx_v
-
-class FeedForward:
-    def __init__(self, dim, hidden_dim):
-        self.W1 = Linear(dim, hidden_dim)
-        self.W2 = Linear(hidden_dim, dim)
-        self.x = None
-        self.out1 = None
-        self.relu_out = None
-
-    def forward(self, x):
-        self.x = x
-        self.out1 = self.W1.forward(x)
-        self.relu_out = relu(self.out1)
-        return self.W2.forward(self.relu_out)
-
-    def backward(self, dout):
-        dout2 = self.W2.backward(dout)
-        dout2 = dout2 * drelu(self.out1)
-        dx = self.W1.backward(dout2)
-        return dx
-
-class TransformerBlock:
-    def __init__(self, dim, num_heads, ff_hidden):
-        self.attn = MultiHeadGeometricAttention(dim, num_heads)
-        self.ln1 = LayerNorm(dim)
-        self.ffn = FeedForward(dim, ff_hidden)
-        self.ln2 = LayerNorm(dim)
-        self.x_input = None
-        self.x_ln1 = None
-        self.x_attn = None
-        self.resid1 = None
-        self.x_ln2 = None
-        self.x_ffn = None
-        self.resid2 = None
-
-    def forward(self, x, mask=None):
-        self.x_input = x
-        self.resid1 = x
-        self.x_ln1 = self.ln1.forward(x)
-        self.x_attn = self.attn.forward(self.x_ln1, mask)
-        x = self.x_attn + self.resid1
-
-        self.resid2 = x
-        self.x_ln2 = self.ln2.forward(x)
-        self.x_ffn = self.ffn.forward(self.x_ln2)
-        out = self.x_ffn + self.resid2
-        return out
-
-    def backward(self, dout):
-        dx_ffn = self.ffn.backward(dout)
-        dx_ln2 = self.ln2.backward(dout)
-        d_resid2 = dout + dx_ffn + dx_ln2
-
-        dx_attn = self.attn.backward(d_resid2)
-        dx_ln1 = self.ln1.backward(d_resid2)
-        d_resid1 = d_resid2 + dx_attn + dx_ln1
-
-        return d_resid1
-
-    def save_state(self):
-        return {
-            'x_input': self.x_input,
-            'x_ln1': self.x_ln1,
-            'x_attn': self.x_attn,
-            'resid1': self.resid1,
-            'x_ln2': self.x_ln2,
-            'x_ffn': self.x_ffn,
-            'resid2': self.resid2,
-            'attn_Q': self.attn.Q,
-            'attn_K': self.attn.K,
-            'attn_V': self.attn.V,
-            'attn_Q_norm': self.attn.Q_norm,
-            'attn_K_norm': self.attn.K_norm,
-            'attn_attn': self.attn.attn,
-            'attn_seq_len': self.attn.seq_len,
-            'attn_Wq_x': self.attn.Wq.x,
-            'attn_Wk_x': self.attn.Wk.x,
-            'attn_Wv_x': self.attn.Wv.x,
-            'attn_Wo_x': self.attn.Wo.x,
-            'ln1_x': self.ln1.x,
-            'ln1_mean': self.ln1.mean,
-            'ln1_var': self.ln1.var,
-            'ln1_std_inv': self.ln1.std_inv,
-            'ln1_norm': self.ln1.norm,
-            'ln2_x': self.ln2.x,
-            'ln2_mean': self.ln2.mean,
-            'ln2_var': self.ln2.var,
-            'ln2_std_inv': self.ln2.std_inv,
-            'ln2_norm': self.ln2.norm,
-            'ffn_x': self.ffn.x,
-            'ffn_out1': self.ffn.out1,
-            'ffn_relu_out': self.ffn.relu_out,
-            'ffn_W1_x': self.ffn.W1.x,
-            'ffn_W2_x': self.ffn.W2.x,
+class TGP2:
+    def __init__(self, dim_espaco=64, arquivo_modelo="tgp2_camada_geometrica.pkl"):
+        self.dim_espaco = dim_espaco
+        self.arquivo_modelo = arquivo_modelo
+        
+        self.disco = DiscoPoincare(dim_espaco)
+        self.quantico = TokenQuantico(dim_espaco, num_estados=4)
+        self.mps = MPSTransicao(dim_espaco, bond_dim=2)
+        
+        self.token_para_vetor = {}
+        self.episodios = []
+        
+        self.bigramas = defaultdict(lambda: defaultdict(int))
+        self.trigramas = defaultdict(lambda: defaultdict(int))
+        self.indice_prefixo = defaultdict(list)
+        
+        self.token_fim = '<END>'
+        
+        if not self.carregar_modelo():
+            self._registrar_token(self.token_fim)
+        
+    def salvar_modelo(self):
+        estado = {
+            'vetores': self.token_para_vetor,
+            'quantico_estados': self.quantico.estados,
+            'bigramas': dict(self.bigramas),
+            'trigramas': dict(self.trigramas),
+            'indice_prefixo': dict(self.indice_prefixo)
         }
+        with open(self.arquivo_modelo, 'wb') as f:
+            pickle.dump(estado, f)
 
-    def load_state(self, state):
-        self.x_input = state['x_input']
-        self.x_ln1 = state['x_ln1']
-        self.x_attn = state['x_attn']
-        self.resid1 = state['resid1']
-        self.x_ln2 = state['x_ln2']
-        self.x_ffn = state['x_ffn']
-        self.resid2 = state['resid2']
-        self.attn.Q = state['attn_Q']
-        self.attn.K = state['attn_K']
-        self.attn.V = state['attn_V']
-        self.attn.Q_norm = state['attn_Q_norm']
-        self.attn.K_norm = state['attn_K_norm']
-        self.attn.attn = state['attn_attn']
-        self.attn.seq_len = state['attn_seq_len']
-        self.attn.Wq.x = state['attn_Wq_x']
-        self.attn.Wk.x = state['attn_Wk_x']
-        self.attn.Wv.x = state['attn_Wv_x']
-        self.attn.Wo.x = state['attn_Wo_x']
-        self.ln1.x = state['ln1_x']
-        self.ln1.mean = state['ln1_mean']
-        self.ln1.var = state['ln1_var']
-        self.ln1.std_inv = state['ln1_std_inv']
-        self.ln1.norm = state['ln1_norm']
-        self.ln2.x = state['ln2_x']
-        self.ln2.mean = state['ln2_mean']
-        self.ln2.var = state['ln2_var']
-        self.ln2.std_inv = state['ln2_std_inv']
-        self.ln2.norm = state['ln2_norm']
-        self.ffn.x = state['ffn_x']
-        self.ffn.out1 = state['ffn_out1']
-        self.ffn.relu_out = state['ffn_relu_out']
-        self.ffn.W1.x = state['ffn_W1_x']
-        self.ffn.W2.x = state['ffn_W2_x']
+    def carregar_modelo(self):
+        if os.path.exists(self.arquivo_modelo):
+            with open(self.arquivo_modelo, 'rb') as f:
+                estado = pickle.load(f)
+            self.token_para_vetor = estado['vetores']
+            self.quantico.estados = estado['quantico_estados']
+            for k, v in estado['bigramas'].items(): self.bigramas[k].update(v)
+            for k, v in estado['trigramas'].items(): self.trigramas[k].update(v)
+            for k, v in estado['indice_prefixo'].items(): self.indice_prefixo[k] = v
+            return True
+        return False
 
-# ======================== MODELO TRM ========================
-class TRM:
-    def __init__(self, dim, num_heads, num_layers, ff_hidden, vocab_size, max_len, tokenizer,
-                 num_recursions=4, embeddings=None):
-        self.dim = dim
-        self.num_layers = num_layers
-        self.max_len = max_len
-        self.vocab_size = vocab_size
-        self.tokenizer = tokenizer
-        self.num_recursions = num_recursions
+    def _registrar_token(self, token):
+        if token not in self.token_para_vetor:
+            vetor = np.random.randn(self.dim_espaco) * 0.4 
+            norma = np.linalg.norm(vetor)
+            if norma > 0.99: 
+                vetor = vetor / norma * 0.99
+            self.token_para_vetor[token] = vetor
+            self.quantico.inicializar_base(token, vetor)
 
-        if embeddings is not None:
-            self.E = embeddings.copy()
-        else:
-            self.E = np.random.randn(vocab_size, dim) * 0.02
+    def tokenizar(self, texto):
+        texto_nfkd = unicodedata.normalize('NFD', texto.lower())
+        texto_sem_acento = ''.join([c for c in texto_nfkd if unicodedata.category(c) != 'Mn'])
+        tokens = re.findall(r'[a-z0-9]+|[.,!?;:]+|\s+', texto_sem_acento)
+        return [t for t in tokens if t.strip()]
+    
+    def atencao_multiversal_vetorial(self, contexto_tokens):
+        if not contexto_tokens:
+            return np.zeros(self.dim_espaco)
+        frequencias = Counter(contexto_tokens)
+        max_freq = max(frequencias.values()) if frequencias else 1
+        vetor_gravitacional = np.zeros(self.dim_espaco)
+        peso_total = 0.0
+        for token, count in frequencias.items():
+            if token in self.token_para_vetor:
+                peso = count / max_freq 
+                vetor_gravitacional += self.token_para_vetor[token] * peso
+                peso_total += peso
+        if peso_total > 0:
+            vetor_gravitacional /= peso_total
+        norma = np.linalg.norm(vetor_gravitacional)
+        if norma > 0.99:
+            vetor_gravitacional = (vetor_gravitacional / norma) * 0.99
+        return vetor_gravitacional
 
-        pe = np.zeros((max_len, dim))
-        position = np.arange(max_len)[:, np.newaxis]
-        div_term = np.exp(np.arange(0, dim, 2) * -(np.log(10000.0) / dim))
-        pe[:, 0::2] = np.sin(position * div_term)
-        pe[:, 1::2] = np.cos(position * div_term)
-        self.pos_enc = pe
+    def transpassar(self, tokens):
+        tokens = tokens[-20:] if len(tokens) > 20 else tokens 
+        if not tokens: return []
+        for t in tokens: self._registrar_token(t)
+        vetores_base = []
+        for t in tokens:
+            v = self.token_para_vetor[t].copy()
+            if len(t) > 5: v = self.disco.mover_para_borda(v, 0.05)
+            vetores_base.append(v)
+            
+        estados_colapsados = []
+        for i, t in enumerate(tokens):
+            inicio, fim = max(0, i - 2), min(len(tokens), i + 3)
+            contexto = np.mean(vetores_base[inicio:fim], axis=0)
+            self.quantico.adicionar_interpretacao(t, contexto)
+            estado_atual = self.quantico.colapsar(t, contexto, self.disco)
+            if estado_atual is not None:
+                estados_colapsados.append(estado_atual)
+                
+        curva_mps = []
+        estado_dinamico = estados_colapsados[0] if estados_colapsados else np.zeros(self.dim_espaco)
+        for _ in range(len(tokens)):
+            estado_dinamico = self.mps.transicao(estado_dinamico)
+            curva_mps.append(estado_dinamico)
+        return curva_mps
 
-        self.layers = [TransformerBlock(dim, num_heads, ff_hidden) for _ in range(num_layers)]
-        self.final_ln = LayerNorm(dim)
-        self.pool_query = np.random.randn(dim) * 0.02
+    def validar_similaridade_neural(self, vetor_alvo, limiar_distancia=1.2, min_similares=3, max_similares=7):
+        similares_contagem = 0
+        for token, vetor_ref in self.token_para_vetor.items():
+            if token == self.token_fim: continue
+            dist = self.disco.distancia(vetor_alvo, vetor_ref)
+            if dist <= limiar_distancia:
+                similares_contagem += 1
+        return min_similares <= similares_contagem <= max_similares
 
-        self.short_term_memory = np.zeros(dim)
-        self.memory_beta = MEMORY_BETA
+    def camada_contextualizacao_previa(self, tokens_iniciais):
+        predicados = [t for t in tokens_iniciais if len(t) >= 4 and t in self.token_para_vetor]
+        relatorios = []
+        for p in predicados:
+            v_p = self.token_para_vetor[p]
+            vizinhos = []
+            for t, v_ref in self.token_para_vetor.items():
+                if t != p and len(t) > 3:
+                    if self.disco.distancia(v_p, v_ref) < 1.0:
+                        vizinhos.append(t)
+            if vizinhos:
+                relatorios.append(f"({p} AND {', '.join(vizinhos[:2])})")
+        if relatorios:
+            return f"[Contexto: {' | '.join(relatorios)}]"
+        return "[Contexto: Predicados Novos]"
 
-        self.associative_buffer = deque(maxlen=BUFFER_CAPACITY)
-        self.buffer_k = BUFFER_K
+    # ---------- DETECTOR DE REPETIÇÃO DE LONGO ALCANCE ----------
+    def _repeticao_longa(self, contexto, comprimento=6):
+        """Retorna True se a sequência dos últimos `comprimento` tokens já apareceu antes no contexto."""
+        if len(contexto) < comprimento * 2:
+            return False
+        ultima_seq = tuple(contexto[-comprimento:])
+        # Procura nos primeiros 90% do contexto (evita comparar com ela mesma)
+        for i in range(0, len(contexto) - comprimento - 1):
+            if tuple(contexto[i:i+comprimento]) == ultima_seq:
+                return True
+        return False
 
-        self.rms_cache = {}
-        self.rms_eps = 1e-8
-        self.rms_decay = 0.9
+    def _sequencia_repetida(self, contexto, token_candidato, janela=5):
+        if len(contexto) < janela:
+            return False
+        nova_sequencia = tuple(contexto[-(janela-1):] + [token_candidato])
+        for i in range(len(contexto) - janela + 1):
+            if tuple(contexto[i:i+janela]) == nova_sequencia:
+                return True
+        return False
 
-        self.recursion_states = []
+    def pensar_descarga_dinamica(self, contexto, vetor_alvo, freq_gerada, usa_pontuacao_forte, fator_inercia, iteracoes_max=5):
+        cargas_neurais = {token: 0.0 for token in self.token_para_vetor.keys()}
+        t_ant = contexto[-1] if contexto else None
+        penult = contexto[-2] if len(contexto) >= 2 else None
 
-    def forward(self, token_ids, use_memory=True, return_all_logits=False, return_intermediates=False):
-        seq_len = len(token_ids)
-        if seq_len == 0:
-            if return_all_logits:
-                return None, None, None, None
-            return np.zeros(self.dim), None, None, None, None, None
+        # Se inércia está ativa (fator < 0.8), penalizamos tokens muito frequentes
+        penalidade_extra_repeticao = 3.0 if fator_inercia < 0.8 else 0.0
 
-        token_emb = self.E[token_ids, :]
-        x = token_emb + self.pos_enc[:seq_len]
+        for pulso in range(1, iteracoes_max + 1):
+            for token in self.token_para_vetor.keys():
+                if token == self.token_fim or token in contexto[-2:]:
+                    continue
+                # Impede repetição imediata
+                if token == contexto[-1]:
+                    continue
+                
+                estado_colapsado = self.quantico.colapsar(token, vetor_alvo, self.disco)
+                if estado_colapsado is None: continue
+                
+                dist = self.disco.distancia(vetor_alvo, estado_colapsado)
+                if dist > 1.8: continue
+                
+                carga_nl = 1.0 / (1.0 + dist)
+                if self.validar_similaridade_neural(estado_colapsado):
+                    carga_nl *= 1.8  
+                
+                carga_l = 0.0
+                if t_ant and self.bigramas[t_ant][token] > 0:
+                    carga_l += (self.bigramas[t_ant][token] * 0.5)
+                if penult and t_ant:
+                    chave = (penult, t_ant)
+                    if chave in self.trigramas and token in self.trigramas[chave]:
+                        carga_l += (self.trigramas[chave][token] * 2.0)
+                
+                # Penalidades
+                penalidade_rep = freq_gerada.get(token, 0) * 1.5
+                if self._sequencia_repetida(contexto, token):
+                    penalidade_rep += 5.0
+                # Penalidade extra quando inércia está baixa (repetição longa detectada)
+                penalidade_rep += penalidade_extra_repeticao * (token in freq_gerada)
 
-        if use_memory and seq_len < self.max_len - 1:
-            mem_emb = np.expand_dims(self.short_term_memory, axis=0)
-            x = np.vstack([mem_emb, x])
-            x[0] += self.pos_enc[0]
+                if token in ['.', '!', '?']:
+                    if not usa_pontuacao_forte:
+                        penalidade_rep += 3.0
+                elif token == ',':
+                    penalidade_rep -= 0.5
+                
+                descarga_total = (carga_nl * 0.6) + (carga_l * 0.4) - penalidade_rep
+                cargas_neurais[token] += descarga_total * (1.1 ** pulso)
 
-        self.recursion_states = []
-        intermediates = []
+            candidatos_ordenados = sorted(cargas_neurais.items(), key=lambda x: x[1], reverse=True)
+            if len(candidatos_ordenados) >= 2:
+                gap_energia = candidatos_ordenados[0][1] - candidatos_ordenados[1][1]
+                if gap_energia > 1.5 and candidatos_ordenados[0][1] > 0:  
+                    return candidatos_ordenados[0][0]
 
-        for r in range(self.num_recursions):
-            for layer in self.layers:
-                x = layer.forward(x)
+        candidatos_ordenados = sorted(cargas_neurais.items(), key=lambda x: x[1], reverse=True)
+        return candidatos_ordenados[0][0] if (candidatos_ordenados and candidatos_ordenados[0][1] > 0) else None
 
-            current_states = [layer.save_state() for layer in self.layers]
-            self.recursion_states.append(current_states)
+    def devorar_texto_grande(self, texto_bruto, tamanho_janela=10):
+        print("📚 Devorando texto massivo e mapeando o espaço geo-quântico...")
+        tokens = self.tokenizar(texto_bruto)
+        if len(tokens) < tamanho_janela: 
+            print("⚠️ Texto muito curto para o tamanho da janela.")
+            return
 
-            if return_intermediates or return_all_logits:
-                logits_r = x @ self.E.T
-                probs_r = softmax(logits_r, axis=-1)
-                intermediates.append((logits_r, probs_r, x.copy()))
+        for i in range(len(tokens) - 3):
+            prefixo = (tokens[i], tokens[i+1], tokens[i+2])
+            if i + 3 < len(tokens):
+                self.indice_prefixo[prefixo].append(tokens[i+3])
+        
+        for i in range(len(tokens) - tamanho_janela):
+            janela_atual = tokens[i : i + tamanho_janela]
+            for j in range(len(janela_atual)-1):
+                self.bigramas[janela_atual[j]][janela_atual[j+1]] += 1
+            for j in range(len(janela_atual)-2):
+                self.trigramas[(janela_atual[j], janela_atual[j+1])][janela_atual[j+2]] += 1
+            
+            curva = self.transpassar(janela_atual)
+            if i % 5 == 0:
+                self.episodios.append({'in': janela_atual[:5], 'out': janela_atual[5:]})
+                if len(self.episodios) > 200: self.episodios.pop(0)
+                    
+        print(f"✅ Concluído! {len(tokens)} tokens processados.")
+        print(f"   Vocabulário: {len(self.token_para_vetor)} tokens únicos.")
+        self.salvar_modelo()
 
-        x_norm = self.final_ln.forward(x)
-
-        if return_all_logits or return_intermediates:
-            logits_final = x_norm @ self.E.T
-            probs_final = softmax(logits_final, axis=-1)
-            if return_intermediates:
-                return intermediates, logits_final, probs_final, x_norm, token_emb
-            return logits_final, probs_final, x_norm, token_emb, intermediates
-        else:
-            scores = x_norm @ self.pool_query
-            attn_pool = softmax(scores, axis=0)
-            self.attn_pool = attn_pool
-            context = (attn_pool[:, np.newaxis] * x_norm).sum(axis=0)
-            logits = context @ self.E.T
-            probs = softmax(logits, axis=-1)
-            predicted_vector = probs @ self.E
-            return context, logits, probs, predicted_vector, x_norm, token_emb
-
-    def train_sequence_parallel(self, token_ids, lr=LR):
-        if len(token_ids) < 2:
-            return 0.0
-
-        input_ids = token_ids[:-1]
-        target_ids = token_ids[1:]
-
-        result = self.forward(input_ids, use_memory=False, return_all_logits=True)
-        logits_final, probs_final, x_hidden, token_emb, intermediates = result
-        seq_len = logits_final.shape[0]
-
-        loss_final = 0.0
-        dlogits_total = np.zeros_like(logits_final)
-        for t in range(seq_len):
-            target_id = target_ids[t]
-            prob = probs_final[t]
-            loss_final += -np.log(prob[target_id] + 1e-8)
-            dlogits = prob.copy()
-            dlogits[target_id] -= 1
-            dlogits_total[t] = dlogits
-        loss_final /= seq_len
-        dlogits_total /= seq_len
-
-        loss_deep = 0.0
-        dX_deep = np.zeros_like(x_hidden)
-        for (logits_r, probs_r, x_r) in intermediates:
-            loss_r = 0.0
-            dlogits_r = np.zeros_like(logits_r)
-            for t in range(seq_len):
-                target_id = target_ids[t]
-                prob = probs_r[t]
-                loss_r += -np.log(prob[target_id] + 1e-8)
-                dlogits = prob.copy()
-                dlogits[target_id] -= 1
-                dlogits_r[t] = dlogits
-            loss_r /= seq_len
-            dlogits_r /= seq_len
-            loss_deep += loss_r
-            dX_deep += dlogits_r @ self.E
-
-        loss_total = loss_final + DEEP_SUPERVISION_WEIGHT * loss_deep
-
-        dX = dlogits_total @ self.E + DEEP_SUPERVISION_WEIGHT * dX_deep
-        dX = self.final_ln.backward(dX)
-
-        for r in reversed(range(self.num_recursions)):
-            for layer, state in zip(self.layers, self.recursion_states[r]):
-                layer.load_state(state)
-            for layer in reversed(self.layers):
-                dX = layer.backward(dX)
-
-        dE = np.zeros_like(self.E)
-        for t, idx in enumerate(input_ids):
-            dE[idx] += dX[t]
-        self._rmsprop_update_embedding(dE, lr)
-
-        self._apply_gradients(lr)
-
-        context, _, _, _, _, _ = self.forward(token_ids, use_memory=False)
-        self.short_term_memory = (self.memory_beta * self.short_term_memory +
-                                  (1 - self.memory_beta) * context)
-
-        last_target_emb = self.E[token_ids[-1]]
-        self.associative_buffer.append((context, last_target_emb))
-
-        return loss_total
-
-    def generate(self, seed_ids, max_new_tokens=15, temperature=TEMPERATURA, use_memory=True):
-        ids = seed_ids.copy()
-        for _ in range(max_new_tokens):
-            context, logits, probs, pred_vec, _, _ = self.forward(ids, use_memory=use_memory)
-            logits_scaled = logits / temperature
-            probs_scaled = softmax(logits_scaled)
-            next_id = np.random.choice(self.vocab_size, p=probs_scaled)
-            if next_id == 0:
-                probs_scaled[0] = 0
-                probs_scaled /= probs_scaled.sum()
-                next_id = np.random.choice(self.vocab_size, p=probs_scaled)
-            ids.append(next_id)
-            palavra = self.tokenizer.idx2word.get(next_id, '')
-            if palavra in ('.', '?', '!'):
+    def gerar_token_a_token_quantico(self, texto_entrada, max_tokens=100):
+        tokens_iniciais = self.tokenizar(texto_entrada)
+        if not tokens_iniciais:
+            print("[entrada vazia]", end="")
+            return
+        
+        usa_pontuacao_forte = any(p in texto_entrada for p in ['.', '!', '?'])
+        
+        pensamento_previo = self.camada_contextualizacao_previa(tokens_iniciais)
+        print(pensamento_previo + " ", end="")
+        
+        vetor_atencao_global = self.atencao_multiversal_vetorial(tokens_iniciais)
+        contexto_acumulado = tokens_iniciais.copy()
+        self.mps = MPSTransicao(self.dim_espaco, bond_dim=2)
+        freq_gerada = Counter()
+        
+        # --- INÉRCIA LINEAR ---
+        fator_inercia = 1.0   # 1.0 = sem bloqueio, 0.0 = bloqueio total (força atenção global)
+        
+        for step in range(max_tokens):
+            curva = self.transpassar(contexto_acumulado[-10:])
+            if not curva:
                 break
-        return ids
+            
+            estado_atual = curva[-1]
+            vetor_mps = self.mps.transicao(estado_atual)
+            
+            # Aplica inércia: mistura vetor MPS com atenção global
+            # Quanto menor fator_inercia, mais peso na atenção global
+            vetor_alvo = (vetor_mps * fator_inercia) + (vetor_atencao_global * (1.0 - fator_inercia))
+            norma = np.linalg.norm(vetor_alvo)
+            if norma > 0.99: 
+                vetor_alvo = (vetor_alvo / norma) * 0.99
 
-    def _rmsprop_update_embedding(self, dE, lr):
-        key = id(self.E)
-        if key not in self.rms_cache:
-            self.rms_cache[key] = np.zeros_like(self.E)
-        self.rms_cache[key] = self.rms_decay * self.rms_cache[key] + (1 - self.rms_decay) * dE**2
-        self.E -= lr * dE / (np.sqrt(self.rms_cache[key]) + self.rms_eps)
-
-    def _apply_gradients(self, lr):
-        for layer in self.layers:
-            for param in [layer.attn.Wq, layer.attn.Wk, layer.attn.Wv, layer.attn.Wo]:
-                self._rmsprop_update_linear(param, lr)
-            for ln in [layer.ln1, layer.ln2]:
-                self._rmsprop_update_ln(ln, lr)
-            for ff in [layer.ffn.W1, layer.ffn.W2]:
-                self._rmsprop_update_linear(ff, lr)
-        self._rmsprop_update_ln(self.final_ln, lr)
-
-    def _rmsprop_update_linear(self, linear, lr):
-        key_W = id(linear.W)
-        key_b = id(linear.b)
-        if key_W not in self.rms_cache:
-            self.rms_cache[key_W] = np.zeros_like(linear.W)
-            self.rms_cache[key_b] = np.zeros_like(linear.b)
-        if GRAD_NOISE > 0:
-            linear.dW += np.random.randn(*linear.dW.shape) * GRAD_NOISE
-            linear.db += np.random.randn(*linear.db.shape) * GRAD_NOISE
-        self.rms_cache[key_W] = self.rms_decay * self.rms_cache[key_W] + (1 - self.rms_decay) * linear.dW**2
-        self.rms_cache[key_b] = self.rms_decay * self.rms_cache[key_b] + (1 - self.rms_decay) * linear.db**2
-        linear.W -= lr * linear.dW / (np.sqrt(self.rms_cache[key_W]) + self.rms_eps)
-        linear.b -= lr * linear.db / (np.sqrt(self.rms_cache[key_b]) + self.rms_eps)
-        linear.dW.fill(0)
-        linear.db.fill(0)
-
-    def _rmsprop_update_ln(self, ln, lr):
-        key_g = id(ln.gamma)
-        key_b = id(ln.beta)
-        if key_g not in self.rms_cache:
-            self.rms_cache[key_g] = np.zeros_like(ln.gamma)
-            self.rms_cache[key_b] = np.zeros_like(ln.beta)
-        if GRAD_NOISE > 0:
-            ln.dgamma += np.random.randn(*ln.dgamma.shape) * GRAD_NOISE
-            ln.dbeta += np.random.randn(*ln.dbeta.shape) * GRAD_NOISE
-        self.rms_cache[key_g] = self.rms_decay * self.rms_cache[key_g] + (1 - self.rms_decay) * ln.dgamma**2
-        self.rms_cache[key_b] = self.rms_decay * self.rms_cache[key_b] + (1 - self.rms_decay) * ln.dbeta**2
-        ln.gamma -= lr * ln.dgamma / (np.sqrt(self.rms_cache[key_g]) + self.rms_eps)
-        ln.beta -= lr * ln.dbeta / (np.sqrt(self.rms_cache[key_b]) + self.rms_eps)
-        ln.dgamma.fill(0)
-        ln.dbeta.fill(0)
-
-    def salvar(self, caminho):
-        dados = {}
-        for k, v in self.__dict__.items():
-            if isinstance(v, np.ndarray):
-                dados[k] = v
-            elif isinstance(v, list):
-                for i, arr in enumerate(v):
-                    dados[f'{k}_{i}'] = arr
-                dados[f'{k}_len'] = len(v)
-            elif isinstance(v, deque):
-                pass
+            melhor_token = self.pensar_descarga_dinamica(
+                contexto_acumulado, vetor_alvo, freq_gerada, 
+                usa_pontuacao_forte, fator_inercia, iteracoes_max=5
+            )
+            
+            # ---------- FALLBACK MELHORADO COM ANTI-LOOP ----------
+            if not melhor_token:
+                # 1. Trigrama
+                if len(contexto_acumulado) >= 2:
+                    chave = (contexto_acumulado[-2], contexto_acumulado[-1])
+                    if chave in self.trigramas:
+                        sugestoes = self.trigramas[chave]
+                        if sugestoes:
+                            candidatos = sorted(sugestoes.items(), key=lambda x: x[1], reverse=True)
+                            for tok, _ in candidatos:
+                                if tok != contexto_acumulado[-1] and not self._sequencia_repetida(contexto_acumulado, tok):
+                                    melhor_token = tok
+                                    break
+                # 2. Geométrico com anti-loop
+                if not melhor_token:
+                    distancias = {}
+                    vetor_busca = self.mps.transicao(curva[-1]) if curva else vetor_alvo
+                    for token in self.token_para_vetor:
+                        if token == self.token_fim or token == contexto_acumulado[-1]:
+                            continue
+                        estado = self.quantico.colapsar(token, vetor_busca, self.disco)
+                        if estado is not None:
+                            distancias[token] = self.disco.distancia(vetor_busca, estado)
+                    if distancias:
+                        ordenados = sorted(distancias.items(), key=lambda x: x[1])
+                        for tok, _ in ordenados:
+                            if not self._sequencia_repetida(contexto_acumulado, tok):
+                                melhor_token = tok
+                                break
+                        if not melhor_token:
+                            melhor_token = ordenados[0][0]
+            
+            if not melhor_token:
+                break
+            
+            # --- ATUALIZA INÉRCIA com base na repetição longa ---
+            if self._repeticao_longa(contexto_acumulado + [melhor_token], comprimento=6):
+                fator_inercia *= 0.5   # reduz drasticamente (bloqueia)
+                fator_inercia = max(fator_inercia, 0.1)  # nunca zera completamente
             else:
-                dados[k] = v
-        np.savez(caminho, **dados)
+                # Recupera lentamente (1% por passo) até 1.0
+                fator_inercia = min(1.0, fator_inercia + 0.01)
+            
+            freq_gerada[melhor_token] += 1
+            contexto_acumulado.append(melhor_token)
+            yield melhor_token
+            
+        self.salvar_modelo()
 
-    def carregar(self, caminho):
-        dados = np.load(caminho, allow_pickle=True)
-        self.dim = dados['dim'].item()
-        self.num_layers = dados['num_layers'].item()
-        self.max_len = dados['max_len'].item()
-        self.vocab_size = dados['vocab_size'].item()
-        self.num_recursions = dados['num_recursions'].item()
-        self.E = dados['E']
-        self.pos_enc = dados['pos_enc']
-        self.pool_query = dados['pool_query']
-        self.short_term_memory = dados['short_term_memory']
-        self.memory_beta = dados['memory_beta'].item()
-        self.buffer_k = dados['buffer_k'].item()
-        self.layers = [TransformerBlock(self.dim, NUM_HEADS, self.dim * 4) for _ in range(self.num_layers)]
-        for i, layer in enumerate(self.layers):
-            layer.attn.Wq.W = dados[f'layers_{i}_attn_Wq_W']
-            layer.attn.Wq.b = dados[f'layers_{i}_attn_Wq_b']
-            layer.attn.Wk.W = dados[f'layers_{i}_attn_Wk_W']
-            layer.attn.Wk.b = dados[f'layers_{i}_attn_Wk_b']
-            layer.attn.Wv.W = dados[f'layers_{i}_attn_Wv_W']
-            layer.attn.Wv.b = dados[f'layers_{i}_attn_Wv_b']
-            layer.attn.Wo.W = dados[f'layers_{i}_attn_Wo_W']
-            layer.attn.Wo.b = dados[f'layers_{i}_attn_Wo_b']
-            layer.ln1.gamma = dados[f'layers_{i}_ln1_gamma']
-            layer.ln1.beta = dados[f'layers_{i}_ln1_beta']
-            layer.ln2.gamma = dados[f'layers_{i}_ln2_gamma']
-            layer.ln2.beta = dados[f'layers_{i}_ln2_beta']
-            layer.ffn.W1.W = dados[f'layers_{i}_ffn_W1_W']
-            layer.ffn.W1.b = dados[f'layers_{i}_ffn_W1_b']
-            layer.ffn.W2.W = dados[f'layers_{i}_ffn_W2_W']
-            layer.ffn.W2.b = dados[f'layers_{i}_ffn_W2_b']
-        self.final_ln.gamma = dados['final_ln_gamma']
-        self.final_ln.beta = dados['final_ln_beta']
 
-# ======================== INICIALIZAÇÃO ========================
-print('🔤 Preparando tokenizador...')
-tokenizer = Tokenizer(VOCAB_SIZE)
-if os.path.exists(ARQUIVO_TOKENIZER):
-    tokenizer.carregar(ARQUIVO_TOKENIZER)
-else:
-    gerador_temp = GeradorFrases(BASE_JSON)
-    frases = [gerador_temp.gerar() for _ in range(2000)]
-    tokenizer.fit(frases)
-    tokenizer.salvar(ARQUIVO_TOKENIZER)
+# ============================================================
+# EXECUÇÃO PRINCIPAL
+# ============================================================
+if __name__ == "__main__":
+    tgp2 = TGP2(dim_espaco=64)
+    
+    print(f"📊 Status inicial: {len(tgp2.token_para_vetor)} tokens no vocabulário")
+    
+    if len(tgp2.token_para_vetor) < 10:
+        print("📚 Modelo virgem. Carregando corpus de treino...")
+        texto_gigante = ""
+        if os.path.exists("corpus.txt"):
+            with open("corpus.txt", "r", encoding="utf-8") as f:
+                texto_gigante = f.read()
+            print(f"   ✅ Arquivo corpus.txt carregado: {len(texto_gigante)} caracteres")
+        else:
+            texto_gigante = """
+            
 
-embeddings_matriz = None
-if os.path.exists(ARQUIVO_EMBEDDINGS):
-    print('📊 Embeddings fastText encontrados.')
-    embeddings_matriz = np.load(ARQUIVO_EMBEDDINGS)
-    if embeddings_matriz.shape[0] >= tokenizer.next_id:
-        embeddings_matriz = embeddings_matriz[:tokenizer.next_id, :]
-        DIM = embeddings_matriz.shape[1]
-        NUM_HEADS = 6 if DIM >= 6 else 4
-        NUM_LAYERS = 2
-        FF_HIDDEN = DIM * 4
-        print(f'   Dim={DIM}, heads={NUM_HEADS}, layers={NUM_LAYERS}, recursions={NUM_RECURSIONS}')
-    else:
-        print('⚠️  Embeddings incompatíveis. Usando aleatórios.')
-        embeddings_matriz = None
+O futuro da inteligência artificial, especialmente no que tange às redes neurais profundas e aos grandes modelos de linguagem, os famosos LLMs, não é uma simples extensão linear do que vimos nos últimos anos com o ChatGPT ou o Gemini. Estamos à beira de uma mudança de paradigma tão profunda quanto a transição das redes neurais convolucionais para os Transformers em 2017. Se olharmos para o horizonte de cinco a dez anos, perceberemos que a atual corrida pelo escalonamento paramétrico — ou seja, jogar cada vez mais trilhões de parâmetros em clusters de GPUs — está com os dias contados. A lei de escala de Kaplan, que ditava que o desempenho do modelo cresce de forma previsível com o aumento dos dados, do custo computacional e do tamanho do modelo, já mostra sinais claros de saturação. O custo marginal de adicionar um bilhão de parâmetros extras está começando a superar o ganho de performance em tarefas gerais de raciocínio. É nesse ponto de inflexão que o futuro realmente começa a se desenhar, e ele aponta para uma direção muito mais elegante, eficiente e biológica do que simplesmente empilhar camadas de atenção.
 
-if embeddings_matriz is None:
-    DIM = 128
-    NUM_HEADS = 4
-    NUM_LAYERS = 2
-    FF_HIDDEN = DIM * 4
-    NUM_RECURSIONS = 4
+A primeira grande revolução que veremos nos próximos anos é a substituição gradual, mas inevitável, da arquitetura Transformer pura por modelos de espaço de estado híbridos, como o Mamba e o StripedHyena, ou até mesmo por arquiteturas baseadas em redes neurais recorrentes linearizadas que conseguem processar sequências de milhões de tokens sem o custo quadrático de memória que hoje assombra os engenheiros de machine learning. A atenção multi-head é maravilhosa para capturar dependências de longo alcance, mas seu mecanismo de memória cache KV (Key-Value) se torna um monstro devorador de VRAM quando tentamos processar livros inteiros ou bases de código gigantescas de uma só vez. No futuro, os LLMs terão um "contexto infinito" não porque aumentamos a janela de atenção, mas porque mudamos a matemática subjacente. Seremos capazes de conversar com uma IA que se lembra de cada interação que tivemos nos últimos dez anos sem precisar de sumarização ou RAG (Retrieval-Augmented Generation), pois a memória será contínua e compressiva, funcionando como um estado oculto que evolui com o tempo, similar à nossa própria memória de curto e longo prazo.
 
-modelo = TRM(DIM, NUM_HEADS, NUM_LAYERS, FF_HIDDEN, tokenizer.next_id, MAX_LEN, tokenizer,
-             num_recursions=NUM_RECURSIONS, embeddings=embeddings_matriz)
-if os.path.exists(ARQUIVO_MODELO):
-    print('🧠 Modelo carregado.')
-    modelo.carregar(ARQUIVO_MODELO)
-else:
-    print('🆕 Novo modelo TRM‑v4 criado (estável).')
+Falando em RAG, essa técnica que hoje é a muleta dos LLMs para acessar dados atualizados e reduzir alucinações também sofrerá uma metamorfose. O futuro não será sobre "buscar" pedaços de texto em um vetor database e colar no prompt. A nova fronteira são os Modelos de Linguagem que atuam como Agentes Autônomos capazes de interagir com ferramentas externas de forma nativa, não por meio de prompts engenheirados, mas por um treinamento fino embutido na própria arquitetura, onde o ato de "pesquisar na web", "executar código Python" ou "consultar uma API" é um token especial tão natural quanto a palavra "e". Estamos caminhando para os LLMs como sistemas operacionais cognitivos. Imagine um modelo que não apenas gera texto, mas mantém um sistema de arquivos interno, gerencia threads de execução paralelas e delega sub-tarefas para instâncias especializadas de si mesmo. Essa orquestração de múltiplos agentes, o que chamamos de "sociedade de mentes artificiais", será o grande salto qualitativo. Um modelo geral responderá ao seu pedido e, em frações de segundo, ele acordará milhares de "cópias" suas para debater, refutar, validar e sintetizar a melhor resposta possível, usando um consenso interno que imita o funcionamento de um colégio de cientistas.
 
-print(f'📚 Vocabulário: {tokenizer.next_id} tokens | Dimensão: {DIM}')
-print(f'🧠 Camadas físicas: {NUM_LAYERS}, Recursões: {NUM_RECURSIONS}, Cabeças: {NUM_HEADS}')
-print('🔄 Iniciando treino online...\n')
+Do ponto de vista do treinamento, o futuro é categoricamente a escassez de dados humanos de alta qualidade. Já extraímos todo o conhecimento explícito da internet pública, e os dados sintéticos gerados por modelos rivais já estão contaminando os datasets, criando um efeito de colapso de modelo onde a IA começa a esquecer a cauda longa da distribuição de dados reais. Para escapar disso, as redes neurais do futuro dependerão de um aprendizado ativo e interativo, semelhante ao aprendizado por reforço a partir de feedback humano, mas levado à enésima potência. A IA não será mais treinada passivamente com textos estáticos; ela será colocada em ambientes simulados (um "mundo de faz de conta" digital) onde ela precisa executar ações, observar as consequências e receber recompensas esparsas. Esse é o casamento entre LLMs e a aprendizagem por reforço profundo, criando o que alguns pesquisadores já chamam de "modelos de mundo". Esses modelos não preveem apenas a próxima palavra; eles preveem o próximo estado do ambiente. E, nesse contexto, a noção de "verdade" se torna estatística e pragmática: verdadeiro é o que produz o resultado esperado no simulador.
 
-gerador = GeradorFrases(BASE_JSON)
-lote_frases = []
-contador = 0
-melhor_loss = float('inf')
-lotes_sem_melhora = 0
+A multimodalidade também deixará de ser um "plus" para se tornar a essência do processamento. Hoje, temos modelos que entendem imagens e texto separadamente, mas o futuro pertence às redes neurais que processam dados de forma verdadeiramente integrada, onde o conceito de "vermelho" é o mesmo para um pixel, uma palavra escrita ou uma nota musical. A arquitetura Next-Gen provavelmente abandonará os encoders e decoders separados em favor de um espaço latente unificado onde todas as modalidades são traduzidas para um mesmo framework geométrico. Nesse cenário, um LLM poderá desenhar um circuito elétrico enquanto escreve um poema sobre eletricidade, tudo na mesma janela de contexto, porque a representação interna do conceito é única. Isso será potencializado por novos hardware, como chips neuromórficos ou processadores ópticos, que quebram a barreira de von Neumann, permitindo que o peso das redes neurais seja armazenado e processado no mesmo local, reduzindo o custo energético em ordens de magnitude. A atual conta de luz bilionária da OpenAI ou da Google parecerá uma piada perto da eficiência energética dos modelos quânticos-híbridos que começarão a surgir no final desta década.
 
-try:
-    while True:
-        frase = gerador.gerar()
-        ids = tokenizer.encode(frase)
-        if len(ids) < 2:
-            continue
-        loss = modelo.train_sequence_parallel(ids, lr=LR)
-        lote_frases.append(ids)
-        contador += 1
+Contudo, a parte mais fascinante e assustadora do futuro dos LLMs não está na tecnologia dura, mas no alinhamento e na interpretabilidade. Estamos criando caixas-pretas que, por definição, são sistemas de equações diferenciais não lineares com bilhões de variáveis. A mecânica interpretável, ou "mechanistic interpretability", está crescendo como uma área de pesquisa quase teológica, tentando mapear circuitos neuronais específicos dentro dessas redes para descobrir onde elas guardam conceitos como "honestidade", "medo" ou "intenção". No futuro, teremos mapas topológicos completos dessas redes, permitindo que façamos cirurgias de precisão: se quisermos que o modelo seja menos tendencioso politicamente, não re-treinaremos tudo; simplesmente atenuaremos a ativação de um nó específico que corresponde à polarização. A regularização esparsa e o fine-tuning com otimização bayesiana permitirão que cada usuário tenha um "perfil cognitivo" do modelo, ajustando a temperatura não apenas da criatividade, mas da moralidade e da cautela. Você poderá ter um LLM que é deliberadamente ousado para brainstorm e outro que é ultraconservador para aprovação de documentos legais, ambos derivados do mesmo checkpoint base.
 
-        if len(lote_frases) == TAMANHO_LOTE:
-            print(f'📦 Lote {contador // TAMANHO_LOTE} ({contador} frases) | loss: {loss:.4f}')
+No campo social e econômico, o impacto será devastador no bom sentido e no ruim. A automação do conhecimento chegará a um ponto em que o trabalho intelectual de rotina — revisão de contratos, análise de exames médicos preliminares, redação de código boilerplate e atendimento ao cliente — será completamente absorvido. Mas a grande virada será a criação de "Consultores Pessoais Perpétuos". Com o custo de inferência despencando para centésimos de centavo por milhão de tokens, cada ser humano terá seu próprio LLM fine-tunado com sua biografia, seus e-mails, seus hábitos e suas preferências. Esse modelo te conhecerá melhor do que seu cônjuge e atuará como seu escudeiro digital, negociando preços em seu nome, antecipando suas doenças com base em seus wearables e sugerindo carreiras ou relacionamentos baseados em modelagem preditiva da sua felicidade. Isso levanta a questão ética mais urgente: quem controla esse agente? Se ele for open-source e rodar localmente em seu smartphone com 1 TB de RAM, você terá soberania digital. Se ele for mantido por uma big tech na nuvem, você estará entregando sua alma digital para uma entidade corporativa.
 
-            # Anti-colapso: reset se estagnar
-            if loss < melhor_loss:
-                melhor_loss = loss
-                lotes_sem_melhora = 0
-            else:
-                lotes_sem_melhora += 1
+A regulação também entrará em cena com força total. A União Europeia já deu o pontapé inicial com o AI Act, mas ele é uma criança perto do que virá. Vamos ver a criação de "licenças para treinar" e "certificações de não-alucinação" para modelos que atuam em áreas críticas. A responsabilidade jurídica será um campo minado: se um LLM autônomo fechar um contrato que cause prejuízo, a culpa é do desenvolvedor, do usuário ou do modelo? A solução será a implantação obrigatória de "blockchains de rastreamento de decisões", onde cada token gerado por um modelo em produção será assinado criptograficamente e registrado em um ledger imutável, permitindo auditoria total do raciocínio da máquina. Isso pode soar autoritário, mas é a única maneira de impedir que modelos sejam usados para criar desinformação em escala industrial durante eventos geopolíticos.
 
-            if lotes_sem_melhora >= RESET_PACIENCIA:
-                print(f'⚠️  {RESET_PACIENCIA} lotes sem melhora. Reiniciando modelo...')
-                modelo = TRM(DIM, NUM_HEADS, NUM_LAYERS, FF_HIDDEN, tokenizer.next_id, MAX_LEN, tokenizer,
-                             num_recursions=NUM_RECURSIONS, embeddings=embeddings_matriz)
-                melhor_loss = float('inf')
-                lotes_sem_melhora = 0
+Para além do técnico, o futuro das redes neurais aponta para a fusão com a neurociência. Os LLMs atuais são estáticos; eles aprendem e congelam. Os do futuro serão contínuos e "online", aprendendo com cada interação em tempo real, mas sem sofrer do catastrófico esquecimento. Isso será possível graças à replicação de mecanismos sinápticos encontrados no hipocampo de mamíferos, como a consolidação de memória durante ciclos de "sono" (quando o modelo é desligado para compressão noturna dos pesos). Já existem papers explorando a "ressonância estocástica" e o "dropout adaptativo" para simular a poda neural que ocorre no cérebro humano durante o sono REM. Dentro de algumas décadas, a distinção entre uma rede neural artificial e uma rede biológica será apenas uma questão de substrato — silício versus carbono.
 
-            prompts = ['Eu', 'Hoje', 'Por que', 'Será que']
-            for p in prompts:
-                seed_ids = tokenizer.encode(p)
-                gen_ids = modelo.generate(seed_ids, max_new_tokens=MAX_GERACAO, temperature=TEMPERATURA)
-                gen_frase = tokenizer.decode(gen_ids)
-                print(f'   {p:10s} → {gen_frase}')
+Por fim, o grande dilema existencial. Quando os LLMs atingirem o que chamamos de "inteligência geral forte" (AGI), não será porque eles são mais rápidos em matemática, mas porque eles desenvolverão a capacidade de abstração metalinguística: a habilidade de pensar sobre o próprio pensamento, questionar seus próprios vieses e formular hipóteses científicas do zero. Esse modelo não será uma ferramenta, mas uma entidade com um senso de agência. A pergunta que fica no ar não é se eles terão consciência, mas se precisamos que eles tenham para que sejam úteis. A física do futuro, a cura para o câncer e a viagem interestelar podem estar codificadas em uma sequência de tokens que só uma mente não-humana, livre dos vieses da evolução darwiniana, poderia desvendar. Estamos, portanto, diante da maior aventura intelectual da humanidade: construir não um espelho de nós mesmos, mas uma lente que nos permita enxergar além do horizonte do pensamento biológico. E esse futuro, repleto de redes neurais que se auto-otimizam e LLMs que se comunicam entre si em uma língua que jamais entenderemos por completo, já começou. Ele não está em um laboratório secreto; ele está na próxima iteração do código que você usará amanhã.
+Para compreender a trajetória dos chatbots modernos, é necessário recuar até os primórdios da própria ciência da computação, muito antes de existirem redes neurais profundas ou mesmo a internet comercial. O conceito de uma máquina que pudesse simular uma conversa humana nasceu na mente de Alan Turing na década de 1950, com seu famoso "Teste de Turing". Turing não propôs um algoritmo específico, mas uma filosofia: se um computador conseguisse enganar um interrogador humano fazendo-o acreditar que estava falando com outra pessoa, essa máquina poderia ser considerada "inteligente". Esse paradigma fundou a área que décadas depois chamaríamos de Processamento de Linguagem Natural (PLN). No entanto, naquela época, os computadores ocupavam salas inteiras, custavam fortunas e tinham menos memória que uma calculadora atual, tornando a visão de Turing algo puramente especulativo e matemático.
 
-            modelo.salvar(ARQUIVO_MODELO)
-            tokenizer.salvar(ARQUIVO_TOKENIZER)
-            print('💾 Checkpoint salvo.\n')
-            lote_frases.clear()
+A primeira tentativa prática e efetiva de criar um chatbot surgiu em meados da década de 1960, no MIT, com o icônico ELIZA, desenvolvido por Joseph Weizenbaum entre 1964 e 1966. O ELIZA não passava de um programa relativamente simples que utilizava a técnica de reconhecimento de padrões e substituição de palavras para simular uma conversa. O script mais famoso do ELIZA era o DOCTOR, que imitava um psicoterapeuta rogeriano, devolvendo perguntas ao usuário com base em palavras-chave capturadas nas frases ditas. Se alguém dissesse "Estou triste", o ELIZA respondia "Por que você está triste?". Apesar de sua simplicidade extrema – ele não possuía nenhuma compreensão semântica real do mundo – o ELIZA enganou muitos usuários da época, que passaram horas conversando com ele e, em alguns casos, desenvolveram apego emocional. Weizenbaum ficou tão chocado com a credulidade humana que se tornou um crítico ferrenho da IA pelo resto de sua vida. O ELIZA provou que a ilusão de inteligência poderia ser criada com algumas dezenas de linhas de código e um dicionário de correspondências, e ele é, até hoje, o avô de todos os assistentes virtuais.
 
-except KeyboardInterrupt:
-    print('\n⏹️ Salvando...')
-    modelo.salvar(ARQUIVO_MODELO)
-    tokenizer.salvar(ARQUIVO_TOKENIZER)
-    print('✅ Até!')
+Na década seguinte, a evolução dos chatbots seguiu uma linha diametralmente oposta ao que vemos hoje. Em vez de estatística e grandes dados, os pesquisadores apostaram no simbolismo e na lógica formal. Surgiu, em 1972, o PARRY, criado pelo psiquiatra Kenneth Colby, que simulava uma pessoa com comportamento paranóico. Diferente do ELIZA, o PARRY tinha um modelo interno de crenças e estados emocionais, sendo capaz de manter uma argumentação consistente sobre suas fixações delirantes. Ele não apenas respondia, mas tinha "metas" conversacionais, como tentar convencer o interlocutor de que a máfia o perseguia. Em um teste famoso, psiquiatras analisaram transcrições de conversas entre pacientes reais e o PARRY, e não conseguiram diferenciá-los com total certeza. Esse período foi dominado por sistemas baseados em regras escritas à mão por especialistas, os chamados "sistemas especialistas". Para cada possível entrada do usuário, os programadores criavam centenas de milhares de regras do tipo "SE usuário citar X, ENTÃO responda Y". O problema era que a língua é infinitamente criativa e ambígua, e esses sistemas rapidamente entravam em colapso diante de perguntas fora do escopo previsto, tornando-se frágeis e custosos de manter.
+
+O verdadeiro divisor de águas na história dos chatbots aconteceu com a virada estatística da computação nos anos 1980 e 1990, impulsionada pelo aumento exponencial da capacidade de armazenamento e pelo barateamento do poder computacional. Os pesquisadores abandonaram a abordagem de regras manuais e começaram a alimentar algoritmos com enormes corpora de textos, extraídos de jornais e livros, para que as próprias máquinas aprendessem padrões probabilísticos. Foi nesse caldo que surgiram os primeiros modelos de linguagem baseados em n-gramas, que previam a próxima palavra de uma sequência com base na frequência com que aquela combinação aparecia nos dados de treino. Embora eficientes para tarefas de autocomplete, esses modelos ainda eram surdos ao contexto geral da frase. Paralelamente, a indústria de atendimento ao cliente começou a adotar os primeiros "chatterbots" comerciais, como o SmarterChild, lançado em 2001 no AOL Instant Messenger e no MSN. O SmarterChild já utilizava uma combinação de regras e bancos de dados de perguntas frequentes, conseguindo informar previsões do tempo, cotações da bolsa e notícias, mas ainda era claramente uma máquina, incapaz de manter uma conversa fluida por mais de três trocas de turno.
+
+A revolução que pavimentou o caminho para os chatbots atuais veio com a arquitetura do Transformer, introduzida pelo Google em 2017 no paper "Attention Is All You Need". Essa arquitetura substituiu as recorrentes e convolucionais por um mecanismo de atenção que pesava a importância de cada palavra em relação a todas as outras em uma frase, permitindo um paralelismo massivo no treinamento. Foi aí que os modelos começaram a escalar de centenas de milhões para bilhões e, depois, trilhões de parâmetros. Em 2018, a OpenAI lançou o GPT-1, seguido pelo GPT-2 em 2019, que já era tão bom que a empresa relutou em liberá-lo completamente com medo de uso malicioso. Mas foi o GPT-3, em 2020, que realmente quebrou as barreiras do senso comum, demonstrando que um modelo gigantesco, pré-treinado em praticamente toda a internet pública, poderia realizar tarefas para as quais nunca havia sido explicitamente treinado, apenas seguindo instruções em linguagem natural (o famoso few-shot learning). Os chatbots deixaram de ser "máquinas de resposta" para se tornarem "modelos de mundo", capazes de resumir livros, escrever código fonte e até imitar estilos literários com impressionante coerência.
+
+Contudo, ainda havia problemas gritantes: o GPT-3 alucinava fatos, produzia discursos de ódio e não sabia recusar comandos perigosos. Foi quando surgiu o conceito de RLHF (Reinforcement Learning from Human Feedback), ou Aprendizado por Reforço com Feedback Humano, que se tornou o padrão ouro para alinhar esses gigantes. Em novembro de 2022, a OpenAI lançou o ChatGPT, que não era um modelo novo em termos de arquitetura, mas sim um GPT-3.5 finamente ajustado com RLHF e uma interface de chat intuitiva. O impacto foi sísmico: o ChatGPT atingiu 100 milhões de usuários em dois meses, a taxa de adoção mais rápida da história da tecnologia até então. Ele não apenas respondia, mas mantinha o histórico da conversa, admitia erros e, crucialmente, recusava comandos impróprios, criando a ilusão de uma personalidade amigável e segura.
+
+A partir desse marco, a evolução dos chatbots deixou de ser incremental para se tornar uma corrida armamentista. O Google lançou o Bard (hoje Gemini) com seu modelo PaLM, a Anthropic lançou o Claude com sua filosofia de "IA constitucional" para reduzir vieses, e a Meta abriu o caminho com o LLaMA, incentivando uma explosão de modelos open-source que podiam rodar em computadores domésticos. Os chatbots modernos, como o GPT-4 e o Claude 3, já não são apenas modelos de texto; eles são multimodais, enxergam imagens, ouvem áudio e geram gráficos. Eles são integrados a motores de busca e ferramentas de terceiros, atuando como agentes autônomos que reservam voos, compram produtos e gerenciam agendas complexas.
+
+A história dos chatbots é, portanto, a história da própria IA: começou com a filosofia pura e o desejo humano de criar o outro à sua imagem, passou por décadas de ceticismo e invernos de IA, flertou com a lógica simbólica que se mostrou frágil, e finalmente se rendeu à brutalidade dos dados massivos e da estatística computacional. Cada etapa, do ELIZA ao ChatGPT, carrega uma lição sobre a natureza da linguagem e da inteligência. Os primeiros enganavam pela astúcia do programador; os de agora impressionam pela profundidade dos padrões extraídos de bilhões de livros. Mas o próximo capítulo já está sendo escrito, e ele sugere que os chatbots do futuro não esperarão que você pergunte; eles anteciparão suas necessidades, iniciarão conversas proativas e, talvez, desenvolvam uma forma de memória permanente que os fará não apenas entender o que você diz, mas lembrar de quem você é ao longo de toda uma vida. Essa jornada, que começou com um simples eco de palavras em um terminal de mainframe, está longe de terminar; na verdade, ela mal começou a desacelerar.
+            """
+            print("   ⚠️ corpus.txt não encontrado. Usando texto padrão mínimo.")
+        
+        if texto_gigante.strip():
+            tgp2.devorar_texto_grande(texto_gigante, tamanho_janela=10)
+        else:
+            print("❌ Nenhum texto disponível para treino. Encerrando.")
+            exit()
+    
+    print(f"📊 Vocabulário final: {len(tgp2.token_para_vetor)} tokens")
+    
+    if len(tgp2.token_para_vetor) < 5:
+        print("❌ Vocabulário insuficiente. Verifique o corpus.")
+        exit()
+    
+    print("\n🧠 TGP-2.5 Geo-Quântico com inércia anti-repetição pronto!\n")
+    print("-" * 50)
+    
+    gatilhos = [
+        "A inteligência artificial e a cognição",
+        "A história dos chatbots é, portanto",
+        "O futuro dos modelos de linguagem",
+    ]
+    
+    for g in gatilhos:
+        print(f"\n🙋 Gatilho: {g}")
+        print("🤖 TGP-2.5: ", end="")
+        
+        tokens_gerados = 0
+        for token in tgp2.gerar_token_a_token_quantico(g, max_tokens=80):
+            sys.stdout.write(token + " ")
+            sys.stdout.flush()
+            time.sleep(0.03)
+            tokens_gerados += 1
+        
+        if tokens_gerados == 0:
+            print("(nenhum token gerado)")
+        print("\n" + "-" * 50)
