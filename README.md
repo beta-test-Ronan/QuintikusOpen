@@ -252,15 +252,11 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
     <li>🗣️ <strong>Tradutor de intenções</strong> – entende linguagem natural.</li>
     <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
 </ul>
-<h5>TG2P : Transformer Geométrico de Propagação
-Tiny, Recursive, and Geometry‑First Language Model</h5>
+<h5> TGP-2: Geometry‑First Language Model</h5>
 <p>
-Geometria, não estatística – palavras são pontos no espaço, 
-e o aprendizado é o movimento desses pontos para refletir     significado.
-Profundidade recursiva – poucas camadas reutilizadas criam um modelo profundo sem peso extra.
-Aprendizado online contínuo – cada frase ajusta a geometria e a memória, sem depender de grandes datasets.
-NumPy puro – toda a arquitetura, incluindo backpropagation manual, roda sem frameworks de ML.
-Autonomia leve – um modelo minúsculo que aprende como um organismo vivo, ideal para borda e experimentação.</p>
+TGP-2 traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em
+Python puro e NumPy, viabilizando inferência de linguagem natural sem GPUs ou redes neurais profundas tradicionais
+baseadas em backpropagation.</p>
 
 
 <h2>Como usar</h2>
