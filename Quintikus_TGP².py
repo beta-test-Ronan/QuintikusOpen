@@ -1,298 +1,311 @@
-import numpy as np, re, pickle, os, hashlib, time, sys, unicodedata
-from collections import defaultdict, Counter
+import numpy as np
+import re
+import sys
+import time
+from collections import defaultdict
 
-# ========== NORMALIZAÇÃO ROBUSTA ==========
-def normalizar_texto(texto):
-    if isinstance(texto, bytes):
-        for enc in ['utf-8', 'latin-1', 'windows-1252', 'utf-16']:
-            try: texto = texto.decode(enc); break
-            except UnicodeError: continue
-        else: texto = texto.decode('utf-8', errors='ignore')
-    texto = unicodedata.normalize('NFC', texto)
-    texto = re.sub(r'[^\x20-\x7EáéíóúâêîôûãõçÁÉÍÓÚÂÊÎÔÛÃÕÇàèìòùäëïöüÿÀÈÌÒÙÄËÏÖÜŸ\n\t.,!?;:()\-]', ' ', texto)
-    return texto
+# ============================================================
+# GEO-ESPAÇO PROBABILÍSTICO VETORIAL QUÂNTICO (TGP-2 COGNITIVO)
+# ============================================================
 
-# ========== GEOMETRIA ==========
 class DiscoPoincare:
-    def __init__(self, d=64): self.d = d
-    def dist(self, x, y):
-        nx = np.clip(np.linalg.norm(x), 0, 0.95)
-        ny = np.clip(np.linalg.norm(y), 0, 0.95)
-        xp = x/(np.linalg.norm(x)+1e-8)*nx
-        yp = y/(np.linalg.norm(y)+1e-8)*ny
-        d2 = np.sum((xp-yp)**2)
-        val = 1 + 2*d2/((1-nx**2)*(1-ny**2)+1e-12)
-        return np.arccosh(np.clip(val, 1.0, 1e6))
+    """Geometria Hiperbólica de Alta Estabilidade e Desempenho."""
+    def __init__(self, dim=128): # <-- Dimensão aumentada para 128
+        self.dim = dim
 
-class TokenQuantico:
-    def __init__(self, d=64, n=4): self.d, self.n, self.e = d, n, {}
-    def ini(self, t, v):
-        if t not in self.e: self.e[t]=[v.copy()]
-    def add(self, t, ctx, w=0.3):
-        if t not in self.e: return
-        nv = self.e[t][0]*(1-w)+ctx*w; nv /= max(np.linalg.norm(nv),1e-8)
-        self.e[t].append(nv)
-        if len(self.e[t])>self.n: self.e[t].pop(1)
-    def col(self, t, qv, disc):
-        if t not in self.e: return None
-        melhores = [(1.0/(1.0+float(disc.dist(qv,s))), s) for s in self.e[t]]
-        if not melhores: return None
-        melhores.sort(reverse=True)
-        probs = np.array([m[0] for m in melhores])**2
-        return melhores[np.random.choice(len(melhores), p=probs/probs.sum())][1] if probs.sum()>0 else melhores[0][1]
+    def mobius_add(self, x, y):
+        """
+        Adição de Möbius no Disco de Poincaré.
+        Otimizada para evitar NaN e overflow numérico.
+        """
+        # 1. Validação de entrada
+        if not (np.isfinite(x).all() and np.isfinite(y).all()):
+            return np.zeros(self.dim)
 
-class MPS:
-    def __init__(self, d=64, b=8):
-        self.A = np.random.randn(d, b) * np.sqrt(2./d)
-        self.B = np.random.randn(b, b) * np.sqrt(2./b)
-        self.C = np.random.randn(b, d) * np.sqrt(2./b)
-    def trans(self, v):
-        o = v @ self.A @ self.B @ self.C
-        n = np.linalg.norm(o)
-        if n == 0: return np.random.randn(len(v))*0.1
-        return o/n*0.90 if n > 0.90 else o
+        # 2. Produtos internos com clipping para evitar overflow
+        nx2 = np.clip(np.dot(x, x), 0.0, 0.99)
+        ny2 = np.clip(np.dot(y, y), 0.0, 0.99)
+        xy  = np.clip(np.dot(x, y), -0.99, 0.99)
 
-class Planner:
-    def __init__(self, d=64, a=0.03, lim=0.01):
-        self.d, self.a, self.lim, self.r, self.on = d, a, lim, np.zeros(d), False
-    def load(self, v):
-        n = np.linalg.norm(v)
-        self.r = v/n*0.5 if n > 0 else np.random.randn(self.d)*0.1
-        self.on = True
-    def fuse(self, m): return (0.7*m + 0.3*self.r) if self.on else m
-    def eat(self, e):
-        if self.on: self.r -= self.a * e
-    def exausto(self): return self.on and np.linalg.norm(self.r) < self.lim
+        # 3. Numerador e denominador (com epsilon extra)
+        num = (1 + 2 * xy + ny2) * x + (1 - nx2) * y
+        den = 1 + 2 * xy + nx2 * ny2 + 1e-10
 
-# ========== BLOCKCHAIN ==========
-class Blockchain:
-    def __init__(self, f="bc.pkl"):
-        self.f = f; self.chain = []
-        if os.path.exists(f):
-            with open(f,'rb') as h: self.chain = pickle.load(h)
-    def add(self, frases):
-        prev = self.chain[-1]['h'] if self.chain else '0'*8
-        h = hashlib.sha256((prev+'|'.join(frases)).encode()).hexdigest()[:8]
-        self.chain.append({'h':h, 'd':frases})
-        with open(self.f,'wb') as f: pickle.dump(self.chain, f)
-        return h
-    def all(self): return [f for b in self.chain for f in b['d']]
+        # 4. Divisão
+        res = num / den
 
-# ========== TGP-2.5 QUÂNTICO ULTRA ==========
-class TGP25_QuantumUltra:
-    def __init__(self, dim=64, arq="tgp25q_ultra.pkl"):
-        self.dim, self.arq = dim, arq
-        self.disco = DiscoPoincare(dim)
-        self.quantico = TokenQuantico(dim)
-        self.mps = MPS(dim)
-        self.tv = {}
-        self.bi = defaultdict(lambda: defaultdict(int))
-        self.tri = defaultdict(lambda: defaultdict(int))
-        self.pref = defaultdict(list)
-        self.tf = '<END>'
-        self.clusters, self.vocab_busca = [], {}
-        self.emaranhados, self.mi = {}, {}
-        self.planner = Planner(dim)
-        self._load()
+        # 5. Trava geométrica (com checagem de norma)
+        res_sq = np.dot(res, res)
+        if res_sq >= 0.9801:  # 0.99²
+            res = (res / (np.sqrt(res_sq) + 1e-10)) * 0.985
 
-    def _reg(self, t):
-        if t not in self.tv:
-            v = np.random.randn(self.dim)*0.2
-            self.tv[t] = v
-            self.quantico.ini(t, v)
+        # 6. Validação final
+        if not np.isfinite(res).all():
+            return np.zeros(self.dim)
 
-    def tok(self, txt):
-        if not txt: return []
-        txt = unicodedata.normalize('NFD', txt.lower())
-        txt = ''.join(c for c in txt if unicodedata.category(c)!='Mn')
-        return [t for t in re.findall(r'[a-z0-9]+|[.,!?;:]+|\s+', txt) if t.strip()]
+        return res
 
-    def _vet(self, txt):
-        toks = self.tok(txt)
-        if not toks: return np.random.randn(self.dim)*0.1
-        vs = []
-        for w in toks:
-            if w not in self.vocab_busca:
-                self.vocab_busca[w] = np.random.randn(self.dim)*0.2
-            vs.append(self.vocab_busca[w])
-        m = np.mean(vs, axis=0)
-        return m/(np.linalg.norm(m)+1e-8) if np.linalg.norm(m)>0 else m
+    def distancia(self, x, y):
+        norma_x = np.clip(np.linalg.norm(x), 0, 0.985)
+        norma_y = np.clip(np.linalg.norm(y), 0, 0.985)
+        
+        diff_sq = np.dot(x - y, x - y)
+        num = 2 * diff_sq
+        den = (1 - norma_x**2) * (1 - norma_y**2) + 1e-10
+        
+        return np.arccosh(np.clip(1 + num / den, 1.0, 1e6))
 
-    def indexar(self, docs):
-        if not docs: return
-        vs = [self._vet(d) for d in docs]
-        n_cl = min(10, max(1, len(docs)//20))
-        cs = [np.random.randn(self.dim)*0.2 for _ in range(n_cl)]
-        for _ in range(5):
-            buckets = [[] for _ in range(n_cl)]
-            for i,v in enumerate(vs):
-                buckets[np.argmin([self.disco.dist(v,c) for c in cs])].append(i)
-            for j in range(n_cl):
-                if buckets[j]: cs[j] = np.mean([vs[i] for i in buckets[j]], axis=0)
-        self.clusters = [{'c':cs[j], 'docs':[(docs[i],vs[i]) for i in buckets[j]]} for j in range(n_cl) if buckets[j]]
 
-    def buscar(self, q, k=5):
-        if not self.clusters: return []
-        qv = self._vet(q)
-        for tok in self.tok(q):
-            for (a,b),_ in self.emaranhados.items():
-                if a==tok:
-                    for cl in self.clusters:
-                        if any(b in d[0].lower() for d in cl['docs']):
-                            return [d[0] for d in sorted(cl['docs'], key=lambda x:self.disco.dist(qv,x[1]))[:k]]
-        dists = [self.disco.dist(qv,cl['c']) for cl in self.clusters]
-        alvo = self.clusters[np.argmin(dists)]
-        return [d for d,_ in sorted(alvo['docs'], key=lambda x:self.disco.dist(qv,x[1]))[:k]]
+class GeoAtencaoCognitiva:
+    """Atenção Hiperbólica em 3 Camadas de Raciocínio (Ruminação, Estrutura e Síntese)."""
+    def __init__(self, disco):
+        self.disco = disco
 
-    def devorar(self, texto, verbose=True):
-        tokens = self.tok(texto)
-        if len(tokens) < 3: return
-        for t in tokens: self._reg(t)
-        for i in range(len(tokens)-1): self.bi[tokens[i]][tokens[i+1]] += 1
-        for i in range(len(tokens)-2):
-            self.tri[(tokens[i],tokens[i+1])][tokens[i+2]] += 1
-            self.pref[(tokens[i],tokens[i+1])].append(tokens[i+2])
-        frases = [f+'.' for f in re.split(r'[\.\?\!]', texto) if len(f.split())>3]
-        self.indexar(frases)
-        co = Counter()
-        for i in range(len(tokens)):
-            for j in range(i+1, min(i+20, len(tokens))):
-                if tokens[i]!=tokens[j]: co[(tokens[i],tokens[j])] += 1
-        total = sum(co.values()); unigramas = Counter(tokens)
-        for (a,b),c in co.most_common(1000):
-            p_ab=c/total; p_a=unigramas[a]/len(tokens); p_b=unigramas[b]/len(tokens)
-            if p_a>0 and p_b>0:
-                mi=p_ab*np.log2(p_ab/(p_a*p_b)+1e-12)
-                if mi>0.01 and a in self.tv and b in self.tv:
-                    self.emaranhados[(a,b)]=np.outer(self.tv[b],self.tv[a]); self.mi[(a,b)]=mi
-        self._save()
-        if verbose: print(f"✅ {len(tokens)} tokens | {len(self.emaranhados)} pares emaranhados.")
+    def focar_pensamento(self, tokens_contexto, token_para_vetor, iteracoes_ruminacao=2):
+        n = len(tokens_contexto)
+        if n == 0:
+            return np.zeros(self.disco.dim)
 
-    def _save(self):
-        with open(self.arq, 'wb') as f:
-            pickle.dump({'tv':self.tv,'qe':self.quantico.e,'bi':dict(self.bi),'tri':dict(self.tri),
-                        'pref':dict(self.pref),'clusters':self.clusters,'vb':self.vocab_busca,
-                        'em':self.emaranhados,'mi':self.mi}, f)
+        vetores_contexto = [token_para_vetor.get(t, np.zeros(self.disco.dim)) for t in tokens_contexto]
+        
+        # ========================================================
+        # CAMADA 1: REPETIÇÃO (Ruminação Geométrica)
+        # ========================================================
+        pensamento = vetores_contexto[-1]
+        
+        for _ in range(iteracoes_ruminacao):
+            pesos = np.zeros(n)
+            for i, v in enumerate(vetores_contexto):
+                dist = self.disco.distancia(pensamento, v)
+                fator_volume = 1.0 + (tokens_contexto.count(tokens_contexto[i]) * 0.2) + (i / n)
+                pesos[i] = -(dist / fator_volume)
+            
+            exp_pesos = np.exp(pesos - np.max(pesos))
+            prob_atencao = exp_pesos / np.sum(exp_pesos)
+            
+            novo_pensamento = np.zeros(self.disco.dim)
+            for i, v in enumerate(vetores_contexto):
+                v_ponderado = v * prob_atencao[i]
+                novo_pensamento = self.disco.mobius_add(novo_pensamento, v_ponderado)
+            
+            pensamento = novo_pensamento
 
-    def _load(self):
-        if os.path.exists(self.arq):
-            try:
-                with open(self.arq, 'rb') as f:
-                    d = pickle.load(f)
-                self.tv = d.get('tv',{}); self.quantico.e = d.get('qe',{})
-                for k,v in d.get('bi',{}).items(): self.bi[k].update(v)
-                for k,v in d.get('tri',{}).items(): self.tri[k].update(v)
-                for k,v in d.get('pref',{}).items(): self.pref[k]=v
-                self.clusters = d.get('clusters',[]); self.vocab_busca = d.get('vb',{})
-                self.emaranhados = d.get('em',{}); self.mi = d.get('mi',{})
-            except: print("⚠️ Erro ao carregar modelo. Iniciando novo.")
-        if not self.tv: self._reg(self.tf)
+        # ========================================================
+        # CAMADA 2: SEPARAÇÃO DE CONCEITO (Sujeito vs Predicativo)
+        # ========================================================
+        meio = max(1, n // 2)
+        
+        polo_sujeito = np.zeros(self.disco.dim)
+        for v in vetores_contexto[:meio]:
+            polo_sujeito = self.disco.mobius_add(polo_sujeito, v * (1.0 / len(vetores_contexto[:meio])))
+            
+        polo_predicativo = np.zeros(self.disco.dim)
+        for v in vetores_contexto[meio:]:
+            polo_predicativo = self.disco.mobius_add(polo_predicativo, v * (1.0 / len(vetores_contexto[meio:])))
 
-    def gerar(self, prompt, contexto="", max_t=80):
-        if contexto: self.devorar(contexto, verbose=False)
-        toks_in = self.tok(prompt)
-        if not toks_in:
-            if not self.tv: return
-            toks_in = [np.random.choice(list(self.tv.keys()))]
-        conhecidos = [self.tv[t] for t in toks_in if t in self.tv]
-        att = np.mean(conhecidos, axis=0) if conhecidos else np.random.randn(self.dim)*0.1
-        self.planner.load(att)
-        ctx, freq, inercia = toks_in.copy(), Counter(), 1.0
-        for _ in range(max_t):
-            if self.planner.exausto():
-                if ctx[-1] not in '.!?': yield '.'
+        tensao_logica = self.disco.mobius_add(-polo_sujeito, polo_predicativo)
+
+        # ========================================================
+        # CAMADA 3: AGRUPAMENTO COM BASE NO INPUT (Síntese)
+        # ========================================================
+        vetor_intencao_final = self.disco.mobius_add(pensamento, tensao_logica * 0.4)
+
+        return vetor_intencao_final
+
+
+class ProbabilidadeLinearPares:
+    def __init__(self):
+        self.pares_diretos = defaultdict(lambda: defaultdict(float))
+        self.trilhas_contexto = defaultdict(list)
+
+    def registrar_fluxo(self, tokens):
+        for i in range(len(tokens) - 1):
+            atual, prox = tokens[i], tokens[i+1]
+            self.pares_diretos[atual][prox] += 1.0
+            
+            if i < len(tokens) - 2:
+                self.trilhas_contexto[(atual, prox)].append(tokens[i+2])
+
+        for t1, contagens in self.pares_diretos.items():
+            soma = sum(contagens.values())
+            for t2 in contagens:
+                self.pares_diretos[t1][t2] /= soma
+
+
+class TGP2:
+    def __init__(self, dim_espaco=128): # <-- Dimensão aumentada para 128
+        self.dim_espaco = dim_espaco
+        self.disco = DiscoPoincare(dim_espaco)
+        self.geo_atencao = GeoAtencaoCognitiva(self.disco) # <-- Arquitetura Cognitiva de 3 Camadas
+        self.prob_pares = ProbabilidadeLinearPares()
+        self.token_para_vetor = {}
+        self.tokens_lista = []
+        
+    def _registrar_token(self, token):
+        if token not in self.token_para_vetor:
+            vetor = (np.random.rand(self.dim_espaco) - 0.5) * 0.05
+            self.token_para_vetor[token] = vetor
+            self.tokens_lista.append(token)
+
+    def tokenizar(self, texto):
+        import unicodedata
+        texto_nfkd = unicodedata.normalize('NFD', texto.lower())
+        texto_sem_acento = ''.join([c for c in texto_nfkd if unicodedata.category(c) != 'Mn'])
+        tokens = re.findall(r'[a-z0-9]+|[.,!?;:]+', texto_sem_acento)
+        return [t for t in tokens if t.strip()]
+
+    def devorar_texto(self, texto_bruto, epocas=30, taxa_aprendizado=0.04, k_negativos=4):
+        tokens = self.tokenizar(texto_bruto)
+        for t in tokens:
+            self._registrar_token(t)
+            
+        print(f"📚 Treinando espaço hiperbólico blindado ({epocas} épocas)...")
+        self.prob_pares.registrar_fluxo(tokens)
+        vocab_size = len(self.tokens_lista)
+
+        for epoca in range(epocas):
+            for i in range(len(tokens) - 1):
+                t_atual, t_prox = tokens[i], tokens[i+1]
+                v_atual = self.token_para_vetor[t_atual]
+                v_prox = self.token_para_vetor[t_prox]
+                
+                # Atração Hiperbólica
+                direcao_atracao = (v_prox - v_atual) * taxa_aprendizado
+                self.token_para_vetor[t_atual] = self.disco.mobius_add(v_atual, direcao_atracao)
+
+                # Repulsão (Negative Sampling)
+                for _ in range(k_negativos):
+                    idx_neg = np.random.randint(0, vocab_size)
+                    t_negativ = self.tokens_lista[idx_neg]
+                    
+                    if t_negativ != t_prox and t_negativ != t_atual:
+                        v_neg = self.token_para_vetor[t_negativ]
+                        direcao_repulsao = -(v_neg - v_atual) * (taxa_aprendizado * 0.5)
+                        self.token_para_vetor[t_atual] = self.disco.mobius_add(
+                            self.token_para_vetor[t_atual], direcao_repulsao
+                        )
+
+        print(f"✅ Concluído! {vocab_size} tokens organizados topologicamente.\n")
+
+    def medir_distancia(self, token_a, token_b):
+        tok_a = self.tokenizar(token_a)[0]
+        tok_b = self.tokenizar(token_b)[0]
+        if tok_a in self.token_para_vetor and tok_b in self.token_para_vetor:
+            v_a = self.token_para_vetor[tok_a]
+            v_b = self.token_para_vetor[tok_b]
+            return self.disco.distancia(v_a, v_b)
+        return None
+
+    def gerar_stream(self, texto_entrada, max_tokens=18, temperatura=0.35, penalidade_repeticao=2.5):
+        tokens_iniciais = self.tokenizar(texto_entrada)
+        if not tokens_iniciais: 
+            return
+        
+        contexto = tokens_iniciais.copy()
+        gerados = []
+        pontuacoes = {'.', ',', '!', '?', ';', ':'}
+        pontos_finais = {'.', '!', '?'}
+
+        for step in range(max_tokens):
+            t_ultimo = contexto[-1]
+            t_penultimo = contexto[-2] if len(contexto) >= 2 else None
+            
+            if step >= 3 and t_ultimo in pontos_finais:
                 break
-            tok = None
-            if len(ctx) >= 2:
-                chave = tuple(ctx[-2:])
-                if chave in self.pref and np.random.random() > 0.4:
-                    sugestoes = self.pref[chave]
-                    if sugestoes:
-                        tok = Counter(sugestoes).most_common(1)[0][0]
-            if not tok:
-                v_mps = self.mps.trans(self.tv.get(ctx[-1], att))
-                alvo = self.planner.fuse(v_mps)
-                ult = ctx[-1] if ctx else None
-                if ult and ult in [p[0] for p in self.emaranhados]:
-                    for (a,b),M in self.emaranhados.items():
-                        if a==ult and b in ctx:
-                            novo = np.dot(M, alvo)
-                            n2 = np.linalg.norm(novo)
-                            if n2 > 0.95: novo = novo/n2*0.95
-                            alvo = 0.7*alvo + 0.3*novo
-                            break
-                tok = self._decodificar(ctx, alvo, freq, inercia)
-            if not tok or self.planner.exausto():
-                if ctx[-1] not in '.!?': yield '.'
+
+            # 🧠 O MODELO PENSA: Gera o Vetor de Intenção Sintética
+            vetor_pensamento = self.geo_atencao.focar_pensamento(contexto, self.token_para_vetor)
+
+            candidatos, logits = [], []
+
+            for token, v_ref in self.token_para_vetor.items():
+                if token == t_ultimo:
+                    continue
+                if token in pontuacoes and t_ultimo in pontuacoes:
+                    continue
+
+                # 1. Score de Atenção Geométrico (Distância até o PENSAMENTO GLOBAL SINTÉTICO)
+                dist_pensamento = self.disco.distancia(vetor_pensamento, v_ref)
+                score_geom = -dist_pensamento * 1.5
+
+                # 2. Score Probabilístico de Regência (Bigrama)
+                score_par = self.prob_pares.pares_diretos[t_ultimo].get(token, 0.0) * 4.0
+                
+                # 3. Score de Trilha (Trigrama)
+                score_trilha = 0.0
+                if t_penultimo and (t_penultimo, t_ultimo) in self.prob_pares.trilhas_contexto:
+                    if token in self.prob_pares.trilhas_contexto[(t_penultimo, t_ultimo)]:
+                        score_trilha = 6.0
+
+                logit_total = score_geom + score_par + score_trilha
+
+                # 4. Penalidade de Repetição Dinâmica
+                if token in gerados:
+                    logit_total -= (penalidade_repeticao * gerados.count(token))
+
+                candidatos.append(token)
+                logits.append(logit_total)
+
+            if not candidatos: 
                 break
-            if tok in self.tv: self.planner.eat(self.tv[tok])
-            freq[tok] += 1; ctx.append(tok); yield tok
-        self._save()
 
-    def _decodificar(self, ctx, alvo, freq, inercia):
-        cands = []
-        evitar = ctx[-2:]
-        for t in self.tv:
-            if t in evitar or t == self.tf: continue
-            dist = self.disco.dist(alvo, self.tv.get(t, alvo))
-            score_geo = 1.0/(1.0+dist)
-            score_mem = 0.0
-            if len(ctx) >= 2:
-                chave = tuple(ctx[-2:])
-                if chave in self.tri and t in self.tri[chave]:
-                    score_mem = self.tri[chave][t] * 2.0
-            punicao = (freq.get(t,0)**1.5) * (3.0 / max(0.1, inercia))
-            cands.append((t, (score_geo + score_mem) - punicao))
-        if not cands: return None
-        cands.sort(key=lambda x: x[1], reverse=True)
-        top = cands[:5]
-        scores = np.array([s[1] for s in top])
-        probs = np.exp(scores - np.max(scores))
-        probs /= probs.sum()
-        idx = np.random.choice(len(top), p=probs)
-        return top[idx][0]
+            logits = np.array(logits) / temperatura
+            exp_logits = np.exp(logits - np.max(logits))
+            probs = exp_logits / np.sum(exp_logits)
 
+            proximo_token = np.random.choice(candidatos, p=probs)
+            
+            contexto.append(proximo_token)
+            gerados.append(proximo_token)
+            yield proximo_token
 
-# ========== INTERFACE ==========
+# ============================================================
+# EXECUÇÃO E TESTES
+# ============================================================
 if __name__ == "__main__":
-    modelo = TGP25_QuantumUltra(dim=256)
-    bc = Blockchain()
-    frases = bc.all()
-    if frases:
-        print(f"📦 Blockchain: {len(bc.chain)} blocos, {len(frases)} frases.")
-        modelo.devorar(" ".join(frases))
-    else:
-        print("📦 Blockchain vazia. Use train:arquivo.txt para iniciar.")
+    modelo = TGP2(dim_espaco=128) # <-- Dimensão aumentada no setup de inicialização
 
-    print("\n🧠 TGP‑2.5 Quântico ULTRA pronto. Comandos: train:arquivo.txt | sair")
-    while True:
-        try:
-            e = input("\n🙋 ").strip()
-            if not e: continue
-            if e.lower() == 'sair': break
-            if e.startswith("train:"):
-                arq = e.split(":",1)[1].strip()
-                if os.path.exists(arq):
-                    with open(arq, 'rb') as f: raw = f.read()
-                    txt = normalizar_texto(raw)
-                    fr = [f+'.' for f in re.split(r'[\.\?\!]', txt) if len(f.split())>2]
-                    if fr:
-                        bc.add(fr)
-                        modelo.devorar(" ".join(bc.all()))
-                        print(f"✅ {len(fr)} frases adicionadas à blockchain.")
-                    else: print("❌ Nenhuma frase válida.")
-                else: print("❌ Arquivo não encontrado.")
-                continue
-            
-            t0 = time.time()
-            docs = modelo.buscar(e, k=5)
-            t1 = time.time()
-            ctx = " ".join(docs)
-            if docs: print(f"📚 {len(docs)} docs em {(t1-t0)*1000:.0f}ms")
-            
-            print("🧠 ", end="")
-            for tok in modelo.gerar(e, contexto=ctx, max_t=60):
-                print(tok, end=' ', flush=True)
-            print()
-        except KeyboardInterrupt: break
-        except Exception as ex: print(f"\n⚠️ Erro: {ex}")
+    base_conhecimento = """
+    A inteligencia artificial e um campo da ciencia da computacao. O aprendizado de maquina 
+    permite que os sistemas identifiquem padroes em grandes volumes de dados. No espaco 
+    quantico, a informacao existe em multiplos estados simultaneamente. Quando uma medicao 
+    ocorre, a funcao de onda entra em colapso. Modelos vetoriais hiperbolicos organizam a 
+    linguagem humana como uma arvore, onde conceitos centrais ficam no meio e conceitos 
+    especificos habitam as bordas. A arquitetura tgp tenta unir a fisica quantica e a 
+    geometria nao euclidiana para processamento natural de texto em dispositivos limitados.
+    oi, tudo bem, estou bem, espero que voce esteja bem hoje.
+    qual meu nome? meu nome e tgp2, eu sou modelo de linguagem geometrica!
+    eu sou o tgp2, esse meu nome tgp2.caso um pergutando for qual é meu nome? eu devo fala eu não sei o seu nome,mas meu nome é tgp2
+    """
+
+    print("🧠 Inicializando treinamento...")
+    modelo.devorar_texto(base_conhecimento, epocas=30, k_negativos=4)
+
+    print("📐 --- [INSPEÇÃO DA GEOMETRIA HIPERBÓLICA] ---")
+    d1 = modelo.medir_distancia("inteligencia", "artificial")
+    d2 = modelo.medir_distancia("funcao", "onda")
+    d3 = modelo.medir_distancia("inteligencia", "hoje")
+    d4 = modelo.medir_distancia("onda", "nome")
+
+    print(f"Distância ('inteligencia' <-> 'artificial'): {d1:.4f}  (Esperado: Baixa)")
+    print(f"Distância ('funcao' <-> 'onda'):             {d2:.4f}  (Esperado: Baixa)")
+    print(f"Distância ('inteligencia' <-> 'hoje'):        {d3:.4f}  (Esperado: Alta)")
+    print(f"Distância ('onda' <-> 'nome'):               {d4:.4f}  (Esperado: Alta)")
+    print("-" * 50 + "\n")
+
+    print("🤖 --- [GERAÇÃO COM GEO-ATENÇÃO COGNITIVA] ---")
+    gatilhos = [
+        "A inteligencia artificial",
+        "No espaco quantico",
+        "oi, tudo bem",
+        "qual meu nome"
+    ]
+
+    for g in gatilhos:
+        print(f"🙋 Gatilho: {g}")
+        print("🤖 TGP-2: ", end="")
+        for token in modelo.gerar_stream(g, max_tokens=18, temperatura=0.35):
+            sys.stdout.write(token + " ")
+            sys.stdout.flush()
+            time.sleep(0.04)
+        print("\n" + "-" * 40)
