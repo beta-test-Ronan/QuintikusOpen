@@ -221,22 +221,16 @@ class AgenteNeuralGeometrico:
 # ============================================================
 if __name__ == "__main__":
     agente = AgenteNeuralGeometrico(dim_espaco=128)
-
-    dataset = """
-    A inteligencia artificial e um campo da ciencia da computacao. O aprendizado de maquina 
-    permite que os sistemas identifiquem padroes em grandes volumes de dados. No espaco 
-    quantico, a informacao existe em multiplos estados simultaneamente.
-    Pra beber muita agua precisa de copo grande. Pra beber pouca agua usa copo pequeno.
-    eu nao sei o seu nome, mas o meu nome e tgp2.
-    você for o usuario ronan,seu nome é ronan?
-    """
+    with open('crepusculoDosIdolos.txt', 'r', encoding='utf-8') as arquivo:
+        conteudo = arquivo.read()
+       
+    dataset = conteudo
 
     agente.aprender_e_devorar(dataset, epocas=35)
 
     testes = [
-        "qual e o meu nome",
-        "pra beber muita agua",
-        "No espaco quantico"
+"escola bélica da vida",
+"o homem criou"
     ]
 
     for t in testes:
