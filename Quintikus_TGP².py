@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 ===============================================================================
-TGP-13 + DSpark 2.0 (Modo Híbrido: Snapshot Cognitivo em Cache)
+TGP-2.5.13 + DSpark 2.0 (Modo Híbrido: Snapshot Cognitivo em Cache)
 - Inteligência: Preserva Geometria Hiperbólica no Disco de Poincaré
 - Velocidade: Validação em Lote de Baixa Latência (~0.05s)
 ===============================================================================
