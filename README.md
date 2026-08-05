@@ -229,6 +229,7 @@ No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso
    SSML = Sensation Singularity model Logic
    DLMC = Dynamic Logic Model Cortex
    DSML = Dynamic Singularity model LOGIC
+   TGP  = Geometric translation of propagation 
 </code></pre>
 
 <h4>Quintikus Doomoble🥔 , Droid🧠 e TG2P 📐 </h4>
