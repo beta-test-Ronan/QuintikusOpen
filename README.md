@@ -267,13 +267,10 @@ baseadas em backpropagation.</p>
     
 <h4>Novidade</h4>
 <pre><code>
-    Sobre multiverso
-    Agora tem Quintikus ssml em:
-   
-    c++
-    nodejs
-    kotlin
-    hml+js
+    [Sobre multiverso]
+    -/-
+    [NEW MODEL]
+     TGP 3.1.6V
 </code>
 </pre>
 
