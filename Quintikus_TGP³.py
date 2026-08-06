@@ -85,6 +85,35 @@ class PersistenciaAtomicaCamadas:
 
 
 # =============================================================================
+# MÓDULO WERNICKE: FILTRAGEM DE CONTEXTO E ISOLAMENTO DE DOMÍNIO
+# =============================================================================
+class WernickeContextRouter:
+    """
+    Atua como o filtro de relevância e isolamento de contexto,
+    evitando a contaminação entre domínios (Conversacional vs. Técnico).
+    """
+    def __init__(self):
+        # Mapeamento estrito de vocabulário por domínio para evitar vazamento cruzado
+        self.dominios = {
+            "modo_conversa": ["oi", "tudo", "bem", "como", "foi", "dia", "obrigado", "ola", "e", "aí", "beleza", "tudo", "certo", "por", "aí", "tranquilo", "amigo"],
+            "modo_tarefa": ["banco", "dados", "tokens", "fluxo", "geometric", "hiperbolico", "vetores", "codigo", "sistema", "analise", "modelo"]
+        }
+
+    def filtrar_vocabulario(self, rota_ativa: str, logits_brutos: dict) -> dict:
+        """
+        Zera ou penaliza logits de tokens que não pertencem ao contexto ativo,
+        eliminando a contaminação apontada na análise de épocas.
+        """
+        if rota_ativa == "modo_conversa":
+            for token in list(logits_brutos.keys()):
+                # Se o token for estritamente técnico pesado e o modo for conversa casual, inibimos
+                if token in ["banco", "dados", "hiperbolico", "vetores", "geometric", "dspark"]:
+                    logits_brutos[token] = -float('inf')
+                    
+        return logits_brutos
+
+
+# =============================================================================
 # NÚCLEO DE ESTADO INTERNO (O "CÉREBRO" DA CONVERSA)
 # =============================================================================
 class NucleoEstadoInterno:
@@ -98,7 +127,6 @@ class NucleoEstadoInterno:
         self.assunto = "geral"
         self.nivel_confianca = 0.8
         self.energia_conversa = "media"
-        # Deque garante remoção O(1) do início quando o limite é atingido
         self.historico_emocional = deque(maxlen=10)
 
     def interpretar_externo(self, texto: str):
@@ -108,7 +136,7 @@ class NucleoEstadoInterno:
             self.emocao_percebida = "negativa_ou_tensao"
             self.energia_conversa = "baixa"
             self.objetivo = "apoiar_e_resolver"
-        elif any(w in t for w in ['oi', 'olá', 'beleza', 'tudo bem', 'legal']):
+        elif any(w in t for w in ['oi', 'olá', 'beleza', 'tudo bem', 'legal', 'e aí']):
             self.emocao_percebida = "positiva_casual"
             self.energia_conversa = "alta"
             self.objetivo = "manter_fluxo"
@@ -162,7 +190,6 @@ class FreioInteligente:
         if len(self.historico_qualidade) < self.janela:
             return False, ""
         
-        # Otimização de checagem de estagnação
         ultimos = list(self.historico_qualidade)[-self.max_estagnacao:]
         if len(ultimos) >= self.max_estagnacao and len(set(round(v, 6) for v in ultimos)) == 1:
             return True, "estagnacao_loop_detectada"
@@ -177,7 +204,7 @@ class TPThinkBehavioralRouter:
         self.padroes_comportamento = {
             'comando_lista': ['faça', 'depois', 'crie', 'lista', 'gere', 'passo a passo', 'ordene'],
             'pergunta_direta': ['?', 'qual', 'como', 'por que', 'o que', 'descreva', 'explique'],
-            'casual': ['oi', 'olá', 'tudo bem', 'boa tarde', 'beleza', 'novidades', 'fala', 'tu', 'mano'],
+            'casual': ['oi', 'olá', 'tudo bem', 'boa tarde', 'beleza', 'novidades', 'fala', 'tu', 'mano', 'e aí'],
             'ofensivo': ['odeio', 'raiva', 'injusto', 'lixo', 'burro', 'ódio', 'inútil', 'horrível']
         }
         self.diagrama_perguntas = {
@@ -229,7 +256,6 @@ class TPThinkBehavioralRouter:
         if not comportamentos and not tipo_pergunta:
             rota_escolhida = 'modo_expansivo'
         else:
-            # Otimização: math.dist é processado em C, reduzindo latência da distância euclidiana
             distancias = {nome: math.dist(vetor_entrada, base) for nome, base in self.bases_de_estado.items()}
             rota_escolhida = min(distancias, key=distancias.get)
 
@@ -366,6 +392,7 @@ class AgenteTGP_13:
         self.memoria = MemoriaLinear()
         self.atencao = AtencaoCognitiva(self.disco)
         self.tpthink = TPThinkBehavioralRouter()
+        self.wernicke = WernickeContextRouter()
         self.nucleo_estado = NucleoEstadoInterno()
         self.token_para_vetor: Dict[str, List[float]] = {}
         self.tokens_lista: List[str] = []
@@ -449,7 +476,7 @@ class CorretorDinamicoAncora:
 
 
 # =============================================================================
-# 5. DRAFTER CACHE TEMPORÁRIO
+# 5. DRAFTER CACHE TEMPORÁRIO COM SUPORTE A WERNICKE
 # =============================================================================
 class DrafterCacheTemporario:
     def __init__(self, target: AgenteTGP_13):
@@ -463,25 +490,34 @@ class DrafterCacheTemporario:
             for t2, p in conexoes.items():
                 self.transition[t1][t2] = max(p, 0.01)
 
-    def draft_block(self, anchor: str, block_size: int = 4) -> List[str]:
+    def draft_block(self, anchor: str, block_size: int = 4, rota_ativa: str = None) -> List[str]:
         draft = []
         prev = anchor
         for _ in range(block_size):
-            conexoes = self.transition[prev]
+            conexoes = dict(self.transition[prev])
+            
+            # Aplicação do Filtro Wernicke diretamente no Drafter para evitar contaminação
+            if rota_ativa:
+                conexoes = self.target.wernicke.filtrar_vocabulario(rota_ativa, conexoes)
+                conexoes = {k: v for k, v in conexoes.items() if v != -float('inf')}
+
             if not conexoes:
                 chosen = random.choice(self.vocab)
             else:
                 cand, weights = zip(*conexoes.items())
                 soma = sum(weights)
-                probs = [w / soma for w in weights]
-                r = random.random()
-                acum = 0.0
-                chosen = cand[-1]
-                for t, p in zip(cand, probs):
-                    acum += p
-                    if r <= acum:
-                        chosen = t
-                        break
+                if soma <= 0:
+                    chosen = random.choice(self.vocab)
+                else:
+                    probs = [w / soma for w in weights]
+                    r = random.random()
+                    acum = 0.0
+                    chosen = cand[-1]
+                    for t, p in zip(cand, probs):
+                        acum += p
+                        if r <= acum:
+                            chosen = t
+                            break
             draft.append(chosen)
             prev = chosen
         return draft
@@ -536,7 +572,9 @@ def arquinet_hybrid_decode(
         contexto = tokens[-4:]
 
         snapshot = target.criar_snapshot_cognitivo(contexto)
-        draft = drafter.draft_block(anchor, block_size=block_size)
+        
+        # O Roteador Wernicke define a rota ativa para limpar o vocabulário indesejado no Drafter
+        draft = drafter.draft_block(anchor, block_size=block_size, rota_ativa=modo_tpthink)
 
         accepted_prefix = []
         curr_anchor = anchor
@@ -676,7 +714,7 @@ if __name__ == "__main__":
     o agente tgp combina memoria linear com atencao geometrica sem backpropagation.
     """
 
-    print("🚀 1. Inicializando Agente Arquinet com Núcleo de Estado Interno...")
+    print("🚀 1. Inicializando Agente Arquinet com Núcleo de Estado Interno e Wernicke Router...")
     target = AgenteTGP_13(dim=512)
     
     if not target.tokens_lista:
@@ -688,13 +726,11 @@ if __name__ == "__main__":
     limiar = calcular_limiar_espacial(dataset_treino)
 
     prompts_teste = [
-       
         "Oi, tudo beleza por aí?"
-      
     ]
 
     print("\n------------------------------------------------------------------")
-    print("3. EXECUTANDO INFERÊNCIA COM ESTADO INTERNO INTEGRADO")
+    print("3. EXECUTANDO INFERÊNCIA COM ISOLAMENTO DE DOMÍNIO (WERNICKE)")
     print("------------------------------------------------------------------")
 
     for p in prompts_teste:
@@ -707,5 +743,6 @@ if __name__ == "__main__":
         print(f"\n💬 Entrada Externa: '{p}'")
         print(f"🧠 Estado Interno -> Emoção: {meta['estado_interno']['emocao']} | Assunto: {meta['estado_interno']['assunto']} | Objetivo: {meta['estado_interno']['objetivo']}")
         print(f"⚙️ Ajuste Boca -> Rota: {meta['modo_tpthink']} | Tensão: {meta['tensao_final']:.2f} | Temp: {meta['temperatura_final']:.2f}")
-        print(f"🛑 Parada: {meta['stats']['motivo_parada']} | Blocos: {meta['stats']['blocos']}")
-        print(f"📄 Resposta Gerada: {texto_saida}")
+        print(f"🛑 Parada: {meta['stats']['motivo_parada']} | Blocos: {meta['stats']['blocos']} | Aceitos: {meta['stats']['aceitos']}")
+        print(f"📤 Saída Gerada: '{texto_saida}'")
+        print(f"⏱️ Tempo de Inferência: {t_fim:.4f}s")
