@@ -278,7 +278,7 @@ baseadas em backpropagation.</p>
     │
     └─────────────────────────────────────────────────→ Tempo/Épocas de Treino
         1 época          35 épocas        1000 épocas
-    </code>code>
+    </code>
 <h2>Como usar</h2>
 <pre><code>python3 quintikus-model.py
 </code></pre>
