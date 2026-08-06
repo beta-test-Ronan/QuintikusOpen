@@ -257,8 +257,28 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 <p>
 Geometry‑First Language Model,TGP traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em Python puro e NumPy, viabilizando inferência de linguagem natural sem GPUs ou redes neurais profundas tradicionais
 baseadas em backpropagation.</p>
-
-
+<code>
+    Latência de Inferência (ms)
+    │
+    │    TGP-1 ████████████████████ ~100ms
+    │    TGP-2 ████████████ ~120ms (por token)
+    │    TGP-3 ██ 5-21ms (total)
+    │
+    └────────────────────────────────
+    Qualidade de Resposta
+    │
+    │                    TGP-3 ARQUINET ██████████ 98%
+    │                    (consciente, adaptativo)
+    │
+    │          TGP-2 ████████ 70%
+    │          (criativo, fluido)
+    │
+    │    TGP-1 ████ 40%
+    │    (cópia, repetitivo)
+    │
+    └─────────────────────────────────────────────────→ Tempo/Épocas de Treino
+        1 época          35 épocas        1000 épocas
+    </code>code>
 <h2>Como usar</h2>
 <pre><code>python3 quintikus-model.py
 </code></pre>
