@@ -1,36 +1,253 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""
-===============================================================================
-TGP ARQUINET v2.0: TGP-13 + DSpark 2.0 + PLC (Style vs. Semantic Engine)
-===============================================================================
-- Semântica: Trajetória no Disco de Poincaré + Atenção Cognitiva por Ruminação
-- Estilo: Modulação de Estado (Temperatura/Tensão) via Bússola PLC
-- Especulação: Drafter Cache Temporário com Aceleração DSpark
-- Dinâmica: Loop de Ação e Reação (Retroalimentação de Sinal sem Backprop)
-===============================================================================
-"""
 
 import math
 import random
 import re
 import time
 import unicodedata
-from collections import defaultdict
-from typing import Dict, List, Tuple, Optional
+import struct
+import os
+from array import array
+from collections import defaultdict, deque
+from typing import Dict, List, Tuple
+
+# Pré-compilação do Regex para ganho de performance na tokenização
+TOKENIZER_REGEX = re.compile(r'[a-z0-9]+|[.,!?;:]')
+
+# =============================================================================
+# PERSISTÊNCIA ATÔMICA POR CAMADAS (EIXO Y)
+# =============================================================================
+class PersistenciaAtomicaCamadas:
+    def __init__(self, filepath: str = "arquinet_disco.bin"):
+        self.filepath = filepath
+
+    def salvar_camada(self, camada_y: int, tokens_vetores: Dict[str, List[float]], bigramas: dict):
+        with open(self.filepath, "wb") as f:
+            f.write(struct.pack("4s", b"ARQK"))
+            f.write(struct.pack("i", camada_y))
+            f.write(struct.pack("i", len(tokens_vetores)))
+            
+            for token, vetor in tokens_vetores.items():
+                t_bytes = token.encode("utf-8")
+                f.write(struct.pack("H", len(t_bytes)))
+                f.write(t_bytes)
+                f.write(struct.pack("i", len(vetor)))
+                f.write(struct.pack(f"{len(vetor)}f", *vetor))
+
+    def carregar_ultima_camada(self) -> Tuple[int, Dict[str, List[float]]]:
+        if not os.path.exists(self.filepath):
+            return 0, {}
+
+        ultima_camada = 0
+        ultimos_vetores = {}
+
+        try:
+            with open(self.filepath, "rb") as f:
+                if f.read(4) != b"ARQK":
+                    return 0, {}
+                
+                camada_bytes = f.read(4)
+                if len(camada_bytes) < 4:
+                    return 0, {}
+                camada_y = struct.unpack("i", camada_bytes)[0]
+                
+                num_tokens_bytes = f.read(4)
+                if len(num_tokens_bytes) < 4:
+                    return 0, {}
+                num_tokens = struct.unpack("i", num_tokens_bytes)[0]
+
+                vetores_temp = {}
+                for _ in range(num_tokens):
+                    l_bytes = f.read(2)
+                    if len(l_bytes) < 2:
+                        break
+                    t_len = struct.unpack("H", l_bytes)[0]
+                    token = f.read(t_len).decode("utf-8")
+                    
+                    dim_bytes = f.read(4)
+                    if len(dim_bytes) < 4:
+                        break
+                    dim = struct.unpack("i", dim_bytes)[0]
+                    
+                    float_data = f.read(4 * dim)
+                    if len(float_data) < 4 * dim:
+                        break
+                    vetores_temp[token] = list(struct.unpack(f"{dim}f", float_data))
+
+                ultima_camada = camada_y
+                ultimos_vetores = vetores_temp
+        except Exception as e:
+            print(f"⚠️ Erro ao ler disco, reiniciando camada: {e}")
+            return 0, {}
+
+        return ultima_camada, ultimos_vetores
 
 
 # =============================================================================
-# 1. BASE GEOMÉTRICA HIPERBÓLICA (POINCARÉ DISK CORE)
+# NÚCLEO DE ESTADO INTERNO (O "CÉREBRO" DA CONVERSA)
+# =============================================================================
+class NucleoEstadoInterno:
+    """
+    Mantém a identidade, emoção percebida, objetivos, foco e energia da conversa,
+    garantindo continuidade e transformando o modelo de linguagem apenas na 'boca'.
+    """
+    def __init__(self):
+        self.emocao_percebida = "neutra"
+        self.objetivo = "conversar_e_ajudar"
+        self.assunto = "geral"
+        self.nivel_confianca = 0.8
+        self.energia_conversa = "media"
+        # Deque garante remoção O(1) do início quando o limite é atingido
+        self.historico_emocional = deque(maxlen=10)
+
+    def interpretar_externo(self, texto: str):
+        t = texto.lower()
+        
+        if any(w in t for w in ['horrível', 'mal', 'triste', 'odeio', 'lixo', 'raiva', 'problema', 'falha']):
+            self.emocao_percebida = "negativa_ou_tensao"
+            self.energia_conversa = "baixa"
+            self.objetivo = "apoiar_e_resolver"
+        elif any(w in t for w in ['oi', 'olá', 'beleza', 'tudo bem', 'legal']):
+            self.emocao_percebida = "positiva_casual"
+            self.energia_conversa = "alta"
+            self.objetivo = "manter_fluxo"
+        elif any(w in t for w in ['por que', 'como', 'pesquisa', 'crie', 'sistema', 'código', 'geometric']):
+            self.emocao_percebida = "focada_analitica"
+            self.energia_conversa = "media"
+            self.objetivo = "executar_tarefa_tecnica"
+        else:
+            self.emocao_percebida = "neutra"
+            self.energia_conversa = "media"
+            self.objetivo = "dialogar"
+
+        if 'código' in t or 'sistema' in t or 'banco' in t or 'geometric' in t:
+            self.assunto = "tecnologia_arquinet"
+        elif 'dia' in t or 'vida' in t:
+            self.assunto = "pessoal_emocional"
+        else:
+            self.assunto = "geral"
+
+        self.historico_emocional.append(self.emocao_percebida)
+
+    def exportar_bias_decodificacao(self) -> Dict[str, float]:
+        if self.emocao_percebida == "negativa_ou_tensao":
+            return {"mod_temp": -0.2, "mod_tensao": 0.3} 
+        elif self.emocao_percebida == "positiva_casual":
+            return {"mod_temp": 0.2, "mod_tensao": -0.1} 
+        elif self.emocao_percebida == "focada_analitica":
+            return {"mod_temp": -0.3, "mod_tensao": 0.2} 
+        return {"mod_temp": 0.0, "mod_tensao": 0.0}
+
+
+# =============================================================================
+# 0. FREIO INTELIGENTE (COM PISO DE SEGURANÇA)
+# =============================================================================
+class FreioInteligente:
+    def __init__(self, janela_observacao: int = 5, limiar_queda: float = 0.5, piso_qualidade: float = 1e-8, max_estagnacao: int = 4):
+        self.historico_qualidade = deque(maxlen=janela_observacao)
+        self.janela = janela_observacao
+        self.limiar_queda = limiar_queda
+        self.piso_qualidade = piso_qualidade
+        self.max_estagnacao = max_estagnacao
+
+    def registrar_qualidade(self, media_qualidade: float):
+        self.historico_qualidade.append(float(media_qualidade))
+
+    def deve_parar(self) -> Tuple[bool, str]:
+        if not self.historico_qualidade:
+            return False, ""
+        if self.historico_qualidade[-1] <= self.piso_qualidade:
+            return True, "piso_qualidade_atingido"
+        if len(self.historico_qualidade) < self.janela:
+            return False, ""
+        
+        # Otimização de checagem de estagnação
+        ultimos = list(self.historico_qualidade)[-self.max_estagnacao:]
+        if len(ultimos) >= self.max_estagnacao and len(set(round(v, 6) for v in ultimos)) == 1:
+            return True, "estagnacao_loop_detectada"
+        return False, ""
+
+
+# =============================================================================
+# 1. ROTEADOR COMPORTAMENTAL TPTHINK
+# =============================================================================
+class TPThinkBehavioralRouter:
+    def __init__(self):
+        self.padroes_comportamento = {
+            'comando_lista': ['faça', 'depois', 'crie', 'lista', 'gere', 'passo a passo', 'ordene'],
+            'pergunta_direta': ['?', 'qual', 'como', 'por que', 'o que', 'descreva', 'explique'],
+            'casual': ['oi', 'olá', 'tudo bem', 'boa tarde', 'beleza', 'novidades', 'fala', 'tu', 'mano'],
+            'ofensivo': ['odeio', 'raiva', 'injusto', 'lixo', 'burro', 'ódio', 'inútil', 'horrível']
+        }
+        self.diagrama_perguntas = {
+            'aberta': ['como', 'por que', 'o que', 'descreva'],
+            'fechada': ['você fez', 'é sim', 'qual opção', 'sim ou não'],
+            'reflexiva': ['faz pensar', 'evidências', 'e se', 'dia']
+        }
+        self.bases_de_estado = {
+            'modo_tarefa':     array('B', [1, 0, 0, 0, 0, 0, 0, 1]),
+            'modo_investigar': array('B', [0, 1, 0, 0, 1, 0, 0, 0]),
+            'modo_binario':    array('B', [0, 1, 0, 0, 0, 1, 0, 0]),
+            'modo_reflexivo':  array('B', [0, 1, 0, 0, 0, 0, 1, 0]),
+            'modo_conversa':   array('B', [0, 0, 1, 0, 0, 0, 0, 0]),
+            'modo_defesa':     array('B', [0, 0, 0, 1, 0, 0, 0, 0]),
+            'modo_expansivo':  array('B', [0, 0, 0, 0, 0, 0, 0, 0])
+        }
+        self.mapa_plc = {
+            'modo_tarefa':     {"estilo": "instrucao",  "temperatura": 0.7, "tensao": 1.2},
+            'modo_investigar': {"estilo": "formal",     "temperatura": 0.6, "tensao": 1.1},
+            'modo_binario':    {"estilo": "formal",     "temperatura": 0.4, "tensao": 1.3},
+            'modo_reflexivo':  {"estilo": "expansivo",  "temperatura": 1.0, "tensao": 0.9},
+            'modo_conversa':   {"estilo": "informal",   "temperatura": 1.1, "tensao": 0.9},
+            'modo_defesa':     {"estilo": "formal",     "temperatura": 0.5, "tensao": 1.4},
+            'modo_expansivo':  {"estilo": "expansivo",  "temperatura": 1.2, "tensao": 0.8}
+        }
+
+    def _rastrear_gatilhos(self, texto: str, dicionario: Dict) -> List[str]:
+        texto = texto.lower()
+        return [chave for chave, gatilhos in dicionario.items() if any(g in texto for g in gatilhos)]
+
+    def _gerar_array_input(self, comportamentos: List[str], tipo_pergunta: List[str]) -> array:
+        vetor_dinamico = array('B', [0] * 8)
+        if 'comando_lista' in comportamentos: vetor_dinamico[0] = 1
+        if 'pergunta_direta' in comportamentos: vetor_dinamico[1] = 1
+        if 'casual' in comportamentos: vetor_dinamico[2] = 1
+        if 'ofensivo' in comportamentos: vetor_dinamico[3] = 1
+        if 'pergunta_direta' in comportamentos and tipo_pergunta:
+            if 'aberta' in tipo_pergunta: vetor_dinamico[4] = 1
+            if 'fechada' in tipo_pergunta: vetor_dinamico[5] = 1
+            if 'reflexiva' in tipo_pergunta: vetor_dinamico[6] = 1
+        if 'comando_lista' in comportamentos: vetor_dinamico[7] = 1
+        return vetor_dinamico
+
+    def pre_processar_estilo(self, texto: str) -> Tuple[str, Dict[str, float], array]:
+        comportamentos = self._rastrear_gatilhos(texto, self.padroes_comportamento)
+        tipo_pergunta = self._rastrear_gatilhos(texto, self.diagrama_perguntas) if 'pergunta_direta' in comportamentos else []
+        vetor_entrada = self._gerar_array_input(comportamentos, tipo_pergunta)
+
+        if not comportamentos and not tipo_pergunta:
+            rota_escolhida = 'modo_expansivo'
+        else:
+            # Otimização: math.dist é processado em C, reduzindo latência da distância euclidiana
+            distancias = {nome: math.dist(vetor_entrada, base) for nome, base in self.bases_de_estado.items()}
+            rota_escolhida = min(distancias, key=distancias.get)
+
+        perfil_plc = self.mapa_plc[rota_escolhida]
+        return rota_escolhida, perfil_plc, vetor_entrada
+
+
+# =============================================================================
+# 2. BASE GEOMÉTRICA HIPERBÓLICA (POINCARÉ DISK CORE)
 # =============================================================================
 class DiscoPoincare:
     def __init__(self, dim: int = 128):
         self.dim = dim
         self.raio = 0.985
-        self.eps = 1e-10
+        self.eps = 1e-7
 
     def norma(self, v: List[float]) -> float:
-        return math.sqrt(sum(x * x for x in v))
+        return math.hypot(*v)
 
     def projetar(self, v: List[float]) -> List[float]:
         n = self.norma(v)
@@ -56,16 +273,16 @@ class DiscoPoincare:
         y_p = self.projetar(y)
         norma_x = min(self.norma(x_p), self.raio)
         norma_y = min(self.norma(y_p), self.raio)
-        diff_sq = sum((a - b) ** 2 for a, b in zip(x_p, y_p))
-
+        
+        diff_sq = math.dist(x_p, y_p) ** 2
         num = 2 * diff_sq
         den = (1 - norma_x**2) * (1 - norma_y**2) + self.eps
         val = max(1.0, 1.0 + num / den)
-        return math.acosh(min(val, 1e6))
+        return math.acosh(min(val, 1e5))
 
 
 # =============================================================================
-# 2. MEMÓRIA LINEAR E ATENÇÃO COGNITIVA
+# 3. MEMÓRIA LINEAR E ATENÇÃO COGNITIVA
 # =============================================================================
 class MemoriaLinear:
     def __init__(self):
@@ -79,12 +296,12 @@ class MemoriaLinear:
         for i in range(len(tokens) - 2):
             self.trigramas[(tokens[i], tokens[i + 1])][tokens[i + 2]] += 1.0
 
-        for t1, contagens in self.bigramas.items():
+        for contagens in self.bigramas.values():
             total = sum(contagens.values())
             if total > 0:
                 for t2 in contagens: contagens[t2] /= total
 
-        for chave, contagens in self.trigramas.items():
+        for contagens in self.trigramas.values():
             total = sum(contagens.values())
             if total > 0:
                 for t3 in contagens: contagens[t3] /= total
@@ -94,7 +311,7 @@ class MemoriaLinear:
         p_trigrama = 0.0
         if t_penultimo and (t_penultimo, t_atual) in self.trigramas:
             p_trigrama = self.trigramas[(t_penultimo, t_atual)].get(t_candidato, 0.0)
-        return 0.4 * p_bigrama + 0.6 * p_trigrama
+        return max(1e-5, 0.4 * p_bigrama + 0.6 * p_trigrama)
 
 
 class AtencaoCognitiva:
@@ -110,8 +327,8 @@ class AtencaoCognitiva:
         for _ in range(2):
             pesos = [-self.disco.distancia(pensamento, v) for v in vetores_contexto]
             max_p = max(pesos)
-            exp_pesos = [math.exp(p - max_p) for p in pesos]
-            soma_exp = sum(exp_pesos)
+            exp_pesos = [math.exp(max(-50.0, min(50.0, p - max_p))) for p in pesos]
+            soma_exp = sum(exp_pesos) + 1e-9
             prob_atencao = [e / soma_exp for e in exp_pesos]
 
             novo_pensamento = [0.0] * self.disco.dim
@@ -122,171 +339,113 @@ class AtencaoCognitiva:
 
         return pensamento
 
-    def tensao_logica(self, vetores_contexto: List[List[float]]) -> List[float]:
-        n = len(vetores_contexto)
-        if n < 3: return [0.0] * self.disco.dim
-        meio = n // 2
-        
-        polo_suj = [0.0] * self.disco.dim
-        for v in vetores_contexto[:meio]:
-            polo_suj = [a + b for a, b in zip(polo_suj, v)]
-        polo_suj = self.disco.projetar([x / meio for x in polo_suj])
-
-        polo_pred = [0.0] * self.disco.dim
-        for v in vetores_contexto[meio:]:
-            polo_pred = [a + b for a, b in zip(polo_pred, v)]
-        polo_pred = self.disco.projetar([x / (n - meio) for x in polo_pred])
-
-        return self.disco.adicao_mobius([-x for x in polo_suj], polo_pred)
-
 
 # =============================================================================
-# 3. BÚSSOLA PLC & HOMEOSTASE DINÂMICA (CAMADA DE ESTILO)
+# 4. HOMEOSTASE ESPACIAL E AGENTE TARGET
 # =============================================================================
-class BussolaEstiloPLC:
-    def __init__(self):
-        self.estilos = {
-            "informal": {"temperatura": 1.5, "tensao": 0.6},
-            "formal": {"temperatura": 0.4, "tensao": 1.8},
-            "instrucao": {"temperatura": 0.7, "tensao": 1.2},
-            "expansivo": {"temperatura": 1.8, "tensao": 0.5}
-        }
-        self.exemplos: List[Tuple[str, str, set]] = []
-        self._carregar_base()
-
-    def _carregar_base(self):
-        base = [
-            ("e ai beleza suave tranquilo", "informal"),
-            ("prezados senhores atenciosamente", "formal"),
-            ("passo a passo como fazer instrucao", "instrucao"),
-            ("geometric intelligence space poincare", "expansivo")
-        ]
-        for frase, tipo in base:
-            tokens = set(re.findall(r'\w+', frase.lower()))
-            self.exemplos.append((frase, tipo, tokens))
-
-    def extrair_estilo(self, texto: str) -> Tuple[str, Dict[str, float]]:
-        tokens_in = set(re.findall(r'\w+', texto.lower()))
-        if not tokens_in:
-            return "informal", self.estilos["informal"]
-
-        melhor_sim = -1.0
-        estilo_det = "expansivo"
-        for _, tipo, tokens_ex in self.exemplos:
-            inter = tokens_in & tokens_ex
-            uniao = tokens_in | tokens_ex
-            sim = len(inter) / max(len(uniao), 1)
-            if sim > melhor_sim and sim > 0:
-                melhor_sim = sim
-                estilo_det = tipo
-
-        return estilo_det, self.estilos.get(estilo_det, self.estilos["expansivo"])
-
-
 class HomeostaseEspacial:
     def __init__(self, tensao_base: float = 1.0, temperatura_base: float = 1.0):
-        self.tensao = tensao_base
-        self.temperatura = temperatura_base
+        self.tensao = max(0.5, min(2.0, tensao_base))
+        self.temperatura = max(0.5, min(2.0, temperatura_base))
 
     def ajustar(self, candidatos_avaliados: List[Tuple[str, float, float]]):
         if not candidatos_avaliados: return
+        bons = sum(1 for c in candidatos_avaliados if c[1] > 1e-3)
+        ruins = len(candidatos_avaliados) - bons
 
-        bons = [c for c in candidatos_avaliados if c[1] > 1e-3]
-        ruins = [c for c in candidatos_avaliados if c[1] <= 1e-3]
-
-        if len(bons) >= 1 and len(ruins) <= 2:
-            self.tensao = max(0.4, self.tensao * 0.88)
-        elif len(ruins) > len(bons):
-            self.tensao = min(2.5, self.tensao * 1.20)
-
-        distancias = [c[2] for c in candidatos_avaliados]
-        media_dist = sum(distancias) / len(distancias)
-        variancia = sum((d - media_dist) ** 2 for d in distancias) / len(distancias)
-
-        if variancia > 0.45:
-            self.temperatura = max(0.2, self.temperatura * 0.82)
-        elif variancia < 0.08:
-            self.temperatura = min(2.2, self.temperatura * 1.25)
+        if bons >= 1 and ruins <= 2:
+            self.tensao = max(0.7, self.tensao * 0.95)
+        elif ruins > bons:
+            self.tensao = min(1.5, self.tensao * 1.05)
 
 
-# =============================================================================
-# 4. AGENTE TARGET TGP-13
-# =============================================================================
 class AgenteTGP_13:
     def __init__(self, dim: int = 128):
         self.dim = dim
         self.disco = DiscoPoincare(dim)
         self.memoria = MemoriaLinear()
         self.atencao = AtencaoCognitiva(self.disco)
-        self.plc = BussolaEstiloPLC()
+        self.tpthink = TPThinkBehavioralRouter()
+        self.nucleo_estado = NucleoEstadoInterno()
         self.token_para_vetor: Dict[str, List[float]] = {}
         self.tokens_lista: List[str] = []
+        self.persistencia = PersistenciaAtomicaCamadas()
+        
+        self.camada_atual, dados_carregados = self.persistencia.carregar_ultima_camada()
+        if dados_carregados:
+            self.token_para_vetor = dados_carregados
+            self.tokens_lista = list(dados_carregados.keys())
+            self.memoria.registrar_fluxo(self.tokens_lista)
 
     def tokenizar(self, texto: str) -> List[str]:
         texto_nfkd = unicodedata.normalize('NFD', texto.lower())
         texto_sem_acentos = ''.join(c for c in texto_nfkd if unicodedata.category(c) != 'Mn')
-        return [t for t in re.findall(r'[a-z0-9]+|[.,!?;:]', texto_sem_acentos) if t.strip()]
+        return [t for t in TOKENIZER_REGEX.findall(texto_sem_acentos) if t.strip()]
 
     def _registrar_token(self, token: str):
         if token not in self.token_para_vetor:
-            self.token_para_vetor[token] = [(random.random() - 0.5) * 0.08 for _ in range(self.dim)]
+            self.token_para_vetor[token] = [(random.random() - 0.5) * 0.05 for _ in range(self.dim)]
             self.tokens_lista.append(token)
 
-    def treinar(self, texto_base: str, epocas: int = 35):
+    def treinar(self, texto_base: str, epocas: int = 5):
         tokens = self.tokenizar(texto_base)
         if not tokens: return
         self.memoria.registrar_fluxo(tokens)
         for t in tokens: self._registrar_token(t)
 
-        num_tokens = len(self.tokens_lista)
         for _ in range(epocas):
             for i in range(len(tokens) - 1):
                 t_atual, t_prox = tokens[i], tokens[i + 1]
                 v_atual = self.token_para_vetor[t_atual]
                 v_prox = self.token_para_vetor[t_prox]
-
-                diff_atracao = [(b - a) * 0.04 for a, b in zip(v_atual, v_prox)]
-                v_atual = self.disco.adicao_mobius(v_atual, diff_atracao)
-
-                t_neg = self.tokens_lista[random.randint(0, num_tokens - 1)]
-                if t_neg not in (t_atual, t_prox):
-                    v_neg = self.token_para_vetor[t_neg]
-                    diff_repulsao = [-(b - a) * 0.02 for a, b in zip(v_atual, v_neg)]
-                    v_atual = self.disco.adicao_mobius(v_atual, diff_repulsao)
-
-                self.token_para_vetor[t_atual] = v_atual
+                diff_atracao = [(b - a) * 0.02 for a, b in zip(v_atual, v_prox)]
+                self.token_para_vetor[t_atual] = self.disco.adicao_mobius(v_atual, diff_atracao)
 
         for t in self.tokens_lista:
             self.token_para_vetor[t] = self.disco.projetar(self.token_para_vetor[t])
+
+        self.camada_atual += 1
+        self.persistencia.salvar_camada(self.camada_atual, self.token_para_vetor, self.memoria.bigramas)
 
     def criar_snapshot_cognitivo(self, contexto: List[str]) -> List[float]:
         vetores_ctx = [self.token_para_vetor[t] for t in contexto if t in self.token_para_vetor]
         if not vetores_ctx:
             return [0.0] * self.dim
-
-        vetor_intencao = self.atencao.ruminar(vetores_ctx)
-        vetor_tensao = self.atencao.tensao_logica(vetores_ctx)
-        return self.disco.adicao_mobius(vetor_intencao, [x * 0.25 for x in vetor_tensao])
+        return self.atencao.ruminar(vetores_ctx)
 
     def avaliacao_completa(self, snapshot_vector: List[float], t_atual: str, token_cand: str, t_penultimo: str = None, temperatura: float = 1.0, tensao: float = 1.0) -> Tuple[float, float]:
         if token_cand not in self.token_para_vetor: return 1e-12, 10.0
         v_cand = self.token_para_vetor[token_cand]
         
         dist_hip = self.disco.distancia(snapshot_vector, v_cand)
-        p_nao_linear = math.exp(-dist_hip / max(0.05, temperatura))
+        p_nao_linear = math.exp(-dist_hip / max(0.1, temperatura))
         p_linear = self.memoria.prob_linear(t_atual, token_cand, t_penultimo)
 
-        prob_final = (p_nao_linear ** 0.6) * (p_linear ** (1.4 * tensao))
+        prob_final = math.sqrt(p_nao_linear * p_linear)
         return prob_final, dist_hip
 
-    # LOOP DE REAÇÃO (Ajuste On-the-fly sem backprop)
     def reacao_ambiental(self, tokens_gerados: List[str], feedback_sinal: float):
         if feedback_sinal == 0.0: return
-        fator = 0.025 * feedback_sinal
+        fator = 0.01 * feedback_sinal
         for t in tokens_gerados:
             if t in self.token_para_vetor:
-                v = self.token_para_vetor[t]
-                self.token_para_vetor[t] = self.disco.adicao_mobius(v, [fator] * self.dim)
+                self.token_para_vetor[t] = self.disco.adicao_mobius(self.token_para_vetor[t], [fator] * self.dim)
+
+
+# =============================================================================
+# CORRETOR DINÂMICO DE ÂNCORA
+# =============================================================================
+class CorretorDinamicoAncora:
+    def __init__(self, target: AgenteTGP_13):
+        self.target = target
+
+    def selecionar_melhor_ancora(self, tokens_contexto: List[str], tokens_ja_gerados: List[str]) -> str:
+        for t in reversed(tokens_contexto):
+            if t in self.target.token_para_vetor and tokens_ja_gerados.count(t) < 2:
+                return t
+        if self.target.tokens_lista:
+            return self.target.tokens_lista[0]
+        return '<s>'
 
 
 # =============================================================================
@@ -295,7 +454,7 @@ class AgenteTGP_13:
 class DrafterCacheTemporario:
     def __init__(self, target: AgenteTGP_13):
         self.target = target
-        self.vocab = target.tokens_lista
+        self.vocab = target.tokens_lista if target.tokens_lista else ['<s>']
         self.transition = defaultdict(lambda: defaultdict(lambda: 0.01))
         self._sincronizar_memoria()
 
@@ -309,18 +468,20 @@ class DrafterCacheTemporario:
         prev = anchor
         for _ in range(block_size):
             conexoes = self.transition[prev]
-            cand, weights = zip(*conexoes.items()) if conexoes else (self.vocab, [1.0]*len(self.vocab))
-            soma = sum(weights)
-            probs = [w / soma for w in weights]
-            
-            r = random.random()
-            acum = 0.0
-            chosen = cand[-1]
-            for t, p in zip(cand, probs):
-                acum += p
-                if r <= acum:
-                    chosen = t
-                    break
+            if not conexoes:
+                chosen = random.choice(self.vocab)
+            else:
+                cand, weights = zip(*conexoes.items())
+                soma = sum(weights)
+                probs = [w / soma for w in weights]
+                r = random.random()
+                acum = 0.0
+                chosen = cand[-1]
+                for t, p in zip(cand, probs):
+                    acum += p
+                    if r <= acum:
+                        chosen = t
+                        break
             draft.append(chosen)
             prev = chosen
         return draft
@@ -329,48 +490,50 @@ class DrafterCacheTemporario:
 MAPA_NEURONAL = {",": 0.35, ".": 1.25, "!": 1.50, "?": 1.30}
 
 def calcular_limiar_espacial(texto_treino: str) -> float:
-    tokens = re.findall(r'[a-z0-9]+|[.,!?;:]', texto_treino.lower())
-    limiar_acumulado = 0.0
-    qtd_pontos = 0
-    for token in tokens:
-        if token in MAPA_NEURONAL:
-            limiar_acumulado += MAPA_NEURONAL[token]
-            qtd_pontos += 1
-    return limiar_acumulado / max(1, qtd_pontos)
+    tokens = TOKENIZER_REGEX.findall(texto_treino.lower())
+    limiar_acumulado = sum(MAPA_NEURONAL.get(token, 0.0) for token in tokens)
+    qtd_pontos = sum(1 for token in tokens if token in MAPA_NEURONAL)
+    return max(1.0, limiar_acumulado / max(1, qtd_pontos))
 
 
 # =============================================================================
-# 6. MOTOR DE DECODIFICAÇÃO UNIFICADO (DSPARK + PLC + HOMEOSTASE)
+# 6. MOTOR DE DECODIFICAÇÃO UNIFICADO
 # =============================================================================
 def arquinet_hybrid_decode(
     target: AgenteTGP_13,
     drafter: DrafterCacheTemporario,
     prompt: str,
     limiar_corte_base: float,
-    max_tokens: int = 24,
+    max_tokens: int = 16,
     block_size: int = 4,
     feedback_sinal: float = 0.0
 ) -> Tuple[str, Dict]:
     
+    target.nucleo_estado.interpretar_externo(prompt)
+    bias_interno = target.nucleo_estado.exportar_bias_decodificacao()
+
+    corretor_ancora = CorretorDinamicoAncora(target)
     tokens = target.tokenizar(prompt)
-    if not tokens: tokens = ['<s>']
+    if not tokens: tokens = [target.tokens_lista[0] if target.tokens_lista else '<s>']
     accepted = []
 
-    # Extrai o Estilo base do PLC e configura valores iniciais
-    nome_estilo, perfil_estilo = target.plc.extrair_estilo(prompt)
+    modo_tpthink, perfil_plc, bit_array = target.tpthink.pre_processar_estilo(prompt)
+    
+    temp_ajustada = max(0.2, perfil_plc["temperatura"] + bias_interno["mod_temp"])
+    tensao_ajustada = max(0.5, perfil_plc["tensao"] + bias_interno["mod_tensao"])
+
     homeostase = HomeostaseEspacial(
-        tensao_base=perfil_estilo["tensao"],
-        temperatura_base=perfil_estilo["temperatura"]
+        tensao_base=tensao_ajustada,
+        temperatura_base=temp_ajustada
     )
 
-    stats = {'blocos': 0, 'aceitos': 0, 'rejeitados': 0}
-    pos_x, pos_y = 0.0, 0.0
-    angulo = 0.0
-    energia_acumulada = 0.0
+    freio = FreioInteligente(janela_observacao=6, limiar_queda=0.4, piso_qualidade=1e-7, max_estagnacao=3)
+
+    stats = {'blocos': 0, 'aceitos': 0, 'rejeitados': 0, 'motivo_parada': 'max_tokens'}
 
     while len(accepted) < max_tokens:
-        anchor = tokens[-1]
-        contexto = tokens[-8:]
+        anchor = corretor_ancora.selecionar_melhor_ancora(tokens, accepted)
+        contexto = tokens[-4:]
 
         snapshot = target.criar_snapshot_cognitivo(contexto)
         draft = drafter.draft_block(anchor, block_size=block_size)
@@ -383,6 +546,9 @@ def arquinet_hybrid_decode(
         candidatos_bloco_info = []
 
         for t_cand in draft:
+            if t_cand in accepted or t_cand == curr_anchor:
+                continue
+
             p_val, dist_hip = target.avaliacao_completa(
                 snapshot, curr_anchor, t_cand, curr_penultimate,
                 temperatura=homeostase.temperatura,
@@ -390,26 +556,26 @@ def arquinet_hybrid_decode(
             )
             candidatos_bloco_info.append((t_cand, p_val, dist_hip))
 
-            peso_efeito = MAPA_NEURONAL.get(t_cand, 0.0) * homeostase.tensao
-            if t_cand in MAPA_NEURONAL:
-                energia_acumulada += peso_efeito
-                angulo += peso_efeito * (math.pi / 2.0)
-            else:
-                deslocamento = len(t_cand) * 0.5
-                pos_x += deslocamento * math.cos(angulo)
-                pos_y += deslocamento * math.sin(angulo)
-
-            if p_val > 1e-4:
+            if p_val > 1e-5:
                 accepted_prefix.append(t_cand)
                 curr_penultimate = curr_anchor
                 curr_anchor = t_cand
 
-                limiar_dinamico = limiar_corte_base / homeostase.tensao
-                if t_cand in [".", "!", "?"] or energia_acumulada >= limiar_dinamico:
+                if t_cand in [".", "!", "?"]:
                     parada_forcada = True
+                    stats['motivo_parada'] = 'pontuacao_finalizadora'
                     break
             else:
                 break
+
+        if candidatos_bloco_info:
+            qualidade_media_bloco = sum(c[1] for c in candidatos_bloco_info) / len(candidatos_bloco_info)
+            freio.registrar_qualidade(qualidade_media_bloco)
+
+        parar_freio, motivo_freio = freio.deve_parar()
+        if parar_freio:
+            stats['motivo_parada'] = f'freio_{motivo_freio}'
+            break
 
         homeostase.ajustar(candidatos_bloco_info)
 
@@ -421,76 +587,125 @@ def arquinet_hybrid_decode(
             accepted.extend(accepted_prefix)
             tokens.extend(accepted_prefix)
         else:
-            fallback = target.tokens_lista[random.randint(0, len(target.tokens_lista) - 1)]
-            accepted.append(fallback)
-            tokens.append(fallback)
+            candidatos_seguros = [t for t in target.tokens_lista if t not in accepted]
+            if candidatos_seguros:
+                fallback = random.choice(candidatos_seguros)
+                accepted.append(fallback)
+                tokens.append(fallback)
+            else:
+                break
 
         if parada_forcada:
             break
 
-    # REAÇÃO AMBIENTAL: Aplica a atração/repulsão no ambiente latente
     if feedback_sinal != 0.0:
         target.reacao_ambiental(accepted, feedback_sinal)
 
-    # Formatação e limpeza interna da string de saída
     texto_saida = " ".join(accepted[:max_tokens])
     for p in [".", ",", "!", "?", ";", ":"]:
         texto_saida = texto_saida.replace(f" {p}", p)
 
     meta_info = {
-        "estilo_detectado": nome_estilo,
+        "modo_tpthink": modo_tpthink,
+        "estado_interno": {
+            "emocao": target.nucleo_estado.emocao_percebida,
+            "objetivo": target.nucleo_estado.objetivo,
+            "assunto": target.nucleo_estado.assunto,
+            "energia": target.nucleo_estado.energia_conversa
+        },
+        "estilo_plc": perfil_plc["estilo"],
         "tensao_final": homeostase.tensao,
         "temperatura_final": homeostase.temperatura,
-        "posicao_espacial": (round(pos_x, 2), round(pos_y, 2)),
         "stats": stats
     }
 
     return texto_saida, meta_info
 
 
-# =============================================================================
-# EXECUTÁVEL
-# =============================================================================
 if __name__ == "__main__":
     dataset_treino = """
-    Geometric intelligence maps concepts onto the Poincaré disk!
-    The dspark system accelerates speculative batch token generation.
-    Hyperbolic attraction and repulsion adjust vectors in 128-dimensional space!
-    The Telica acts as a local syntactic cohesion manifold.
-    The TGP agent combines linear memory with cognitive geo-attention, without backpropagation!
-    Dual coexistence balances linear probability and geodesic distance.
-    prezados senhores apresentamos a solucao tecnica para analise de redes.
-    e ai beleza tudo certo no fluxo de dados.
+    faça uma pesquisa no banco e crie a lista de dados atualizados.
+    crie a lista de passos para executar o sistema com sucesso.
+    gere um relatorio completo e ordene os resultados por prioridade.
+    
+    por que voce fez essa alteracao no codigo do sistema?
+    como funciona a analise de dados no modelo hiperbolico?
+    o que desencadeou essa resposta no banco de dados?
+    
+    oi tudo bem como voce esta mano?
+    fala tu beleza tudo certo no fluxo de dados.
+    ola boa tarde tranquilo por ai meu amigo?
+    
+    hoje foi um dia horrível e difícil no trabalho.
+    mantenha a calma e apresente a solucao formal para a equipe.
+    analise os erros com cuidado e execute o protocolo de defesa.
+    
+    geometric intelligence mapeia conceitos no disco de poincare.
+    o sistema dspark acelera a geracao especulativa de tokens em lote.
+    a atracao hiperbolica ajusta os vetores no espaco multidimensional.
+    o agente tgp combina memoria linear com atencao geometrica sem backpropagation.
+    faça uma pesquisa no banco e crie a lista de dados atualizados.
+    crie a lista de passos para executar o sistema com sucesso.
+    gere um relatorio completo e ordene os resultados por prioridade.
+    
+    por que voce fez essa alteracao no codigo do sistema?
+    como funciona a analise de dados no modelo hiperbolico?
+    o que desencadeou essa resposta no banco de dados?
+    
+    oi tudo bem como voce esta mano?
+    fala tu beleza tudo certo no fluxo de dados.
+    ola boa tarde tranquilo por ai meu amigo?
+    Oi! Tudo bem com você?
+    Olá! Como está seu dia?
+    E aí! Como vão as coisas?
+    Oi! Em que posso ajudar hoje?
+    Olá! Que bom falar com você.
+    E aí, tudo certo por aí?
+    Oi! Espero que esteja tudo bem.
+    Olá! Como você está hoje?
+    Opa! Tudo tranquilo?
+    Oi! É um prazer conversar com você.
+    
+    esse codigo esta ruim mas vamos corrigir a falha técnica com calma.
+    mantenha a calma e apresente a solucao formal para a equipe.
+    analise os erros com cuidado e execute o protocolo de defesa.
+    
+    geometric intelligence mapeia conceitos no disco de poincare.
+    o sistema dspark acelera a geracao especulativa de tokens em lote.
+    a atracao hiperbolica ajusta os vetores no espaco multidimensional.
+    o agente tgp combina memoria linear com atencao geometrica sem backpropagation.
     """
 
-    print("🚀 1. Carregando Base Unificada ARQUINET v2.0...")
-    target = AgenteTGP_13(dim=128)
-    target.treinar(dataset_treino, epocas=20)
-
-    print("⚡ 2. Inicializando Drafter Cache Temporario + Bússola PLC...")
+    print("🚀 1. Inicializando Agente Arquinet com Núcleo de Estado Interno...")
+    target = AgenteTGP_13(dim=512)
+    
+    if not target.tokens_lista:
+        target.treinar(dataset_treino, epocas=1000)
+    else:
+        print(f"🔄 Disco carregado com sucesso na Camada Y: {target.camada_atual}")
+    
     drafter = DrafterCacheTemporario(target)
     limiar = calcular_limiar_espacial(dataset_treino)
 
     prompts_teste = [
-        "Geometric",
-        "prezados senhores",
-        "e ai beleza"
+       
+        "Oi, tudo beleza por aí?"
+      
     ]
 
     print("\n------------------------------------------------------------------")
-    print("3. EXECUTANDO INFERÊNCIA UNIFICADA COM DRAFTER, PLC E ESPAÇO HIPERBÓLICO")
+    print("3. EXECUTANDO INFERÊNCIA COM ESTADO INTERNO INTEGRADO")
     print("------------------------------------------------------------------")
 
     for p in prompts_teste:
         t_inicio = time.time()
         texto_saida, meta = arquinet_hybrid_decode(
-            target, drafter, p, limiar_corte_base=limiar, max_tokens=20, block_size=4, feedback_sinal=1.0
+            target, drafter, p, limiar_corte_base=limiar, max_tokens=20, block_size=10, feedback_sinal=1.0
         )
         t_fim = time.time() - t_inicio
-        qtd_tokens = len(texto_saida.split())
 
-        print(f"\n💬 Entrada: '{p}'")
-        print(f"🎭 Estilo PLC: {meta['estilo_detectado']} | 🌡️ Tensão: {meta['tensao_final']:.2f} | Temp: {meta['temperatura_final']:.2f}")
-        print(f"📍 Posição Espacial: X={meta['posicao_espacial'][0]}, Y={meta['posicao_espacial'][1]}")
-        print(f"📄 Saída: {texto_saida}")
-        print(f"⏱️ Tempo: {t_fim:.4f}s ({qtd_tokens/max(t_fim, 1e-6):.1f} t/s) | Blocos: {meta['stats']['blocos']} (Aceitos: {meta['stats']['aceitos']})")
+        print(f"\n💬 Entrada Externa: '{p}'")
+        print(f"🧠 Estado Interno -> Emoção: {meta['estado_interno']['emocao']} | Assunto: {meta['estado_interno']['assunto']} | Objetivo: {meta['estado_interno']['objetivo']}")
+        print(f"⚙️ Ajuste Boca -> Rota: {meta['modo_tpthink']} | Tensão: {meta['tensao_final']:.2f} | Temp: {meta['temperatura_final']:.2f}")
+        print(f"🛑 Parada: {meta['stats']['motivo_parada']} | Blocos: {meta['stats']['blocos']}")
+        print(f"📄 Resposta Gerada: {texto_saida}")
