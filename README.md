@@ -255,8 +255,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
 </ul>
 <h5> TGP-2:Transpassagem Geométrica de Propagação </h5>
 <p>
-Geometry‑First Language Model,TGP traduz conceitos físicos e geométricos não-euclidianos em rotinas computacionais leves escritas em Python puro e NumPy, viabilizando inferência de linguagem natural sem GPUs ou redes neurais profundas tradicionais
-baseadas em backpropagation.</p>
+The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑1) to geometric creativity (TGP‑2) and finally to stateful cognitive control (TGP‑3). The ARQUINET architecture is not an incremental improvement but a generational leap, delivering the precision and speed required for real‑world deployment.</p>
 <code>
     Latência de Inferência (ms)
     │
@@ -268,18 +267,18 @@ baseadas em backpropagation.</p>
 
     Qualidade de Resposta
     │
-    │                    TGP-3 ARQUINET ██████████ 98%
-    │                    (consciente, adaptativo)
+    │TGP-3 ██████████ 98%
+    │                    
     │
-    │          TGP-2 ████████ 70%
-    │          (criativo, fluido)
+    │TGP-2 ████████ 70%
+    │          
     │
-    │    TGP-1 ████ 40%
-    │    (cópia, repetitivo)
+    │TGP-1 ████ 40%
+    │    
     │
     └─────────────────────────────────────────────────→ Tempo/Épocas de Treino
     
-    Conversational Quality – 
+    Conversational Quality  
     │ TGP‑1  ████████ 40% (rigid, copied)
     │ TGP‑2  ██████████████ 70% (creative but unfinished)
     │ TGP‑3  ████████████████████ 98% (precise, adaptive)
