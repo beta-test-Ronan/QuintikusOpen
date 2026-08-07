@@ -283,7 +283,8 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     │ TGP‑2  ██████████████ 70% (creative but unfinished)
     │ TGP‑3  ████████████████████ 98% (precise, adaptive)
     └────────────────────────────────────────────────→ higher is better
-    </code>
+   
+</code>
 <h2>Como usar</h2>
 <pre><code>python3 quintikus-model.py
 </code></pre>
