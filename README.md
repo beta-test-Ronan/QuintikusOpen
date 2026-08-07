@@ -265,6 +265,7 @@ baseadas em backpropagation.</p>
     │    TGP-3 ██ 5-21ms (total)
     │
     └────────────────────────────────
+
     Qualidade de Resposta
     │
     │                    TGP-3 ARQUINET ██████████ 98%
@@ -277,7 +278,12 @@ baseadas em backpropagation.</p>
     │    (cópia, repetitivo)
     │
     └─────────────────────────────────────────────────→ Tempo/Épocas de Treino
-        1 época          35 épocas        1000 épocas
+    
+    Conversational Quality – 
+    │ TGP‑1  ████████ 40% (rigid, copied)
+    │ TGP‑2  ██████████████ 70% (creative but unfinished)
+    │ TGP‑3  ████████████████████ 98% (precise, adaptive)
+    └────────────────────────────────────────────────→ higher is better
     </code>
 <h2>Como usar</h2>
 <pre><code>python3 quintikus-model.py
