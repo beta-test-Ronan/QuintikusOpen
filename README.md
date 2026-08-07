@@ -253,7 +253,7 @@ Ele entende regras, aprende com frases, traduz intenções, e pode controlar dis
     <li>🗣️ <strong>Tradutor de intenções</strong> – entende linguagem natural.</li>
     <li>🔌 <strong>Conecta ao mundo real</strong> – GPIO, e‑mail, câmera.</li>
 </ul>
-<h5> TGP-2:Transpassagem Geométrica de Propagação </h5>
+<h5> TGP-2:Topology Geometric Processing </h5>
 <p>
 The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑1) to geometric creativity (TGP‑2) and finally to stateful cognitive control (TGP‑3). The ARQUINET architecture is not an incremental improvement but a generational leap, delivering the precision and speed required for real‑world deployment.</p>
 <code>
