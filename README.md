@@ -301,10 +301,11 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
 </pre>
 
 <p>[sobre]<br>
-<p>reddit:[reddit](https://www.reddit.com/r/QuintikusOpen) <br>   
+<p>
+[reddit](https://www.reddit.com/r/QuintikusOpen) <br>   
 Esse projeto me custou 3 anos, 
 café e paciência.<br> 
-💸 coffee help:
+coffee donate help:
  [paypal](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD)  
 <p>Autor: Ronan Basto<br></p>
 <p>Licença: Livre para estudo e experimentação.</p>
