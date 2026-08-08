@@ -299,9 +299,9 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
      TGP 3.1.6V
 </code>
 </pre>
-
+[sobre]
 <p>Versão:Topological DLM: Dynamic Linguistic Modular Model.<br>
-<p>reddit:https://www.reddit.com/r/QuintikusOpen/ <br>   
+<p>reddit:[reddit click](https://www.reddit.com/r/QuintikusOpen/) <br>   
 ## 💸 Se o Quintikus rodou:
 Esse projeto me custou 3 anos, 
 café e paciência.<br> 
