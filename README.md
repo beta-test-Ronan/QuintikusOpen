@@ -11,8 +11,8 @@
 </head>
 <body id="google_translate_element">
 
-<p><strong>Transformer deterministo e Topology Geometric Processing – Dlm class 1‑2</strong><br>
-<strong>Quintikus Proton-Flow TDLM v117.0 [MIT]</strong></p>
+<p><strong>Transformer,LLM,CHATBOT e Topology Geometric Processing – Dlm class 1‑2</strong><br>
+<strong>Quintikus class [TDLM-TGP-SSML-DLMC-DSLM]  [MIT]</strong></p>
 
 <img src="https://github.com/beta-test-Ronan/QuintikusOpen/blob/main/model-Dlm-f.png?raw=true" alt="Modelo Dual Loop Memory F">
 
