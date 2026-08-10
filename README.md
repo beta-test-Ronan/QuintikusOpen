@@ -300,7 +300,8 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
 </code>
 </pre>
 
-<p>[sobre]<br>
+
+<h4>about</h4>
 <p>
 [reddit](https://www.reddit.com/r/QuintikusOpen) <br>   
 Esse projeto me custou 3 anos, 
