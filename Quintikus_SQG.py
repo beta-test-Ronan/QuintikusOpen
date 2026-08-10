@@ -11,48 +11,61 @@ import hmac
 from collections import defaultdict
 
 # ======================================================================================================
-# 1. KALAMIDY SHIELD V210: PROTOCOLO DE LACRE DE FERRO (IRON SEAL) - Diario virtual / Banco de dados
+# 1. KALAMIDY SHIELD V210 - SEGURANÇA CORRIGIDA (Iron Seal com SHAKE-256)
 # ======================================================================================================
 class KalamidyShield:
     def __init__(self, password):
         self.password = password.encode()
         self.dims = 100_000 
-        self.iterations = 200_000 
+        self.iterations = 600_000  # <--- [MELHORIA] Aumentado de 200k para 600k
 
     def _derivar_chaves(self, salt):
-        """Deriva duas chaves: uma para CIFRA e outra para o LACRE (HMAC)"""
+        """Deriva duas chaves: uma para CIFRA (64b) e outra para o LACRE (64b)"""
         master_key = hashlib.pbkdf2_hmac('sha512', self.password, salt, self.iterations, dklen=128)
-        return master_key[:64], master_key[64:] # Chave Cifra, Chave HMAC
+        return master_key[:64], master_key[64:] 
+
+    def _gerar_keystream(self, chave_cifra, nonce, tamanho):
+        """
+        [CORREÇÃO DE SEGURANÇA] Gera um fluxo contínuo de bytes do tamanho exato.
+        Usa SHAKE-256 (XOF) em vez de repetir 64 bytes.
+        Isso elimina o ataque de chave repetida (Many-Time Pad).
+        """
+        # Mistura a chave com o nonce para criar uma semente única
+        semente = chave_cifra + nonce
+        # SHAKE-256 gera QUANTOS BYTES VOCÊ QUISER, sem repetição cíclica
+        return hashlib.shake_256(semente).digest(tamanho)
 
     def blindar(self, data):
-        """Processamento Kalamidy com Lacre de Integridade"""
+        """Processamento Kalamidy com Lacre de Integridade (Agora seguro)"""
         payload = pickle.dumps(data)
         salt = secrets.token_bytes(32)
-        nonce = secrets.token_bytes(32)
+        nonce = secrets.token_bytes(32)  # 32 bytes para o SHAKE
         
         chave_cifra, chave_hmac = self._derivar_chaves(salt)
         
-        # Camada de Cifra (Kalamidy Lattice)
-        seed = hashlib.sha512(chave_cifra + nonce).digest()
-        caos_hash = hashlib.sha512(seed).digest()
+        # ==============================================================
+        # CAMADA DE CIFRA CORRIGIDA: Fluxo contínuo sem repetição
+        # ==============================================================
+        keystream = self._gerar_keystream(chave_cifra, nonce, len(payload))
         
+        # Cifra simples XOR com o keystream (agora é matematicamente seguro)
         corpo_blindado = bytearray()
         for i, byte in enumerate(payload):
-            fator_k = caos_hash[i % 64]
-            ruido = (fator_k * (i + self.dims)) % 256
-            t = (byte + fator_k) % 256 if i % 2 == 0 else (byte ^ ruido)
-            corpo_blindado.append(t ^ caos_hash[(i + 17) % 64])
+            corpo_blindado.append(byte ^ keystream[i])
 
-        # Geração do LACRE (HMAC) - Garante que ninguém mexeu no arquivo
+        # ==============================================================
+        # LACRE DE FERRO (HMAC) - Protege contra alterações
+        # ==============================================================
         lacre = hmac.new(chave_hmac, salt + nonce + corpo_blindado, hashlib.sha512).digest()
 
         # Arquivo: LACRE (64b) + SALT (32b) + NONCE (32b) + CORPO
         return lacre + salt + nonce + corpo_blindado
 
     def restaurar(self, bloco_kalamidy):
-        """Verifica o lacre de ferro e reconstrói os nexos"""
+        """Verifica o lacre de ferro e reconstrói os nexos (Agora seguro)"""
         try:
-            if len(bloco_kalamidy) < 128: return None
+            if len(bloco_kalamidy) < 128: 
+                return None
             
             lacre_lido = bloco_kalamidy[:64]
             salt = bloco_kalamidy[64:96]
@@ -61,26 +74,27 @@ class KalamidyShield:
             
             chave_cifra, chave_hmac = self._derivar_chaves(salt)
             
-            # Validação do Lacre ANTES de processar
+            # ==============================================================
+            # 1. VALIDAÇÃO DO LACRE (ANTES de descriptografar)
+            # ==============================================================
             lacre_real = hmac.new(chave_hmac, salt + nonce + corpo, hashlib.sha512).digest()
             if not hmac.compare_digest(lacre_lido, lacre_real):
                 return None # Lacre rompido ou senha errada
             
-            # Reversão Kalamidy
-            caos_hash = hashlib.sha512(hashlib.sha512(chave_cifra + nonce).digest()).digest()
+            # ==============================================================
+            # 2. REVERSÃO DA CIFRA (XOR com o mesmo fluxo contínuo)
+            # ==============================================================
+            keystream = self._gerar_keystream(chave_cifra, nonce, len(corpo))
             original = bytearray()
             for i, byte in enumerate(corpo):
-                fator_k = caos_hash[i % 64]
-                ruido = (fator_k * (i + self.dims)) % 256
-                t = byte ^ caos_hash[(i + 17) % 64]
-                byte_puro = (t - fator_k) % 256 if i % 2 == 0 else (t ^ ruido)
-                original.append(byte_puro)
+                original.append(byte ^ keystream[i])
                 
             return pickle.loads(original)
-        except: return None
+        except Exception:
+            return None
 
 # ==================================================================
-# 2. COMPORTY V210 (ALMA)
+# 2. COMPORTY V210 (ALMA) - SEM ALTERAÇÕES
 # ==================================================================
 class Comporty:
     def __init__(self):
@@ -97,7 +111,7 @@ class Comporty:
         return random.choice(self.frases.get(alvo, self.frases["neutro"]))
 
 # ==================================================================
-# 3. MOTOR LATTICE V210
+# 3. MOTOR LATTICE V210 - SEM ALTERAÇÕES
 # ==================================================================
 class LivingLattice:
     def __init__(self, filename="dna.bin"):
@@ -147,13 +161,13 @@ class LivingLattice:
         return True
 
 # ==================================================================
-# 4. GATI V210: 
+# 4. GATI V210 - SEM ALTERAÇÕES (a não ser a chamada da classe nova)
 # ==================================================================
 class GatiV210:
     def __init__(self, senha):
         self.lattice = LivingLattice()
-        self.kalamidy = KalamidyShield(senha)
-        print("Ativando Kalamidy V210 (Iron Seal)...")
+        self.kalamidy = KalamidyShield(senha)  # Agora usa a versão segura
+        print("Ativando Kalamidy V210 (Iron Seal - SHAKE-256)...")
         if os.path.exists("dna.bin"):
             if not self.lattice.carregar(self.kalamidy):
                 print("COLAPSO: Senha incorreta ou integridade do lacre rompida.")
@@ -163,19 +177,16 @@ class GatiV210:
     def processar(self, entrada):
         raw = entrada.lower().strip()
         
-        # STATUS
         if raw == "gati status":
             total = sum(len(v) for v in self.lattice.trelica.values())
             return f"Soberania Gati: {total} nexos protegidos por Kalamidy Iron Seal."
 
-        # COMPORTY
         if "comporty set classe" in raw:
             classe = raw.split("classe")[-1].strip()
             self.lattice.comporty.classe_atual = classe
             self.lattice.salvar_atomico()
             return f"Alma modulada para: {classe}."
 
-        # BUSCA
         triggers = ["pesquisa", "sabe sobre", "tudo sobre", "find", "show", "search"]
         if any(p in raw for p in triggers) and raw.startswith("gati"):
             alvo = self.lattice.normalizar(raw.split()[-1])
@@ -189,7 +200,6 @@ class GatiV210:
                     vistas.add(m['raw'])
             return "\n".join(resp)
 
-        # APRENDIZADO
         if self.lattice.injetar(entrada):
             return self.lattice.comporty.get_frase()
         
@@ -198,8 +208,8 @@ class GatiV210:
 if __name__ == "__main__":
     os.system('clear')
     print("============================================================")
-    print(" GATI V210: KALAMIDY IRON SEAL")
-    print(" Criptografia Autenticada | Integridade HMAC | Eureka Core")
+    print(" GATI V210: KALAMIDY IRON SEAL (SHAKE-256)")
+    print(" Criptografia Autenticada | Integridade HMAC | Sem repetição")
     print("============================================================")
     
     pswd = input("Chave Soberana: ")
@@ -212,4 +222,4 @@ if __name__ == "__main__":
             print(f"Gati: {gati.processar(msg)}")
         except KeyboardInterrupt: break
 
-    print("\n[KALAMIDY]: Lacre de ferro aplicado. DNA protegido.")
+    print("\n[KALAMIDY]: Lacre de ferro aplicado. DNA protegido (SHAKE-256).")
