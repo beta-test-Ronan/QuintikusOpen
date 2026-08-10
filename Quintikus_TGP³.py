@@ -919,7 +919,7 @@ if __name__ == "__main__":
     dim = 64
     target = AgenteTGP_13(dim=dim)
 
-    dataset_completo = dataset_filosofia + "\n" + (dataset_conversa * 3) + "\n" + dataset_poesia + "\n" + dataset_tecnico
+    dataset_completo = dataset_filosofia + "\n" + dataset_conversa + "\n" + dataset_poesia + "\n" + dataset_tecnico
 
     # Chama o treino com os parâmetros de controle
     target.treinar(dataset_completo, epocas=12, train_mode=TRAIN_MODE, force=FORCE_RE_TRAIN)
