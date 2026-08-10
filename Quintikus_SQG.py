@@ -210,6 +210,7 @@ if __name__ == "__main__":
     print("============================================================")
     print(" GATI V210: KALAMIDY IRON SEAL (SHAKE-256)")
     print(" Criptografia Autenticada | Integridade HMAC | Sem repetição")
+    print(" gati show x | gati find x | gati status ")
     print("============================================================")
     
     pswd = input("Chave Soberana: ")
