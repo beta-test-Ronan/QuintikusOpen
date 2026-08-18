@@ -296,7 +296,8 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     [Sobre multiverso]
     -/-
     [NEW MODEL]
-     TGP 3.21V
+     TGP 3.28-b2V
+     TGP 2.5v
 </code>
 </pre>
 
