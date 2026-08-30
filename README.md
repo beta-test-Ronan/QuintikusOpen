@@ -296,8 +296,8 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     [Sobre multiverso]
     -/-
     [NEW MODEL]
-     TGP 3.28-b2V
-     TGP 2.5v
+     TGP 3.50V
+     Quintikus gpt 2.5
 </code>
 </pre>
 
