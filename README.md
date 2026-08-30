@@ -297,7 +297,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     -/-
     [NEW MODEL]
      TGP 3.50V
-     Quintikus gpt 2.5
+     QuintikusOpenGPT-GPU v2.5
 </code>
 </pre>
 
