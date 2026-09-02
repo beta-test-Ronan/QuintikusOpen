@@ -298,7 +298,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     [NEW MODEL]
      TGP 3.50V
      QuintikusOpenGPT-GPU v2.5
-     Quintikus_Listy-cortex v1.0
+     Quintikus_Listy-cortex v1.0 -> Model-View+Logic
 </code>
 </pre>
 
@@ -309,7 +309,7 @@ Esse projeto me custou 3 anos,
 café e paciência.<br> 
 coffee donate help:
  [paypal](https://www.paypal.com/donate?business=4KJAVYQLQDMHA&no_recurring=0&item_name=Ajudar+a+engine&currency_code=USD)  
-<p>Autor: Ronan Basto<br></p>
+<p>Autor: Ronan Bastos<br></p>
 <p>Licença: Livre para estudo e experimentação.</p>
 
 <a href="https://info.flagcounter.com/tTxZ"><img src="https://s01.flagcounter.com/count/tTxZ/bg_FFFFFF/txt_000000/border_CCCCCC/columns_7/maxflags_12/viewers_0/labels_1/pageviews_0/flags_0/percent_0/" alt="Flag Counter" border="0"></a>
