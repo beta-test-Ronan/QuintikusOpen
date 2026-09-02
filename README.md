@@ -298,13 +298,13 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     [NEW MODEL]
      TGP 3.50V
      QuintikusOpenGPT-GPU v2.5
+     Quintikus_Listy-cortex v1.0
 </code>
 </pre>
 
 
 <h4>about</h4>
-<p>
-[reddit](https://www.reddit.com/r/QuintikusOpen) <br>   
+<p> 
 Esse projeto me custou 3 anos, 
 café e paciência.<br> 
 coffee donate help:
