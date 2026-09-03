@@ -299,6 +299,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
      TGP 3.50V
      QuintikusOpenGPT-GPU v2.5
      Quintikus_Listy-cortex v1.0 -> Model-View+Logic
+     Quintikus_Listy_AI v1.0 -> Model-Self-employed
 </code>
 </pre>
 
