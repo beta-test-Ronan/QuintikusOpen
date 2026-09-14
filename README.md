@@ -296,6 +296,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     [Sobre multiverso]
     
     Quintikus_Listy-web.html - prototipagem de visão web
+    Quintikus_Listy_cortex.js
     
     [NEW MODEL]
      TGP 3.50V
