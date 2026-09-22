@@ -262,13 +262,13 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     │    TGP-1 ████████████████████ ~100ms
     │    TGP-2 ████████████ ~120ms (por token)
     │    TGP-3 ██ 5-21ms (total)
-    │
+    │    TGP-4 █ 2-15ms (por token)
     └────────────────────────────────
 
     Qualidade de Resposta
+    │TGP-4 ████████████████ 97%
     │
-    │TGP-3 ██████████ 98%
-    │                    
+    │TGP-3 ██████████ 80%                    
     │
     │TGP-2 ████████ 70%
     │          
@@ -281,7 +281,8 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     Conversational Quality  
     │ TGP‑1  ████████ 40% (rigid, copied)
     │ TGP‑2  ██████████████ 70% (creative but unfinished)
-    │ TGP‑3  ████████████████████ 98% (precise, adaptive)
+    │ TGP‑3  ███████████████ 80% (precise, adaptive)
+    | TGP‑4  ████████████████████ 98% (precise, adaptive,creative but unfinished)
     └────────────────────────────────────────────────→ higher is better
    
 </code>
@@ -299,7 +300,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     Quintikus_Listy_cortex.js
     
     [NEW MODEL]
-     TGP 3.50V
+     TGP‑4
      QuintikusOpenGPT-GPU v2.5
      Quintikus_Listy-cortex v1.0 -> Model-View+Logic
      Quintikus_Listy_AI v1.0 -> Model-Self-employed
