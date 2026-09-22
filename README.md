@@ -282,7 +282,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     │ TGP‑1  ████████ 40% (rigid, copied)
     │ TGP‑2  ██████████████ 70% (creative but unfinished)
     │ TGP‑3  ███████████████ 80% (precise, adaptive)
-    | TGP‑4  ████████████████████ 98% (precise, adaptive,creative but unfinished)
+    | TGP‑4  ████████████████████ 98% (precise,rigid)
     └────────────────────────────────────────────────→ higher is better
    
 </code>
