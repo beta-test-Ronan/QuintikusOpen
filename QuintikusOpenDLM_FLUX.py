@@ -5,14 +5,16 @@ from collections import Counter, defaultdict, deque
 class QuintikusAGI:
     """
     Quintikus AGI — motor de composição simbólica.
-    Alma DLM-FLOW (estado térmico + assinatura) e por dentro
-    fusão > retrieval > composição > geração ancorada.
+    - Intent detection (quem / quando / onde / qual / como / por que)
+    - Stem PT com verbos e agentes
+    - Pruning de associações fracas
+    - Hashing trick opcional no _ctx (hashing=True)
+    - Fusão > retrieval > composição > geração ancorada
     """
 
-    def __init__(self, _t=0.5):
+    def __init__(self, _t=0.5, hashing=False, bucket=1 << 16):
         self._st = [0.5, 0.5, 0.5]
 
-        # --- Núcleo DLM ---
         self._freq = Counter()
         self._ctx = defaultdict(Counter)
         self._bi = defaultdict(Counter)
@@ -21,7 +23,6 @@ class QuintikusAGI:
         self._fim = Counter()
         self._assoc = defaultdict(lambda: defaultdict(float))
 
-        # Frases em DUAS formas paralelas
         self._sentencas_raw = []
         self._sentencas_stem = []
 
@@ -32,7 +33,10 @@ class QuintikusAGI:
         self._eta = 0.02
         self._decay = 0.995
 
-        # --- Identidade ---
+        # hashing trick opcional
+        self._hashing = hashing
+        self._bucket = bucket
+
         self._s = "25e0bb26"
         self._k = "6742"
         self._b = {
@@ -42,7 +46,6 @@ class QuintikusAGI:
         }
         self._n = {k: bytes.fromhex(v).decode('utf-8', 'ignore') for k, v in self._b.items()}
 
-        # --- Mapa térmico ---
         self._th = {
             'bom': 0.1, 'ótimo': 0.2, 'sinergia': 0.3, 'paz': 0.2,
             'хорошо': 0.1, 'отлично': 0.2, 'синергия': 0.3, 'мир': 0.2,
@@ -53,6 +56,10 @@ class QuintikusAGI:
         self._artigos = {"o", "a", "os", "as", "um", "uma"}
         self._pronomes = {"nós", "eu", "ele", "ela", "você", "eles",
                           "elas", "vocês", "tu", "nos", "vos"}
+        self._demos = {"nessa", "nesse", "nisto", "nesta", "neste",
+                       "naquela", "naquele", "essa", "esse", "isso",
+                       "esta", "este", "isto", "aquela", "aquele",
+                       "aquilo", "desta", "deste", "disso"}
         self._preps = {"de", "do", "da", "dos", "das", "em", "no", "na",
                        "nos", "nas", "ao", "aos", "à", "às", "para", "com", "por"}
         self._pont = {",", ".", "!", "?", ";", ":"}
@@ -60,32 +67,112 @@ class QuintikusAGI:
         self._stop_orig = set()
 
     # ------------------------------------------------------------------
-    # Tokenização e stem
+    # Stem — PT, com verbos e agentes
     # ------------------------------------------------------------------
-    def _tok(self, txt):
-        return re.findall(r"[a-záàâãéêíóôõúç0-9]+", txt.lower())
-
     def _stem(self, tok):
         if len(tok) <= 4:
             return tok
         t = tok
+
+        # advérbios
         if len(t) > 8 and t.endswith("mente"):
-            t = t[:-5]
+            return t[:-5]
+
+        # agentes longos (fundadores, criadoras)
+        if len(t) > 8:
+            if t.endswith("adores"): return t[:-6]
+            if t.endswith("adoras"): return t[:-6]
+
+        # agentes
+        if len(t) > 7:
+            if t.endswith("ações"): return t[:-5]
+            if t.endswith("ador"): return t[:-4]
+            if t.endswith("dora"): return t[:-4]
+
+        if len(t) > 6:
+            if t.endswith("ação"): return t[:-4]
+            if t.endswith("dores"): return t[:-5]
+            if t.endswith("doras"): return t[:-5]
+
+        # nominalizações + sufixos médios
         if len(t) > 5:
-            if t.endswith("ções"): return t[:-4] + "r"
-            if t.endswith("ção"): return t[:-3] + "r"
-            if t.endswith("ões"): return t[:-3] + "ão"
-            if t.endswith("ães"): return t[:-3] + "ão"
-            if t.endswith("ais"): return t[:-3] + "al"
-            if t.endswith("eis"): return t[:-3] + "el"
+            if t.endswith("ções"): return t[:-4]
+            if t.endswith("ção"): return t[:-3]
+            if t.endswith("ões"): return t[:-3]
+            if t.endswith("ães"): return t[:-3]
+            if t.endswith("ais"): return t[:-3]
+            if t.endswith("eis"): return t[:-3]
+            if t.endswith("dor"): return t[:-3]
+            if t.endswith("dora"): return t[:-4]
+            if t.endswith("ores"): return t[:-4]
+            if t.endswith("oras"): return t[:-4]
+
+        # verbos: gerúndio e particípio
+        if len(t) > 5:
+            if t.endswith("ando"): return t[:-4]
+            if t.endswith("endo"): return t[:-4]
+            if t.endswith("indo"): return t[:-4]
+            if t.endswith("ado"): return t[:-3]
+            if t.endswith("ido"): return t[:-3]
+
+        # verbos: 3ª pessoa singular e infinitivo
+        if len(t) > 4:
+            if t.endswith("ou"): return t[:-2]
+            if t.endswith("eu"): return t[:-2]
+            if t.endswith("iu"): return t[:-2]
+            if t.endswith("ar"): return t[:-2]
+            if t.endswith("er"): return t[:-2]
+            if t.endswith("ir"): return t[:-2]
+
+        # família -ente/-ença
         if len(t) > 5:
             if t.endswith("entes"): return t[:-3]
             if t.endswith("ente"): return t[:-2]
             if t.endswith("enças"): return t[:-3]
             if t.endswith("ença"): return t[:-2]
+
+        # plurais
         if len(t) > 4 and t.endswith("es"): return t[:-2]
         if len(t) > 3 and t.endswith("s"): return t[:-1]
+
         return t
+
+    # ------------------------------------------------------------------
+    # Hashing trick opcional
+    # ------------------------------------------------------------------
+    def _bucket_of(self, st):
+        if not self._hashing:
+            return st
+        return hash(st) % self._bucket
+
+    # ------------------------------------------------------------------
+    # Limpeza e segmentação
+    # ------------------------------------------------------------------
+    def _limpar(self, txt):
+        txt = re.sub(r"\[\d+\]", "", txt)
+        txt = re.sub(r"\[[^\]]{0,60}\]", "", txt)
+        txt = re.sub(r"https?://\S+", "", txt)
+        txt = re.sub(r"\s+", " ", txt)
+        txt = re.sub(r"\s+([,.;:!?])", r"\1", txt)
+        txt = re.sub(r"([.!?])\1+", r"\1", txt)
+        return txt.strip()
+
+    def _split_sentencas(self, txt):
+        txt = self._limpar(txt)
+        abrevs = r"\b(etc|Sr|Sra|Dr|Dra|Prof|Profa|pág|ed|vol|op|obs|vs|ex|aprox|nº)\. "
+        marcador = "<<<PONTO>>> "
+        txt = re.sub(abrevs, r"\1" + marcador, txt)
+        partes = re.split(r"(?<=[.!?])\s+", txt)
+        resultado = []
+        for p in partes:
+            p = p.replace(marcador, ". ").strip()
+            if len(p) > 20:
+                resultado.append(p)
+        return resultado
+
+    # ------------------------------------------------------------------
+    def _tok(self, txt):
+        return re.findall(r"[a-záàâãéêíóôõúç0-9]+", txt.lower())
 
     def _orig(self, stem):
         c = self._stem_orig.get(stem)
@@ -106,6 +193,50 @@ class QuintikusAGI:
         return " ".join(out)
 
     # ------------------------------------------------------------------
+    # Intent detection
+    # ------------------------------------------------------------------
+    def _intent(self, stems):
+        s = set(stems)
+        if "quem" in s:
+            return "pessoa"
+        if "quando" in s or ("que" in s and "data" in s):
+            return "data"
+        if "onde" in s:
+            return "local"
+        if "qual" in s or "quais" in s:
+            return "definicao"
+        if "como" in s:
+            return "processo"
+        if "por" in s and "que" in s:
+            return "causa"
+        return None
+
+    def _bate_intent(self, raw, intent):
+        if not intent:
+            return False
+        lr = raw.lower()
+        if intent == "data":
+            return bool(re.search(r"\b(1[0-9]{3}|20[0-9]{2})\b", raw)) or \
+                   bool(re.search(r"\b(janeiro|fevereiro|março|abril|maio|junho|"
+                                  r"julho|agosto|setembro|outubro|novembro|dezembro)\b", lr))
+        if intent == "pessoa":
+            # nomes próprios capitalizados no meio da frase
+            return bool(re.search(r"[a-zá-ú] [A-ZÁ-Ú][a-zá-ú]{2,}", raw))
+        if intent == "local":
+            return bool(re.search(r"\b(em|no|na|universidade|califórnia|"
+                                  r"estados|garagem|menlo)\b", lr))
+        if intent == "definicao":
+            return bool(re.search(r"\b(é|são|significa|chamad|consiste|"
+                                  r"trata-se|refere)\b", lr))
+        if intent == "processo":
+            return bool(re.search(r"\b(usando|através|por meio|funciona|"
+                                  r"processo|método|sistema)\b", lr))
+        if intent == "causa":
+            return bool(re.search(r"\b(porque|por isso|devido|resulta|"
+                                  r"causa|motivo)\b", lr))
+        return False
+
+    # ------------------------------------------------------------------
     # Inicialização
     # ------------------------------------------------------------------
     def inicializar(self, _txt):
@@ -113,9 +244,7 @@ class QuintikusAGI:
             self._s = hashlib.sha256(b"vazio").hexdigest()[:8]
             return
 
-        partes = re.split(r"(?<=[.!?])\s+", _txt.strip())
-
-        for sent in partes:
+        for sent in self._split_sentencas(_txt):
             sent = sent.strip()
             if not sent:
                 continue
@@ -137,7 +266,8 @@ class QuintikusAGI:
                 fim = min(len(toks), i + self._janela + 1)
                 for j in range(ini, fim):
                     if i != j:
-                        self._ctx[st][stems[j]] += 1
+                        ctx_key = self._bucket_of(stems[j])
+                        self._ctx[st][ctx_key] += 1
                 if i + 1 < len(stems):
                     self._bi[st][stems[i + 1]] += 1
                 if i + 2 < len(stems):
@@ -173,7 +303,9 @@ class QuintikusAGI:
         self._construir_assoc()
 
     def _construir_assoc(self):
-        top = [w for w, _ in self._freq.most_common(500) if w not in self._stop]
+        # top-N por palavra para reduzir explosão
+        TOP_K = 40
+        top = [w for w, _ in self._freq.most_common(800) if w not in self._stop]
         for i, a in enumerate(top):
             ca = self._ctx[a]
             if not ca:
@@ -184,6 +316,8 @@ class QuintikusAGI:
             da = math.sqrt(sum(v * v for v in va.values()))
             if not da:
                 continue
+
+            scores = []
             for b in top[i + 1:]:
                 cb = self._ctx[b]
                 if not cb:
@@ -199,9 +333,14 @@ class QuintikusAGI:
                 if not db:
                     continue
                 sim = num / (da * db)
-                if sim > 0.20:
-                    self._assoc[a][b] = sim
-                    self._assoc[b][a] = sim
+                if sim > 0.25:   # pruning: limiar mais alto
+                    scores.append((b, sim))
+
+            # pruning: top-K por nó
+            scores.sort(key=lambda x: x[1], reverse=True)
+            for b, sim in scores[:TOP_K]:
+                self._assoc[a][b] = sim
+                self._assoc[b][a] = sim
 
     # ------------------------------------------------------------------
     # Térmico
@@ -342,9 +481,10 @@ class QuintikusAGI:
         return tuple(nova)
 
     # ------------------------------------------------------------------
-    # Score e âncoras
+    # Score
     # ------------------------------------------------------------------
-    def _score_sentenca(self, sent_stem, toks_stem, candidatos_stem, topico_set):
+    def _score_sentenca(self, sent_stem, raw, toks_stem, candidatos_stem,
+                        topico_set, intent):
         sent_set = set(sent_stem)
         score = 0.0
         for t in toks_stem:
@@ -357,18 +497,29 @@ class QuintikusAGI:
         for c, _ in candidatos_stem.most_common(5):
             if c in sent_set:
                 score += 0.3
+
         if topico_set:
             n = len(topico_set)
             cob = sum(1 for t in topico_set if t in sent_set)
             ratio = cob / n
             score *= (1.0 + ratio * ratio * 12.0)
+
+        # bônus de intent
+        if intent and self._bate_intent(raw, intent):
+            score *= 2.5
+
+        # penaliza sentença longa
+        score /= (1.0 + 0.02 * len(sent_stem))
         return score
 
     def _ancoras_do_input(self, stems):
         a = set()
         for st in stems:
             if st in self._stop: continue
-            if st in self._freq: a.add(st)
+            if st not in self._freq: continue
+            ocorrencias = sum(1 for s in self._sentencas_stem if st in s)
+            if ocorrencias >= 2:
+                a.add(st)
         return a
 
     def _cobertura(self, sent_stem, ancoras):
@@ -376,18 +527,14 @@ class QuintikusAGI:
         return len(ancoras & set(sent_stem))
 
     def _tem_sujeito(self, sent_stem):
-        """Frase começa com artigo OU pronome pessoal?"""
         if not sent_stem:
             return False
         if sent_stem[0] in self._artigos:
             return True
         if sent_stem[0] in self._pronomes:
             return True
-        return False
+        return sent_stem[0] in self._demos
 
-    # ------------------------------------------------------------------
-    # Composição — trabalha com TEXTO ORIGINAL
-    # ------------------------------------------------------------------
     def _compor_texto(self, i, j):
         raw1 = self._sentencas_raw[i].rstrip(".!? ")
         raw2 = self._sentencas_raw[j]
@@ -415,23 +562,27 @@ class QuintikusAGI:
                     partes.append(" ".join(palavras))
         return ". ".join(partes) + "."
 
-    def _compor_ancorado(self, indices, ancoras):
-        """indices: lista de índices de frases, ranqueadas."""
+    def _compor_ancorado(self, indices, ancoras, intent):
         if not ancoras: return None
 
-        # 0. corte 80%: se a melhor cobre quase tudo, devolve sozinha
         if indices:
             i0 = indices[0]
             cob0 = self._cobertura(self._sentencas_stem[i0], ancoras)
-            if cob0 / max(1, len(ancoras)) >= 0.80:
+            n = len(ancoras)
+            if n <= 2:
+                limiar = 0.80
+            else:
+                limiar = (n - 1) / n
+            # se intent bate, aceita corte ainda mais agressivo
+            if intent and self._bate_intent(self._sentencas_raw[i0], intent):
+                limiar = min(limiar, 0.60)
+            if cob0 / max(1, n) >= limiar:
                 return self._sentencas_raw[i0], "retrieval-parcial"
 
-        # 1. retrieval direto (cobre 100%)
         for i in indices:
             if ancoras.issubset(set(self._sentencas_stem[i])):
                 return self._sentencas_raw[i], "retrieval"
 
-        # 2. fusão
         for a in range(len(indices)):
             for b in range(a + 1, len(indices)):
                 i, j = indices[a], indices[b]
@@ -442,7 +593,6 @@ class QuintikusAGI:
                 if f and ancoras.issubset(set(f)):
                     return self._render([self._orig(st) for st in f]), "fusão"
 
-        # 3. composição por concatenação
         for a in range(len(indices)):
             for b in range(a + 1, len(indices)):
                 i, j = indices[a], indices[b]
@@ -450,7 +600,6 @@ class QuintikusAGI:
                 if not ancoras.issubset(uniao): continue
                 return self._compor_texto(i, j), "composição"
 
-        # 4. três sentenças
         for a in range(len(indices)):
             for b in range(a + 1, len(indices)):
                 for c in range(b + 1, len(indices)):
@@ -569,6 +718,8 @@ class QuintikusAGI:
         stems = [self._stem(t) for t in toks]
         self._upd_thermal(stems)
 
+        intent = self._intent(stems)
+
         _dice = random.randint(1, 10)
         _bias = 2 if self._st[0] > 0.6 else (-2 if self._st[0] < 0.4 else 0)
         _final_d = max(1, min(10, _dice + _bias))
@@ -596,7 +747,14 @@ class QuintikusAGI:
             range(len(self._sentencas_stem)),
             key=lambda i: (
                 self._cobertura(self._sentencas_stem[i], ancoras),
-                self._score_sentenca(self._sentencas_stem[i], stems, candidatos, topico_set)
+                self._score_sentenca(
+                    self._sentencas_stem[i],
+                    self._sentencas_raw[i],
+                    stems,
+                    candidatos,
+                    topico_set,
+                    intent,
+                )
             ),
             reverse=True
         )[:10]
@@ -604,16 +762,14 @@ class QuintikusAGI:
         modo = "VOID"
         resposta = None
 
-        # 1. composição ancorada
         if ancoras:
-            resultado = self._compor_ancorado(indices_rankeados, ancoras)
+            resultado = self._compor_ancorado(indices_rankeados, ancoras, intent)
             if resultado:
                 resposta, modo = resultado
                 ativos = list(ancoras)
                 self._hebb(ativos)
                 self._decair()
 
-        # 2. retrieval puro
         if resposta is None and indices_rankeados:
             i0 = indices_rankeados[0]
             cob = self._cobertura(self._sentencas_stem[i0], ancoras)
@@ -624,7 +780,6 @@ class QuintikusAGI:
                 self._hebb(list(topico) + list(self._sentencas_stem[i0]))
                 self._decair()
 
-        # 3. geração token-a-token ancorada
         if resposta is None:
             semente = topico[0]
             ancora_set = set(topico)
@@ -734,7 +889,10 @@ class QuintikusAGI:
         header = (f"\n[DLM-FLOW: {_et:.1f}μs | D:{_final_d}/10 | {_st_info} | "
                   f"{_sn} | SIGN: {self._s}]")
         if _debug:
-            return f"{header}\n{_res}\n  ↳ âncoras: {sorted(ancoras)}\n  ↳ tópico: {topico}"
+            return (f"{header}\n{_res}\n"
+                    f"  ↳ âncoras: {sorted(ancoras)}\n"
+                    f"  ↳ tópico: {topico}\n"
+                    f"  ↳ intent: {intent}")
         return f"{header}\n{_res}"
 
 
@@ -749,135 +907,94 @@ if __name__ == "__main__":
             conteudo = f.read()
     else:
         conteudo = """
-        A vida é o fenômeno mais raro que conhecemos no universo.
-        Nós acordamos, respiramos, vemos a luz, ouvimos vozes, andamos sobre a terra.
-        O mundo à nossa volta é vasto e diverso.
-        Existem montanhas que lembram milhões de anos.
-        O homem é parte desse mundo e também observador.
-        A vida de cada um é feita de grandes e pequenos acontecimentos.
-        No mundo existe alegria e dor.
-        Não se pode entender a felicidade sem conhecer a tristeza.
-        O amor é uma das forças centrais do universo.
-        O amor exige paciência, coragem, capacidade de perdoar.
-        O tempo é um enigma.
-        Nós medimos o tempo em horas, dias, anos.
-        Na infância o tempo passa devagar.
-        A morte é parte da vida.
-        A natureza é a nossa casa.
-        A ciência explica como o mundo funciona.
-        A arte mostra como nós sentimos o mundo.
-        A ciência cura doenças, constrói cidades, explora o cosmos.
-        A infância é o começo do caminho.
-        A família é o primeiro mundo do homem.
-        O trabalho enche a vida de sentido.
-        A liberdade é um grande valor.
-        A felicidade não é um ponto final, é um caminho.
-        A felicidade é a luz da manhã, o chá quente, o riso de uma criança.
-        O cachorro é amigo do homem.
-        O cachorro gosta de brincar e correr.
-        O cachorro pode ter pelo, rabo, patas, orelhas.
-        O gato também gosta de brincar.
-        Os animais vivem ao lado do homem.
-        O carrapato deixa uma mancha escura na pele do cachorro.
-        A pulga morde o cachorro.
-        A pulga é pequena e escura.
-        A micose é um fungo.
-        A micose dá uma mancha redonda na pele.
-        A micose causa coceira.
-        O fungo vive na pele.
-        O melanoma é um tumor.
-        O melanoma é perigoso para o cachorro.
-        O melanoma aparece como uma mancha escura fixa.
-        O veterinário olha a pele do cachorro.
-        O veterinário cuida dos animais.
-        O veterinário trata doenças.
-        Desse modo, tudo se conecta: a vida rara, o mundo vasto, o tempo enigmático, o amor paciente, a ciência que cura e a arte que sente.
-    A vida é o fenômeno mais raro que conhecemos no universo.
-Nós acordamos, respiramos, vemos a luz, ouvimos vozes, andamos sobre a terra.
-Essa raridade se manifesta em cada instante, e cada instante nos liga ao todo.
-O mundo à nossa volta é vasto e diverso.
-Existem montanhas que lembram milhões de anos.
-Elas nos ensinam que a vida humana é breve, mas participa de uma história muito maior.
-O homem é parte desse mundo e também observador.
-Ao observar, ele interpreta, sente e transforma.
-A vida de cada um é feita de grandes e pequenos acontecimentos.
-Cada acontecimento se liga aos outros como fios de uma mesma teia.
-No mundo existe alegria e dor.
-Não se pode entender a felicidade sem conhecer a tristeza.
-Os opostos se explicam e se completam.
-O amor é uma das forças centrais do universo.
-O amor exige paciência, coragem, capacidade de perdoar.
-Sem essas qualidades, a união entre as pessoas se desfaz.
-O tempo é um enigma.
-Nós medimos o tempo em horas, dias, anos.
-Na infância o tempo passa devagar.
-Cada descoberta da infância inaugura um mundo novo.
-A morte é parte da vida.
-Lembrar disso dá sentido ao tempo que temos.
-A natureza é a nossa casa.
-Tudo o que existe na natureza está interligado.
-A ciência explica como o mundo funciona.
-A arte mostra como nós sentimos o mundo.
-A ciência cura doenças, constrói cidades, explora o cosmos.
-A arte dá forma ao espanto, à dor e à beleza.
-Ciência e arte não se opõem: são duas linguagens da mesma humanidade.
-A infância é o começo do caminho.
-A família é o primeiro mundo do homem.
-Nesse primeiro mundo aprendemos a amar, a respeitar, a cuidar.
-O trabalho enche a vida de sentido.
-O trabalho transforma esforço em contribuição.
-A liberdade é um grande valor.
-A liberdade só existe plenamente quando há responsabilidade.
-A felicidade não é um ponto final, é um caminho.
-A felicidade é a luz da manhã, o chá quente, o riso de uma criança.
-Essas pequenas coisas se conectam às grandes forças: o amor, o tempo, a natureza e a esperança.
-O cachorro é amigo do homem.
-O cachorro gosta de brincar e correr.
-O cachorro pode ter pelo, rabo, patas, orelhas.
-O gato também gosta de brincar.
-Os animais vivem ao lado do homem.
-A convivência com os animais amplia nossa compreensão de cuidado.
-O carrapato deixa uma mancha escura na pele do cachorro.
-A pulga morde o cachorro.
-A pulga é pequena e escura.
-A micose é um fungo.
-A micose dá uma mancha redonda na pele.
-A micose causa coceira.
-O fungo vive na pele.
-O melanoma é um tumor.
-O melanoma é perigoso para o cachorro.
-O melanoma aparece como uma mancha escura fixa.
-O veterinário olha a pele do cachorro.
-O veterinário cuida dos animais.
-O veterinário trata doenças.
-Assim, o amor pelos animais se traduz em cuidado, observação e ciência.
-O veterinário une conhecimento e afeto.
-A saúde do cachorro depende de atenção diária.
-Essa atenção é uma forma de respeito pela vida.
-Desse modo, tudo se conecta: a vida rara, o mundo vasto, o tempo enigmático, o amor paciente, a ciência que cura e a arte que sente.
-Cada parte existe em união geral com as outras.
-A vida de cada um é uma nota dentro de uma sinfonia maior.
-Cuidar do outro, seja humano ou animal, é cuidar da própria teia da vida.
+Google ([ˈɡuːɡəl] GOO-ghəl)[7][8] é uma empresa multinacional de softwares e serviços online (baseado na nuvem) fundada em 1998 na cidade norte-americana de Menlo Park (estado da Califórnia), que lucra principalmente através da publicidade pelo AdWords. A Google é a principal subsidiária da Alphabet Inc.
+
+A empresa foi fundada por Larry Page e Sergey Brin, muitas vezes apelidados de "Google Guys",[9][10][11] enquanto os dois estavam frequentando a Universidade Stanford como estudantes de doutoramento. Foi fundada como uma empresa privada em 4 de setembro de 1998 e sua oferta pública inicial foi realizada em 19 de agosto de 2004. A missão declarada da empresa desde o início foi "organizar a informação mundial e torná-la universalmente acessível e útil"[12] e seu slogan oficial era "Não seja mal". Em outubro de 2015, o lema foi substituído no código de conduta corporativo da Alphabet pela frase "Faça a coisa certa".[13] Em 2006, a empresa mudou-se para sua atual sede, em Mountain View, Condado de Santa Clara no estado da Califórnia. O Google é executado através de mais de um milhão de servidores em data centers ao redor do mundo[14] e processa mais de cinco bilhões de solicitações de pesquisa[15] e vinte petabytes de dados gerados por usuários todos os dias.[16][17][18][19]
+
+O rápido crescimento do Google desde sua incorporação culminou em uma cadeia de outros produtos, aquisições e parcerias que vão além do núcleo inicial como motor de buscas. A empresa oferece softwares de produtividade online, como o software de e-mail Gmail, e ferramentas de redes sociais, incluindo o fracassado Google+ e os descontinuados Google Buzz e Orkut. Os produtos do Google se estendem à área de trabalho, com aplicativos como o navegador Google Chrome, o programa de organização de edição de fotografias Picasa e o aplicativo de mensagens instantâneas Google Talk. Notavelmente, o Google também lidera o desenvolvimento do sistema operacional móvel para smartphones Android, usado em celulares de marcas como Samsung, Motorola, LG, HTC, Huawei e Xiaomi.
+
+O antigo ranking Alexa classificou o Google como o website mais visitado do mundo.[20] A Google é classificada pela revista Fortune como o melhor lugar do mundo para se trabalhar. Aparece na posição pelo sexto ano consecutivo[21][22] é a marca mais valiosa do mundo de acordo com o ranking BrandZ de 2017, avaliada em 245 bilhões de dólares.[23] Em outro ranking de avaliação de marcas, ultrapassou em 2014 a Apple, que liderava por três anos consecutivos, com um valor estimado de US$ 159 bilhões.[24] A posição dominante no mercado dos serviços do Google levou a críticas da sociedade sobre assuntos como privacidade, direitos autorais e censura.[25][26] O Google apareceu mais de uma vez no topo da lista da ZeniphOptimedia como o maior conglomerado de mídia do mundo.[27][28]
+
+A Google é do tipo LLC, uma empresa do tipo sociedade de responsabilidade limitada, em caso de processos judiciais o patrimônio dos sócios está protegido.[29]
+História
+
+O Google começou em janeiro de 1996 como um projeto de pesquisa de Larry Page e Sergey Brin, quando ambos eram estudantes de doutorado na Universidade Stanford, na Califórnia, Estados Unidos.[30][31][32]
+
+Enquanto os motores de busca convencionais exibiam resultados classificados pela contagem de quantas vezes os termos de busca apareciam na primeira página, os dois teorizaram sobre um sistema melhor que analisava as relações entre os sites.[33] Eles chamaram esta tecnologia de PageRank, onde a relevância de um site era determinada pelo número de páginas, bem como pela importância dessas páginas, que ligavam de volta para o site original.[34][35]
+A página original do Google (1998) tinha um desenho simples, já que seus fundadores não tinham experiência em HTML, a linguagem para páginas de web design.[36]
+
+Um pequeno motor de busca chamado "RankDex" da IDD Information Services, projetado por Robin Li, desde 1996, já explorava uma estratégia semelhante para pontuação e classificação de páginas.[37] A tecnologia do RankDex seria patenteada e usada mais tarde por Li, quando fundou a Baidu na China.[38][39]
+
+Larry Page e Sergey Brin, originalmente batizaram sua nova ferramenta de busca de "BackRub", porque o sistema checava backlinks para estimar a importância de um site.[40][41][42]
+
+Meses depois, eles mudaram o nome para o Google, proveniente de um erro ortográfico da palavra "googol",[43][44] o número um seguido por cem zeros, que foi criado para indicar a quantidade de informação que o motor de busca podia processar, o nome também reflete a missão de organizar uma quantidade aparentemente infinita de informações na web.[45][46] Originalmente, o Google funcionou sob o site da Universidade Stanford, com o domínio google.stanford.edu, com os direitos de autor mencionados à universidade no final de sua página à época.[47]
+
+A empresa foi constituída oficialmente em 4 de setembro de 1998[6] e o nome de domínio "Google" foi registrado em 15 de setembro de 1997.[48] No início, sua sede ficava na garagem de uma amiga (Susan Wojcicki)[30] em Menlo Park, Califórnia.[6] Craig Silverstein, um colega de doutorado estudante em Stanford, foi contratado como o primeiro funcionário.[30][49][50] Apesar de ter sido incorporado em 4 de setembro de 1998, desde 2002, o Google comemora seus aniversários em diferentes dias de setembro, mais frequentemente em 27 de setembro.[51][52][53] A mudança nas datas ocorreu para celebrar marcos importantes em conjunto com o aniversário.[54]
+Financiamento e oferta pública inicial
+A primeira iteração de servidores de produção do Google foi construída com um hardware de baixo custo.[55]
+
+O primeiro financiamento para o Google foi uma contribuição de 100 mil dólares em agosto de 1998 de Andy Bechtolsheim, co-fundador da Sun Microsystems, dada antes do Google ter sido incorporado.[56] No início de 1999, quando ainda eram estudantes de graduação, Larry Page e Sergey Brin decidiram que o motor de busca que eles tinham desenvolvido tomava muito do seu tempo a partir de pesquisas acadêmicas. Eles foram ao CEO da Excite, George Bell, e se ofereceram para comprá-la por 1 milhão de dólares. Ele rejeitou a oferta e, posteriormente, criticou Vinod Khosla, um dos capitalistas de risco da Excite, depois de ter negociado com Brin e Page um valor abaixo de 750 mil dólares. Em 7 de junho de 1999, uma rodada de 25 milhões dólares de financiamento foi anunciada,[57] com os investidores importantes, incluindo as empresas de capital de risco Kleiner Perkins Caufield & Byers e a Sequoia Capital.[56]
+
+A oferta pública inicial (IPO) do Google ocorreu seis anos depois, em 19 de agosto de 2004. A empresa ofereceu 19 605 052 partes a um preço de 85 dólares por ação.[58][59] As ações foram vendidas em um leilão online usando um sistema construído pela Morgan Stanley e Credit Suisse, os subscritores do acordo.[60][61] A venda de 1,67 bilhões dólares deu ao Google uma capitalização de mercado de mais de 23 bilhões de dólares.[62] A grande maioria das 271 milhões ações permaneceram sob o controle do Google e muitos funcionários do Google se tornaram milionários de imediato. Yahoo!, um concorrente do Google, também se beneficiou, pois possuía 8,4 milhões de ações do Google antes da IPO.[63]
+
+Algumas pessoas especularam que a IPO do Google, inevitavelmente, trouxe mudanças na cultura da empresa. Razões variam desde a pressão dos acionistas para a redução de benefícios dos empregados ao fato de que muitos executivos da empresa se tornariam milionários de imediato.[64] Como resposta a esta preocupação, os co-fundadores Sergey Brin e Larry Page, prometeram, em um relatório a investidores potenciais, que a IPO não iria alterar a cultura da companhia.[65] Em 2005, porém, artigos no The New York Times e outras fontes começaram a sugerir que o Google tinha perdido a sua filosofia anticorporativa, sem mal (Don't be evil).[66][67][68] Em um esforço para manter a cultura única da empresa, o Google designou um Escritório Chefe de Cultura, que também trabalha como diretor de Recursos Humanos. O objetivo desse escritório é desenvolver e manter a cultura da companhia e trabalhar em maneiras de manter fiel aos valores em que a empresa foi fundada: uma organização plana, com um ambiente de colaboração.[69] O Google também tem enfrentado acusações de sexismo e de discriminação etária de seus ex-funcionários.[70][71]
+
+O desempenho das ações após a IPO foi bom, com quotas a bater os 700 dólares pela primeira vez em 31 de outubro de 2007,[72] principalmente por causa das fortes vendas e dos lucros no mercado de publicidade online.[73] O aumento no preço das ações foi impulsionado principalmente por investidores individuais, ao contrário de grandes investidores institucionais e fundos mútuos.[73] No início de 2008, a capitalização de mercado da empresa estava acima de US$ 200 bilhões.[74] A empresa está listada na bolsa de valores NASDAQ sob o símbolo GOOG e sob a Bolsa de Valores de Frankfurt com o símbolo GGQ1.
+Crescimento
+Googleplex, em Mountain View, Califórnia, a sede da empresa.
+
+Em março de 1999, a empresa mudou sua sede para Palo Alto, Califórnia, lar de várias outras importantes startups de tecnologia do Vale do Silício.[75] No ano seguinte, contra a oposição inicial de Page e Brin para um motor de busca financiado por anúncios,[76] o Google começou a vender anúncios associados a palavras-chave de busca.[30] A fim de manter um projeto organizado da página e aumentar a velocidade, as propagandas eram exclusivamente baseadas em texto. Palavras-chave foram vendidas com base em uma combinação de propostas de preços e cliques nos anúncios, com lances a partir de cinco centavos por clique.[30] O pioneiro deste modelo de venda de publicidade por palavra-chave foi o Goto.com, spin-off do Idealab, criado por Bill Gross.[77][78] Quando a empresa mudou de nome para Overture Services, processou o Google por alegadas violações das patentes do pay-per-click e de licitações. A Overture Services viria a ser comprado pelo Yahoo! e renomeado Yahoo Search Marketing. O caso foi então resolvido fora do tribunal, concordando com o Google para a emissão de ações ordinárias para o Yahoo! em troca de uma licença perpétua.[79]
+
+Durante este tempo, o Google conseguiu uma patente descrevendo seu mecanismo de PageRank.[80] A patente foi oficialmente atribuída a Universidade de Stanford e classificou Lawrence Page como seu inventor. Em 2003, após superando dois outros locais, a empresa arrendou seu atual complexo da Silicon Graphics na 1600 Amphitheatre Parkway, em Mountain View, Califórnia.[81] O complexo tem sido, desde então, conhecido como o Googleplex, uma brincadeira com a palavra googolplex, o número um seguido de um googol zeros. Três anos depois, o Google iria comprar a propriedade da SGI por 319 milhões de dólares.[82] Nessa época, o nome "Google" encontrou seu caminho na linguagem cotidiana, fazendo com que o verbo "google" fosse adicionado ao Merriam Webster Collegiate Dictionary e ao Oxford English Dictionary, cujo significado era "usar o motor de busca Google para obter informações na Internet."[83][84]
+Aquisições e parcerias
+
+Desde 2001, o Google adquiriu várias empresas, com destaque para pequenas empresas de capital de risco. Em 2004, o Google adquiriu a Keyhole, Inc.[85] A empresa start-up desenvolveu um produto chamado Earth Viewer, que dava uma visão 3-D da Terra. O Google renomeou o serviço para Google Earth, em 2005. Em 13 de abril de 2007, o Google chegou a um acordo para adquirir a DoubleClick por 3,1 bilhões de dólares, dando ao Google relacionamentos valiosos que a DoubleClick teve com os editores da web e agências de publicidade.[86] Mais tarde, naquele mesmo ano, o Google adquiriu a GrandCentral por 50 milhões de dólares.[87] O site mais tarde seria alterado para Google Voice. Em 5 de agosto de 2009, o Google comprou a sua primeira empresa pública, com a compra da fabricante de softwares de vídeo On2 Technologies por 106,5 milhões de dólares.[88] O Google também adquiriu a Aardvark, um motor de busca de redes sociais, por 50 milhões de dólares. Google comentou em seu blog interno, "estamos ansiosos para colaborar para ver onde podemos ir."[89] E, em abril de 2010, o Google anunciou que tinha adquirido uma start-up de hardware, a Agnilux.[90]
+
+Além das inúmeras empresas que o Google comprou, a empresa firmou parceria com outras organizações para tudo, desde pesquisa à publicidade. Em 2005, o Google fez uma parceria com o NASA Ames Research Center para construir 93 000 metros quadrados de escritórios.[91] Os serviços seriam usados para projetos de pesquisa envolvendo gestão de dados em grande escala, nanotecnologia, computação distribuída e indústria espacial empresarial. Mais tarde naquele ano, o Google firmou uma parceria com a Sun Microsystems, em outubro de 2005 para ajudar a compartilhar e distribuir outras tecnologias.[92] A empresa também fez uma parceria com a AOL, da Time Warner,[93] para aumentar outros serviços de busca de vídeo. As parcerias do Google em 2005 também incluiu o novo financiamento do domínio de topo .mobi para dispositivos móveis, juntamente com outras empresas, incluindo a Microsoft, Nokia e Ericsson.[94] O Google, mais tarde, lançou o "AdSense for Mobile", aproveitando o mercado emergente de publicidade móvel.[95] Ampliando sua publicidade para chegar ainda mais longe, o Google e a Fox Interactive Media, da News Corp, entraram em um acordo de 900 milhões de dólares para fornecer a busca e publicidade no popular site de redes sociais MySpace.[96]
+Sede do YouTube em San Bruno, Califórnia. A empresa foi adquirida pela Google em outubro de 2006.[97]
+
+Em outubro de 2006, o Google anunciou que havia adquirido o site de compartilhamento de vídeos YouTube por 1,65 bilhão de dólares em ações do Google e o negócio foi concluído em 13 de novembro de 2006.[98][97] O Google não oferece números detalhados para os custos de funcionamento do YouTube e as receitas do YouTube em 2007 foram anotadas como "não materiais" em um arquivamento regulador.[99] A compra do site fez a empresa encerrar o Google Video. Em junho de 2008, um artigo da revista Forbes projetou a receita do YouTube em 200 milhões de dólares para 2008, registrando progressos na venda de publicidade.[100] Em 2007, o Google começou a patrocinar o NORAD Tracks Santa, um serviço que pretende acompanhar o progresso do -Papai Noel na véspera de Natal,[101] usando o Google Earth para "acompanhar o Papai Noel", pela primeira vez, em 3-D,[102] e deslocando a ex-patrocinadora da AOL. O YouTube criou um canal de vídeos para o NORAD Tracks Santa.[103]
+
+Em 2008, o Google desenvolveu uma parceria com a GeoEye para lançar um satélite que fornece ao Google imagens com alta resolução (0,41 m monocromáticas, a cores 1,65 m) para o software Google Earth. O satélite foi lançado da Base da Força Aérea de Vandenberg em 6 de setembro de 2008.[104] O Google também anunciou em 2008 que estava hospedando um arquivo de fotografias da revista Life como parte de sua mais recente parceria. Algumas das imagens no arquivo nunca foram publicados na revista.[105] As fotos foram filigrana e originalmente havia postado avisos de direitos autorais em todas as fotos, independentemente do status de domínio público.[106]
+
+Em 2010, o Google Energy fez seu primeiro investimento em um projeto de energia renovável, a colocação de 38,8 milhões dólares em dois parques eólicos na Dakota do Norte. A companhia anunciou que os dois locais vão gerar 169,5 megawatts de potência, ou o suficiente para abastecer 55 mil casas. As fazendas, que foram desenvolvidos pela NextEra Energy Resources, vai reduzir o uso de combustíveis fósseis na região. NextEra Energy Resources vendeu ao Google uma participação de 20% do projeto, a fim de obter financiamento para o desenvolvimento do projeto.[107] Também em 2010, o Google comprou a Global IP Solutions, uma empresa baseada na Noruega, que prevê teleconferência baseada na web e outros serviços relacionados. Esta aquisição permitirá à Google incluir serviços de telefonia à sua lista de produtos.[108] Em 27 de maio de 2010, o Google anunciou que também fechou a aquisição da rede de publicidade móvel AdMob. Essa compra ocorreu dias após a Federal Trade Commission encerrar a sua investigação sobre a compra.[109] O Google adquiriu a empresa por uma quantia não revelada.[110] Em julho de 2010, o Google assinou um acordo com um parque eólico de Iowa para comprar 114 megawatts de energia para 20 anos.[111]
+
+Em 2012, o Google adquiriu a Motorola com o principal objetivo de absorver suas patentes pagando 12,5 bilhões  * de dólares pela empresa.[112] E em 29 de janeiro de 2014 a empresa vendeu Motorola Mobility para a marca chinesa Lenovo por 2,91 bilhões  * de dólares.[113]
+
+Em maio de 2013, o Google inicia divulgação de um novo serviço, o Timelapse, que possui praticamente as mesmas funções do Google Earth, porém mostra a visão de satélite de forma cronológica no período entre 1984 e 2012.[114] No início de 2014, a empresa adquiriu por 3,2 bilhões  * de dólares, a Nest Labs, empresa desenvolvedora de alarmes e termostatos inteligentes.[115][116][117]
+
+Em janeiro de 2018, a empresa finalizou o acordo, iniciado em setembro de 2017,[118][119] de aquisição da divisão de celulares da taiwanêsa HTC por $1,1 bilhão de dólares.[120][121]
+Logo da Alphabet Inc
+Mudanças na gestão e criação da Alphabet Inc
+Ver artigo principal: Alphabet Inc.
+
+Em 20 de janeiro de 2011, a empresa anunciou que Larry Page se tornaria o novo CEO a partir de 4 de abril. Eric Schmidt, deixaria o cargo depois de 10 anos para assumir a diretoria executiva, concentrando-se principalmente em parcerias e assuntos governamentais. Sergey Brin passou a cuidar de projetos estratégicos e se tornou o responsável pelos novos produtos da empresa.[122]
+
+Em 2011 um acionista processou a empresa, alegando que estava permitindo que farmácias canadenses veiculassem anúncios de remédios que precisam de prescrição.[123]
+
+Em 10 de agosto de 2015, a empresa reorganizou suas diversas áreas em uma holding, a Alphabet Inc., que tem a Google Inc. como principal subsidiária.[124][125] Como parte da reestruturação, Sundar Pichai foi promovido ao cargo de CEO da Google.[126]
+
+Em 1 de setembro de 2017, a Google Inc. anunciou seus planos de reestruturação como uma companhia de responsabilidade limitada, mudando para Google LLC, como uma subsidiária integral da XXVI Holdings Inc., que é formada como uma subsidiária da Alphabet Inc. para deter o patrimônio de sua empresa outras subsidiárias, incluindo o Google LLC e outras apostas[127][128]
+
+A empresa do tipo LLC (do inglês Limited Liability Company) é uma modalidade de empresa do tipo sociedade de responsabilidade limitada; em caso de dívidas ou processos judiciais contra ela, o patrimônio pessoal dos sócios/acionistas tem uma proteção legal e não está em risco.
+
         """
 
-    quantikus = QuintikusAGI()
+    quantikus = QuintikusAGI(hashing=False)
     quantikus.inicializar(conteudo)
 
+    print(f"[frases: {len(quantikus._sentencas_raw)} | vocab: {len(quantikus._freq)} | "
+          f"assoc-arestas: {sum(len(v) for v in quantikus._assoc.values())}]")
+    print()
+
     for p in [
-        "micose cachorro",
-        "pulga cachorro",
-        "carrapato pele",
-        "tempo infância",
-        "amor",
-        "melanoma",
-        "o cachorro está doente",
-        "cachorro doenças",
-        "como o cachorro pode ficar doente",
-        "o que é a vida",
-        "felicidade caminho",
-        "ciência arte",
-        "o que você pensa sobre vida e arte no mesmo contexto",
+        "Em que data o Google foi oficialmente constituído?",
+        "Quando o domínio Google foi registrado?",
+        "O que é PageRank",
+        "Qual era o nome original da ferramenta de busca",
+        "Onde o Google funcionou originalmente sob domínio da universidade?",
+        "Qual era o nome original da ferramenta de busca?",
     ]:
         print(f">>> {p}")
-        print(quantikus.falar(p))
+        print(quantikus.falar(p, _debug=True))
         print()
