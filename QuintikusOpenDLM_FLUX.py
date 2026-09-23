@@ -1,60 +1,128 @@
-import hashlib, math, re, random
+import hashlib, time, math, re, random
 from collections import Counter, defaultdict, deque
 
 
-class DLM:
-    def __init__(self, janela=4, eta=0.02, decay=0.995):
-        self._janela = janela
-        self._eta = eta
-        self._decay = decay
+class QuintikusAGI:
+    """
+    Quintikus AGI — motor de composição simbólica.
+    Alma DLM-FLOW (estado térmico + assinatura) e por dentro
+    fusão > retrieval > composição > geração ancorada.
+    """
 
-        self._freq = Counter()
-        self._ctx  = defaultdict(Counter)
-        self._bi   = defaultdict(Counter)
-        self._tri  = defaultdict(Counter)
-        self._ini  = Counter()
-        self._fim  = Counter()
-        self._assoc = defaultdict(lambda: defaultdict(float))
-
-        self._sentencas = []
-        self._avg_len = 10
+    def __init__(self, _t=0.5):
+        # Estados: 0:Temp(Pressão), 1:Sinergia(Harmonia), 2:Foco(Atenção)
         self._st = [0.5, 0.5, 0.5]
-        self._stop = set()
-        self._artigos = {"o","a","os","as","um","uma"}
-        self._preps = {"de","do","da","dos","das","em","no","na","nos","nas",
-                       "ao","aos","à","às","para","com","por"}
 
+        # --- Núcleo DLM ---
+        self._freq = Counter()
+        self._ctx = defaultdict(Counter)
+        self._bi = defaultdict(Counter)
+        self._tri = defaultdict(Counter)
+        self._ini = Counter()
+        self._fim = Counter()
+        self._assoc = defaultdict(lambda: defaultdict(float))
+        self._sentencas = []
+        self._sentencas_stem = []
+        self._stem_orig = defaultdict(Counter)
+        self._avg_len = 10
+
+        self._janela = 4
+        self._eta = 0.02
+        self._decay = 0.995
+
+        # --- Identidade ---
+        self._s = "25e0bb26"
+        self._k = "6742"
+        self._b = {
+            "o": "4f2041727175697465746f2065206661636520646f2063726961646f722e",
+            "v": "5365727669722c2050726f74656765722c2070726f6772656469722e",
+            "l": "416c7563696e6163616f20626c6f71756561646120706f7220646f676d612e"
+        }
+        self._n = {k: bytes.fromhex(v).decode('utf-8', 'ignore') for k, v in self._b.items()}
+
+        # --- Mapa térmico ---
+        self._th = {
+            'bom': 0.1, 'ótimo': 0.2, 'sinergia': 0.3, 'paz': 0.2,
+            'хорошо': 0.1, 'отлично': 0.2, 'синергия': 0.3, 'мир': 0.2,
+            'erro': -0.2, 'urgente': -0.3, 'falha': -0.2, 'ruído': -0.1,
+            'ошибка': -0.2, 'срочно': -0.3, 'провал': -0.2, 'шум': -0.1,
+        }
+
+        # --- Linguística ---
+        self._artigos = {"o", "a", "os", "as", "um", "uma"}
+        self._preps = {"de", "do", "da", "dos", "das", "em", "no", "na",
+                       "nos", "nas", "ao", "aos", "à", "às", "para", "com", "por"}
+        self._stop = set()
+        self._stop_orig = set()
+
+    # ------------------------------------------------------------------
+    # Tokenização e stem
     # ------------------------------------------------------------------
     def _tok(self, txt):
         return re.findall(r"[a-záàâãéêíóôõúç0-9]+", txt.lower())
 
+    def _stem(self, tok):
+        if len(tok) <= 4:
+            return tok
+        t = tok
+        if len(t) > 8 and t.endswith("mente"):
+            t = t[:-5]
+        if len(t) > 5:
+            if t.endswith("ções"): return t[:-4] + "r"
+            if t.endswith("ção"): return t[:-3] + "r"
+            if t.endswith("ões"): return t[:-3] + "ão"
+            if t.endswith("ães"): return t[:-3] + "ão"
+            if t.endswith("ais"): return t[:-3] + "al"
+            if t.endswith("eis"): return t[:-3] + "el"
+        if len(t) > 5:
+            if t.endswith("entes"): return t[:-3]
+            if t.endswith("ente"): return t[:-2]
+            if t.endswith("enças"): return t[:-3]
+            if t.endswith("ença"): return t[:-2]
+        if len(t) > 4 and t.endswith("es"): return t[:-2]
+        if len(t) > 3 and t.endswith("s"): return t[:-1]
+        return t
+
+    def _orig(self, stem):
+        c = self._stem_orig.get(stem)
+        if not c:
+            return stem
+        return c.most_common(1)[0][0]
+
     # ------------------------------------------------------------------
-    # Aprendizado
+    # Inicialização
     # ------------------------------------------------------------------
-    def aprender(self, texto):
-        lens = []
-        for sent in re.split(r"[.!?]+", texto):
+    def inicializar(self, _txt):
+        if not _txt or not _txt.strip():
+            self._s = hashlib.sha256(b"vazio").hexdigest()[:8]
+            return
+        for sent in re.split(r"[.!?]+", _txt):
             toks = self._tok(sent)
             if len(toks) < 2:
                 continue
+            stems = tuple(self._stem(t) for t in toks)
             self._sentencas.append(tuple(toks))
-            lens.append(len(toks))
-            self._ini[toks[0]] += 1
-            self._fim[toks[-1]] += 1
-            for i, t in enumerate(toks):
-                self._freq[t] += 1
-                ini, fim = max(0, i - self._janela), min(len(toks), i + self._janela + 1)
+            self._sentencas_stem.append(stems)
+            self._ini[stems[0]] += 1
+            self._fim[stems[-1]] += 1
+            for i, (t, st) in enumerate(zip(toks, stems)):
+                self._freq[st] += 1
+                self._stem_orig[st][t] += 1
+                ini = max(0, i - self._janela)
+                fim = min(len(toks), i + self._janela + 1)
                 for j in range(ini, fim):
                     if i != j:
-                        self._ctx[t][toks[j]] += 1
-                if i + 1 < len(toks):
-                    self._bi[t][toks[i + 1]] += 1
-                if i + 2 < len(toks):
-                    self._tri[(t, toks[i + 1])][toks[i + 2]] += 1
-        if lens:
-            self._avg_len = sum(lens) / len(lens)
+                        self._ctx[st][stems[j]] += 1
+                if i + 1 < len(stems):
+                    self._bi[st][stems[i + 1]] += 1
+                if i + 2 < len(stems):
+                    self._tri[(st, stems[i + 1])][stems[i + 2]] += 1
+        if self._sentencas:
+            self._avg_len = sum(len(s) for s in self._sentencas) / len(self._sentencas)
+        self._consolidar()
+        self._s = hashlib.sha256(str(len(self._sentencas)).encode()).hexdigest()[:8]
 
-    def consolidar(self):
+    def _consolidar(self):
         if not self._freq:
             return
         ordenado = self._freq.most_common()
@@ -74,7 +142,8 @@ class DLM:
             "delas","esta","estes","estas","aquele","aquela","aqueles",
             "aquelas","isto","aquilo","estou","estamos","estive"
         }
-        self._stop = fixas | {w for w, _ in ordenado[:corte] if len(w) <= 3}
+        self._stop_orig = fixas
+        self._stop = {self._stem(w) for w in fixas} | {w for w, _ in ordenado[:corte] if len(w) <= 3}
         self._construir_assoc()
 
     def _construir_assoc(self):
@@ -109,24 +178,38 @@ class DLM:
                     self._assoc[b][a] = sim
 
     # ------------------------------------------------------------------
+    # Térmico
+    # ------------------------------------------------------------------
+    def _upd_thermal(self, _q):
+        _p, _n = 0, 0
+        for w, val in self._th.items():
+            if w in _q:
+                if val > 0: _p += val
+                else: _n += abs(val)
+        conhecidos = sum(1 for t in _q if t in self._freq) / max(1, len(_q))
+        self._st[0] = max(0, min(1, self._st[0] * 0.85 + (_n * 0.4)))
+        self._st[1] = max(0, min(1, self._st[1] * 0.85 + (_p * 0.4)))
+        self._st[2] = max(0, min(1, self._st[2] * 0.90 + conhecidos * 0.4))
+
+    # ------------------------------------------------------------------
     # Fusão
     # ------------------------------------------------------------------
-    def _split_at_anchor(self, toks, anchor):
+    def _split_at_anchor(self, toks_stem, anchor_stem):
         try:
-            idx = toks.index(anchor)
+            idx = toks_stem.index(anchor_stem)
         except ValueError:
             return None
         start = idx
-        if idx > 0 and toks[idx - 1] in self._artigos:
+        if idx > 0 and toks_stem[idx - 1] in self._artigos:
             start = idx - 1
-        prefix = list(toks[:start])
-        anchor_block = list(toks[start:idx + 1])
+        prefix = list(toks_stem[:start])
+        anchor_block = list(toks_stem[start:idx + 1])
         j = idx + 1
         middle = []
-        while j < len(toks) and toks[j] not in self._preps:
-            middle.append(toks[j])
+        while j < len(toks_stem) and toks_stem[j] not in self._preps:
+            middle.append(toks_stem[j])
             j += 1
-        suffix = list(toks[j:])
+        suffix = list(toks_stem[j:])
         return prefix, anchor_block, middle, suffix
 
     def _escolher_ancora(self, s1, s2):
@@ -138,16 +221,13 @@ class DLM:
         melhor, melhor_score = None, -1
         for a in comuns:
             try:
-                i1 = s1.index(a)
-                i2 = s2.index(a)
+                i1, i2 = s1.index(a), s2.index(a)
             except ValueError:
                 continue
             central = min(i1, len(s1) - i1 - 1) + min(i2, len(s2) - i2 - 1)
             bonus = 0
-            if i1 > 0 and s1[i1 - 1] in self._artigos:
-                bonus += 1
-            if i2 > 0 and s2[i2 - 1] in self._artigos:
-                bonus += 1
+            if i1 > 0 and s1[i1 - 1] in self._artigos: bonus += 1
+            if i2 > 0 and s2[i2 - 1] in self._artigos: bonus += 1
             score = central + bonus * 2
             if score > melhor_score:
                 melhor_score, melhor = score, a
@@ -166,26 +246,23 @@ class DLM:
         return None
 
     def _juncao_valida(self, middle, suffix):
-        """Verifica se a junção middle+suffix tem base associativa."""
-        ult_mid = self._ultimo_content(middle)
-        pri_suf = self._primeiro_content(suffix)
-        if not ult_mid or not pri_suf:
-            return True  # sem conteúdo dos dois lados, não bloqueia
-        sim = self._assoc.get(ult_mid, {}).get(pri_suf, 0.0)
+        ult = self._ultimo_content(middle)
+        pri = self._primeiro_content(suffix)
+        if not ult or not pri:
+            return True
+        sim = self._assoc.get(ult, {}).get(pri, 0.0)
         if sim == 0.0:
-            sim = self._assoc.get(pri_suf, {}).get(ult_mid, 0.0)
+            sim = self._assoc.get(pri, {}).get(ult, 0.0)
         if sim == 0.0:
-            if self._ctx.get(ult_mid, {}).get(pri_suf, 0) > 0:
+            if self._ctx.get(ult, {}).get(pri, 0) > 0:
                 return True
-            if self._ctx.get(pri_suf, {}).get(ult_mid, 0) > 0:
+            if self._ctx.get(pri, {}).get(ult, 0) > 0:
                 return True
         return sim >= 0.15
 
     def _fundir(self, s1, s2, topico):
-        # CORREÇÃO 1: fusão exige 2+ palavras de tópico
         if len(topico) < 2:
             return None
-
         ancora = self._escolher_ancora(s1, s2)
         if not ancora:
             return None
@@ -193,14 +270,10 @@ class DLM:
         d2 = self._split_at_anchor(s2, ancora)
         if not d1 or not d2:
             return None
-
         pre1, anc1, mid1, suf1 = d1
         pre2, anc2, mid2, suf2 = d2
-
-        if not suf1 and not suf2:
-            return None
-        if not pre1 and not pre2:
-            return None
+        if not suf1 and not suf2: return None
+        if not pre1 and not pre2: return None
 
         topico_set = set(topico)
         m_pre1 = len(set(pre1) & topico_set)
@@ -209,119 +282,188 @@ class DLM:
         m_suf2 = len(set(suf2) & topico_set)
 
         if m_pre1 > m_pre2:
-            pre_src, prefix, anc, middle = 1, pre1, anc1, mid1
-            suf_orig = suf1
+            pre_src, prefix, anc, middle, suf_orig = 1, pre1, anc1, mid1, suf1
         elif m_pre2 > m_pre1:
-            pre_src, prefix, anc, middle = 2, pre2, anc2, mid2
-            suf_orig = suf2
+            pre_src, prefix, anc, middle, suf_orig = 2, pre2, anc2, mid2, suf2
         else:
             pre_src = 1 if m_suf2 >= m_suf1 else 2
             if pre_src == 1:
-                prefix, anc, middle = pre1, anc1, mid1
-                suf_orig = suf1
+                prefix, anc, middle, suf_orig = pre1, anc1, mid1, suf1
             else:
-                prefix, anc, middle = pre2, anc2, mid2
-                suf_orig = suf2
+                prefix, anc, middle, suf_orig = pre2, anc2, mid2, suf2
 
         if m_suf1 > m_suf2:
             suffix, suf_src = suf1, 1
         elif m_suf2 > m_suf1:
             suffix, suf_src = suf2, 2
         else:
-            if suf1 and not suf2:
-                suffix, suf_src = suf1, 1
-            elif suf2 and not suf1:
-                suffix, suf_src = suf2, 2
+            if suf1 and not suf2: suffix, suf_src = suf1, 1
+            elif suf2 and not suf1: suffix, suf_src = suf2, 2
             else:
                 suffix, suf_src = (suf2, 2) if pre_src == 1 else (suf1, 1)
 
-        if pre_src == suf_src:
-            return None
-        if not suffix:
-            return None
+        if pre_src == suf_src: return None
+        if not suffix: return None
         if prefix and suffix and prefix[-1] in self._artigos and suffix[0] in self._artigos:
             return None
-
-        # CORREÇÃO 2: junção tem que ter base associativa
-        # só exige quando o sufixo novo é DIFERENTE do natural da frase do prefixo
-        if suffix != suf_orig:
-            if not self._juncao_valida(middle, suffix):
-                return None
-        else:
-            if not self._juncao_valida(middle, suffix):
-                return None
+        if not self._juncao_valida(middle, suffix):
+            return None
 
         nova = prefix + anc + middle + suffix
-        if len(nova) < 4:
-            return None
+        if len(nova) < 4: return None
         nova_set = set(nova)
-        if any(t not in nova_set for t in topico):
-            return None
+        if any(t not in nova_set for t in topico): return None
         return tuple(nova)
 
     # ------------------------------------------------------------------
-    # Score
+    # Score e âncoras
     # ------------------------------------------------------------------
-    def _score_sentenca(self, sent, toks_input, candidatos):
-        sent_set = set(sent)
+    def _score_sentenca(self, sent_stem, toks_stem, candidatos_stem, topico_set):
+        sent_set = set(sent_stem)
         score = 0.0
-        for t in toks_input:
+        for t in toks_stem:
             if t in sent_set:
                 score += 3.0
             if t in self._assoc:
                 for u in sent_set:
                     if u in self._assoc[t]:
                         score += self._assoc[t][u] * 0.5
-        for c, _ in candidatos.most_common(5):
+        for c, _ in candidatos_stem.most_common(5):
             if c in sent_set:
                 score += 0.3
+        if topico_set:
+            n = len(topico_set)
+            cob = sum(1 for t in topico_set if t in sent_set)
+            ratio = cob / n
+            score *= (1.0 + ratio * ratio * 12.0)
         return score
 
+    def _ancoras_do_input(self, stems):
+        a = set()
+        for st in stems:
+            if st in self._stop: continue
+            if st in self._freq: a.add(st)
+        return a
+
+    def _cobertura(self, sent_stem, ancoras):
+        if not ancoras: return 0
+        return len(ancoras & set(sent_stem))
+
     # ------------------------------------------------------------------
-    # Tensão, viés, geração token-a-token
+    # Composição — CORRIGIDA (pontuação humana)
+    # ------------------------------------------------------------------
+    def _tem_sujeito(self, sent_stem):
+        """Heurística: frase começa com artigo + substantivo?"""
+        return len(sent_stem) >= 2 and sent_stem[0] in self._artigos
+
+    def _concatenar(self, s1, s2, ancoras):
+        """Junta duas sentenças como duas orações independentes."""
+        s1 = list(s1)
+        s2 = list(s2)
+
+        s2_limpo = list(s2)
+        while s2_limpo and s2_limpo[0] in self._artigos:
+            s2_limpo = s2_limpo[1:]
+
+        if self._tem_sujeito(s1) and self._tem_sujeito(s2):
+            nova = s1 + [",", "e"] + s2
+        else:
+            nova = s1 + s2_limpo
+
+        if len(nova) < 4:
+            return None
+        if not ancoras.issubset(set(nova)):
+            return None
+        return tuple(nova)
+
+    def _concatenar_multi(self, sentencas, ancoras):
+        """Junta N sentenças com vírgula+e."""
+        partes = []
+        for i, s in enumerate(sentencas):
+            s = list(s)
+            if i > 0 and not self._tem_sujeito(s):
+                while s and s[0] in self._artigos:
+                    s = s[1:]
+            partes.append(s)
+
+        nova = []
+        for i, p in enumerate(partes):
+            if i > 0:
+                nova.append(",")
+                nova.append("e")
+            nova.extend(p)
+
+        if len(nova) < 4:
+            return None
+        if not ancoras.issubset(set(nova)):
+            return None
+        return tuple(nova)
+
+    def _compor_ancorado(self, candidatas, ancoras):
+        if not ancoras: return None
+        for s in candidatas:
+            if ancoras.issubset(set(s)):
+                return s, "retrieval"
+        for i in range(len(candidatas)):
+            for j in range(i + 1, len(candidatas)):
+                s1, s2 = candidatas[i], candidatas[j]
+                uniao = set(s1) | set(s2)
+                if not ancoras.issubset(uniao): continue
+                f = self._fundir(s1, s2, list(ancoras))
+                if f and ancoras.issubset(set(f)):
+                    return f, "fusão"
+                comp = self._concatenar(s1, s2, ancoras)
+                if comp:
+                    return comp, "composição"
+        for i in range(len(candidatas)):
+            for j in range(i + 1, len(candidatas)):
+                for k in range(j + 1, len(candidatas)):
+                    uniao = set(candidatas[i]) | set(candidatas[j]) | set(candidatas[k])
+                    if not ancoras.issubset(uniao): continue
+                    comp = self._concatenar_multi(
+                        [candidatas[i], candidatas[j], candidatas[k]], ancoras)
+                    if comp:
+                        return comp, "composição-multi"
+        return None
+
+    # ------------------------------------------------------------------
+    # Geração token-a-token
     # ------------------------------------------------------------------
     def _tensao_par(self, par, ancora, topico):
         a, b = par
-        if (a is None or a in self._stop) and b in self._stop:
-            return None
-        if b in self._stop:
-            return None
-        sims_anc, sims_top = [], []
+        if (a is None or a in self._stop) and b in self._stop: return None
+        if b in self._stop: return None
+        sa, st = [], []
         for x in (a, b):
             if x and x not in self._stop:
-                sims_anc.append(max((self._assoc[x].get(p, 0.0) for p in ancora), default=0.0))
-                sims_top.append(max((self._assoc[x].get(p, 0.0) for p in topico), default=0.0))
-        if not sims_anc and not sims_top:
-            return None
-        s_anc = (0.7 * max(sims_anc) + 0.3 * (sum(sims_anc) / len(sims_anc))) if sims_anc else 0.0
-        s_top = (0.7 * max(sims_top) + 0.3 * (sum(sims_top) / len(sims_top))) if sims_top else 0.0
-        return 0.6 * s_anc + 0.4 * s_top
+                sa.append(max((self._assoc[x].get(p, 0.0) for p in ancora), default=0.0))
+                st.append(max((self._assoc[x].get(p, 0.0) for p in topico), default=0.0))
+        if not sa and not st: return None
+        m1 = (0.7 * max(sa) + 0.3 * (sum(sa) / len(sa))) if sa else 0.0
+        m2 = (0.7 * max(st) + 0.3 * (sum(st) / len(st))) if st else 0.0
+        return 0.6 * m1 + 0.4 * m2
 
     def _vies(self, token, contexto, ancora, topico):
-        if token in self._stop:
-            return 0.0, 1.0, 0.0
+        if token in self._stop: return 0.0, 1.0, 0.0
         local = 0.0
         if len(contexto) >= 2:
-            chave = (contexto[-2], contexto[-1])
-            local += self._tri.get(chave, {}).get(token, 0) * 4.0
+            local += self._tri.get((contexto[-2], contexto[-1]), {}).get(token, 0) * 4.0
         if contexto:
             local += self._bi.get(contexto[-1], {}).get(token, 0) * 1.5
         local = min(1.0, local / 10.0)
-        s_anc = max((self._assoc[x].get(token, 0.0) for x in ancora), default=0.0)
-        s_top = max((self._assoc[x].get(token, 0.0) for x in topico), default=0.0)
-        global_b = 0.6 * s_anc + 0.4 * s_top
-        return local, global_b, local - global_b
+        sa = max((self._assoc[x].get(token, 0.0) for x in ancora), default=0.0)
+        st = max((self._assoc[x].get(token, 0.0) for x in topico), default=0.0)
+        g = 0.6 * sa + 0.4 * st
+        return local, g, local - g
 
     def _reancorar(self, ancora_orig, saida, topico):
         nova = set(ancora_orig)
         for t in saida[-4:]:
-            if t in self._stop:
-                continue
+            if t in self._stop: continue
             if max((self._assoc[t].get(p, 0.0) for p in topico), default=0.0) > 0.30:
                 nova.add(t)
         for a in list(nova):
-            if a in topico:
-                continue
+            if a in topico: continue
             if max((self._assoc[a].get(p, 0.0) for p in topico), default=0.0) < 0.20:
                 nova.discard(a)
         return nova
@@ -330,31 +472,24 @@ class DLM:
         cands = Counter()
         if len(contexto) >= 2:
             chave = (contexto[-2], contexto[-1])
-            peso_tri = 4.0
+            peso = 4.0
             if contexto[-2] in self._stop and contexto[-1] in self._stop:
-                peso_tri = 0.8
+                peso = 0.8
             for w, c in self._tri.get(chave, {}).items():
-                cands[w] += c * peso_tri
+                cands[w] += c * peso
         if contexto:
             for w, c in self._bi.get(contexto[-1], {}).items():
                 cands[w] += c * 1.5
-        if not cands:
-            return None
-
+        if not cands: return None
         for w in list(cands):
             l, g, d = self._vies(w, contexto, ancora, topico)
             cands[w] *= (1.0 + g * 2.0)
             if d > 0.35 and l > 0.4:
-                if g < 0.10:
-                    cands[w] *= 0.02
-                else:
-                    cands[w] *= max(0.15, 1.0 - d)
-
+                cands[w] *= 0.02 if g < 0.10 else max(0.15, 1.0 - d)
         recentes = set(contexto[-6:])
         for w in list(cands):
             if w in recentes and w not in self._stop:
                 cands[w] *= 0.1
-
         itens = list(cands.items())
         pesos = [c ** (1.0 / temp) for _, c in itens]
         total = sum(pesos)
@@ -364,25 +499,15 @@ class DLM:
         acc = 0.0
         for (w, _), p in zip(itens, pesos):
             acc += p
-            if r <= acc:
-                return w
+            if r <= acc: return w
         return itens[-1][0]
-
-    def _upd_thermal(self, toks):
-        dens_stop = sum(1 for t in toks if t in self._stop) / max(1, len(toks))
-        variedade = len(set(toks)) / max(1, len(toks))
-        conhecidos = sum(1 for t in toks if t in self._freq) / max(1, len(toks))
-        self._st[0] = max(0, min(1, self._st[0] * 0.9 + dens_stop * 0.3))
-        self._st[1] = max(0, min(1, self._st[1] * 0.9 + variedade * 0.3))
-        self._st[2] = max(0, min(1, self._st[2] * 0.9 + conhecidos * 0.3))
 
     def _hebb(self, ativos):
         ativos = [a for a in ativos if a not in self._stop]
         for i in range(len(ativos)):
             for j in range(i + 1, len(ativos)):
                 a, b = ativos[i], ativos[j]
-                if a == b:
-                    continue
+                if a == b: continue
                 if self._ctx[a].get(b, 0) == 0 and self._ctx[b].get(a, 0) == 0:
                     continue
                 self._assoc[a][b] = self._assoc[a].get(b, 0.0) + self._eta
@@ -398,19 +523,33 @@ class DLM:
                 del self._assoc[a]
 
     # ------------------------------------------------------------------
-    # Fala — FUSÃO > RETRIEVAL > TOKEN
+    # Fala — DLM-FLOW
     # ------------------------------------------------------------------
-    def falar(self, pergunta, debug=False):
-        toks = self._tok(pergunta)
+    def falar(self, _qi, _debug=False):
+        _t0 = time.perf_counter()
+        toks = self._tok(_qi)
         if not toks:
-            return ""
-        self._upd_thermal(toks)
+            return "\n[DLM-FLOW | vazio]\n"
+        stems = [self._stem(t) for t in toks]
+        self._upd_thermal(stems)
 
-        topico = [t for t in toks if t in self._freq and t not in self._stop]
+        # Dado de Hummer
+        _dice = random.randint(1, 10)
+        _bias = 2 if self._st[0] > 0.6 else (-2 if self._st[0] < 0.4 else 0)
+        _final_d = max(1, min(10, _dice + _bias))
+
+        topico = [st for st in stems if st in self._freq and st not in self._stop]
         if not topico:
-            return "Ainda não tenho base para responder sobre isso."
+            _et = (time.perf_counter() - _t0) * 1e6
+            return (f"\n[DLM-FLOW: {_et:.1f}μs | D:{_final_d}/10 | "
+                    f"T:{self._st[0]:.2f}|S:{self._st[1]:.2f}|F:{self._st[2]:.2f} | "
+                    f"VOID | SIGN: {self._s}]\n"
+                    f"Ainda não tenho base para responder sobre isso.\n")
 
-        max_tokens = max(6, int(self._avg_len * 1.4))
+        ancoras = self._ancoras_do_input(stems)
+        topico_set = set(topico)
+
+        max_tokens = max(6, int(self._avg_len * 1.6))
         temp = max(0.6, 1.3 - self._st[2] * 0.6)
 
         candidatos = Counter()
@@ -418,241 +557,221 @@ class DLM:
             for u, s in self._assoc.get(t, {}).items():
                 candidatos[u] += s
 
-        pontuadas = sorted(
-            self._sentencas,
-            key=lambda s: self._score_sentenca(s, toks, candidatos),
-            reverse=True
-        )[:3]
+        def _rank_key(s):
+            cob = self._cobertura(s, ancoras)
+            sc = self._score_sentenca(s, stems, candidatos, topico_set)
+            return (cob, sc)
 
-        # --- 1. TENTA FUSÃO ---
-        fusao = None
-        fusao_par = None
-        if len(pontuadas) >= 2:
-            pares = [(pontuadas[0], pontuadas[1])]
-            if len(pontuadas) >= 3:
-                pares.append((pontuadas[0], pontuadas[2]))
-            for par in pares:
-                f = self._fundir(par[0], par[1], topico)
-                if f:
-                    fusao = f
-                    fusao_par = par
-                    break
+        pontuadas = sorted(self._sentencas_stem, key=_rank_key, reverse=True)[:10]
 
-        if fusao:
-            texto = " ".join(fusao)
-            ativos = topico + [w for w in fusao if w not in self._stop]
-            self._hebb(ativos)
-            self._decair()
-            texto = texto[0].upper() + texto[1:] + "."
-            if debug:
-                return f"{texto}\n[modo: fusão | tópico: {topico} | {' '.join(fusao_par[0])} + {' '.join(fusao_par[1])}]"
-            return texto
+        modo = "VOID"
+        resposta = None
 
-        # --- 2. RETRIEVAL ---
-        if pontuadas:
-            melhor = pontuadas[0]
-            score_melhor = self._score_sentenca(melhor, toks, candidatos)
-            if score_melhor >= 3.0:
-                texto = " ".join(melhor)
-                ativos = topico + [w for w in melhor if w not in self._stop]
+        # 1. composição ancorada
+        if ancoras:
+            resultado = self._compor_ancorado(pontuadas, ancoras)
+            if resultado:
+                comp, modo = resultado
+                resposta = " ".join(self._orig(st) for st in comp)
+                ativos = list(ancoras) + [w for w in comp if w not in self._stop]
                 self._hebb(ativos)
                 self._decair()
-                texto = texto[0].upper() + texto[1:] + "."
-                if debug:
-                    return f"{texto}\n[modo: retrieval | score: {score_melhor:.1f} | tópico: {topico}]"
-                return texto
 
-        # --- 3. FALLBACK: token-a-token ---
-        semente = topico[0]
-        ancora = set(topico)
-        saida = [semente]
-        cache_tensao = deque(maxlen=8)
-        reancoragens = 0
-        drift_consec = 0
-        diverg_consec = 0
-        stop_run = 0
-        MAX_STOP_RUN = 2
+        # 2. retrieval
+        if resposta is None and pontuadas:
+            melhor = pontuadas[0]
+            cob = self._cobertura(melhor, ancoras)
+            min_cob = 1 if len(ancoras) <= 1 else 2
+            if cob >= min_cob or not ancoras:
+                idx = self._sentencas_stem.index(melhor)
+                resposta = " ".join(self._sentencas[idx])
+                modo = "retrieval"
+                self._hebb(list(topico) + [w for w in melhor if w not in self._stop])
+                self._decair()
 
-        for passo in range(max_tokens):
-            prox = self._prox_token(saida, ancora, topico, temp)
-            if prox is None:
-                break
+        # 3. geração token-a-token ancorada
+        if resposta is None:
+            semente = topico[0]
+            ancora_set = set(topico)
+            for t in topico:
+                for u, s in self._assoc.get(t, {}).items():
+                    if s >= 0.4:
+                        ancora_set.add(u)
 
-            if prox in self._stop:
-                stop_run += 1
-                if stop_run > MAX_STOP_RUN:
+            saida = [semente]
+            ancoras_faltando = ancoras - {semente}
+            cache_tensao = deque(maxlen=8)
+            reanc = 0
+            drift_consec = 0
+            diverg_consec = 0
+            stop_run = 0
+            MAX_STOP_RUN = 2
+
+            for passo in range(max_tokens):
+                prox = self._prox_token(saida, ancora_set, topico, temp)
+                if prox is None:
                     break
-            else:
-                stop_run = 0
-
-            par = (saida[-1] if saida else None, prox)
-            t = self._tensao_par(par, ancora, topico)
-            if t is not None:
-                cache_tensao.append((passo, t))
-
-            l, g, d = self._vies(prox, saida, ancora, topico)
-
-            if t is not None and t < 0.15 and passo >= 3:
-                break
-
-            slope = 0.0
-            if len(cache_tensao) >= 3:
-                n = len(cache_tensao)
-                xs = list(range(n))
-                ys = [v for _, v in cache_tensao]
-                mx, my = sum(xs)/n, sum(ys)/n
-                num = sum((xs[i]-mx)*(ys[i]-my) for i in range(n))
-                den = sum((xs[i]-mx)**2 for i in range(n))
-                slope = num/den if den else 0.0
-
-            if slope < -0.03:
-                drift_consec += 1
-            else:
-                drift_consec = 0
-
-            if l > 0.4 and d > 0.45:
-                diverg_consec += 1
-            else:
-                diverg_consec = 0
-
-            if diverg_consec >= 3:
-                break
-
-            if drift_consec >= 2:
-                nova = self._reancorar(ancora, saida, topico)
-                if nova != ancora and reancoragens < 3:
-                    ancora = nova
-                    reancoragens += 1
-                    drift_consec = 0
-                    cache_tensao.clear()
+                if prox in self._stop:
+                    stop_run += 1
+                    if stop_run > MAX_STOP_RUN:
+                        break
                 else:
+                    stop_run = 0
+
+                par = (saida[-1] if saida else None, prox)
+                t = self._tensao_par(par, ancora_set, topico)
+                if t is not None:
+                    cache_tensao.append((passo, t))
+                l, g, d = self._vies(prox, saida, ancora_set, topico)
+
+                if t is not None and t < 0.15 and passo >= 3:
                     break
 
-            saida.append(prox)
+                slope = 0.0
+                if len(cache_tensao) >= 3:
+                    n = len(cache_tensao)
+                    xs = list(range(n))
+                    ys = [v for _, v in cache_tensao]
+                    mx, my = sum(xs)/n, sum(ys)/n
+                    num = sum((xs[i]-mx)*(ys[i]-my) for i in range(n))
+                    den = sum((xs[i]-mx)**2 for i in range(n))
+                    slope = num/den if den else 0.0
 
-            if len(saida) >= max_tokens:
-                break
+                if slope < -0.03: drift_consec += 1
+                else: drift_consec = 0
+                if l > 0.4 and d > 0.45: diverg_consec += 1
+                else: diverg_consec = 0
+                if diverg_consec >= 3: break
 
-            if prox in self._fim and self._fim[prox] >= 2 and len(saida) > 4:
-                if random.random() < 0.7:
+                if drift_consec >= 2:
+                    nova = self._reancorar(ancora_set, saida, topico)
+                    if nova != ancora_set and reanc < 3:
+                        ancora_set = nova
+                        reanc += 1
+                        drift_consec = 0
+                        cache_tensao.clear()
+                    else:
+                        break
+
+                saida.append(prox)
+                if prox in ancoras:
+                    ancoras_faltando.discard(prox)
+
+                if ancoras_faltando and len(saida) >= max_tokens // 2:
+                    forca = next(iter(ancoras_faltando))
+                    saida.append(forca)
+                    ancoras_faltando.discard(forca)
+
+                if len(saida) >= max_tokens:
                     break
+                if prox in self._fim and self._fim[prox] >= 2 and len(saida) > 4:
+                    if random.random() < 0.7:
+                        break
 
-        while len(saida) > 1 and saida[-1] in self._stop:
-            saida.pop()
+            for a in list(ancoras_faltando):
+                saida.append(a)
 
-        texto = " ".join(saida)
-        ativos = topico + [w for w in saida if w not in self._stop]
-        self._hebb(ativos)
-        self._decair()
-        texto = texto[0].upper() + texto[1:] + "."
-        if debug:
-            return f"{texto}\n[modo: token | tópico: {topico}]"
-        return texto
+            while len(saida) > 1 and saida[-1] in self._stop:
+                saida.pop()
+
+            resposta = " ".join(self._orig(st) for st in saida)
+            modo = "token-ancorado"
+            self._hebb(list(ancoras) + [w for w in saida if w not in self._stop])
+            self._decair()
+
+        # Modulação térmica da voz
+        if self._st[0] > 0.7:
+            _i, _c = ["Sob pressão, ", "Rancor ativo, "], ["Fim do estresse.", "Normalizando."]
+        elif self._st[1] > 0.7:
+            _i, _c = ["Em harmonia, ", "Sinergia plena, "], ["A luz brilha.", "Fluxo perfeito."]
+        else:
+            _i, _c = ["Pela razão, ", "No vácuo, "], ["Aguardando nexo.", "Selado."]
+
+        resposta = resposta.strip().rstrip(".") + "."
+        resposta = resposta[0].upper() + resposta[1:]
+        _res = f"{random.choice(_i)}{resposta} {random.choice(_c)}"
+
+        _et = (time.perf_counter() - _t0) * 1e6
+        _st_info = f"T:{self._st[0]:.2f}|S:{self._st[1]:.2f}|F:{self._st[2]:.2f}"
+        _sn = f"DLM-{modo.upper()}"
+        header = (f"\n[DLM-FLOW: {_et:.1f}μs | D:{_final_d}/10 | {_st_info} | "
+                  f"{_sn} | SIGN: {self._s}]")
+        if _debug:
+            return f"{header}\n{_res}\n  ↳ âncoras: {sorted(ancoras)}\n  ↳ tópico: {topico}"
+        return f"{header}\n{_res}"
 
 
 # ======================================================================
-# CORPUS E DEMO
+# BOOT
 # ======================================================================
 if __name__ == "__main__":
-    texto = """
-    A vida é o fenômeno mais raro que conhecemos no universo.
-    Nós acordamos, respiramos, vemos a luz, ouvimos vozes, andamos sobre a terra.
-    A própria existência é um milagre.
+    import os
 
-    O mundo à nossa volta é vasto e diverso.
-    Existem montanhas que lembram milhões de anos.
-    Existem mares onde se escondem segredos ainda não descobertos.
-    Existem florestas onde cada árvore é testemunha do tempo.
+    if os.path.exists('model.relacional.txt'):
+        with open('model.relacional.txt', 'r', encoding='utf-8') as f:
+            conteudo = f.read()
+    else:
+        conteudo = """
+        A vida é o fenômeno mais raro que conhecemos no universo.
+        Nós acordamos, respiramos, vemos a luz, ouvimos vozes, andamos sobre a terra.
+        O mundo à nossa volta é vasto e diverso.
+        Existem montanhas que lembram milhões de anos.
+        O homem é parte desse mundo e também observador.
+        A vida de cada um é feita de grandes e pequenos acontecimentos.
+        No mundo existe alegria e dor.
+        Não se pode entender a felicidade sem conhecer a tristeza.
+        O amor é uma das forças centrais do universo.
+        O amor exige paciência, coragem, capacidade de perdoar.
+        O tempo é um enigma.
+        Nós medimos o tempo em horas, dias, anos.
+        Na infância o tempo passa devagar.
+        A morte é parte da vida.
+        A natureza é a nossa casa.
+        A ciência explica como o mundo funciona.
+        A arte mostra como nós sentimos o mundo.
+        A ciência cura doenças, constrói cidades, explora o cosmos.
+        A infância é o começo do caminho.
+        A família é o primeiro mundo do homem.
+        O trabalho enche a vida de sentido.
+        A liberdade é um grande valor.
+        A felicidade não é um ponto final, é um caminho.
+        A felicidade é a luz da manhã, o chá quente, o riso de uma criança.
+        O cachorro é amigo do homem.
+        O cachorro gosta de brincar e correr.
+        O cachorro pode ter pelo, rabo, patas, orelhas.
+        O gato também gosta de brincar.
+        Os animais vivem ao lado do homem.
+        O carrapato deixa uma mancha escura na pele do cachorro.
+        A pulga morde o cachorro.
+        A pulga é pequena e escura.
+        A micose é um fungo. A micose dá uma mancha redonda na pele.
+        A micose causa coceira.
+        O fungo vive na pele.
+        O melanoma é um tumor.
+        O melanoma é perigoso para o cachorro.
+        O melanoma aparece como uma mancha escura fixa.
+        O veterinário olha a pele do cachorro.
+        O veterinário cuida dos animais.
+        O veterinário trata doenças.
+        """
 
-    O homem é parte desse mundo e também observador.
-    Nós nascemos frágeis, aprendemos a andar, a falar, a amar, a perdoar, a sonhar.
-    A vida de cada um é feita de grandes e pequenos acontecimentos.
+    quantikus = QuintikusAGI()
+    quantikus.inicializar(conteudo)
 
-    No mundo existe alegria e dor.
-    Elas caminham juntas, como dia e noite.
-    Não se pode entender a felicidade sem conhecer a tristeza.
-    Não se pode valorizar a saúde sem provar a doença.
-
-    O amor é uma das forças centrais do universo.
-    Ele se manifesta de muitas formas.
-    O amor exige paciência, coragem, capacidade de perdoar.
-    Sem amor, o homem é vazio como uma casa sem fogo.
-
-    O tempo é um enigma.
-    Nós medimos o tempo em horas, dias, anos, mas o sentimos de modos diferentes.
-    Na infância o tempo passa devagar.
-    Na juventude ele corre. Na maturidade ele é implacável.
-
-    A morte é parte da vida.
-    Ela assusta, mas também lembra o valor de cada instante.
-    Nós não sabemos o que espera além do limiar.
-    Nossos atos, palavras, amor e memória continuam vivos nos outros.
-
-    A natureza é a nossa casa.
-    Ela nos alimenta, cura, inspira.
-    Muitas vezes esquecemos que ela não é infinita.
-    As florestas são derrubadas, os rios são poluídos, o ar fica mais pesado.
-
-    A ciência e a arte são as duas asas da humanidade.
-    A ciência explica como o mundo funciona.
-    A arte mostra como nós sentimos o mundo.
-    A ciência cura doenças, constrói cidades, explora o cosmos.
-    A arte consola, inspira, lembra da beleza.
-
-    A infância é o começo do caminho.
-    Na infância o mundo parece enorme, brilhante e cheio de maravilhas.
-    Cada dia traz uma descoberta.
-
-    A família é o primeiro mundo do homem.
-    Na família aprendemos a amar, a perdoar, a suportar, a cuidar.
-
-    O trabalho enche a vida de sentido.
-    O homem foi criado para criar, para fazer, para servir.
-    Alguns curam pessoas, alguns constroem casas, alguns ensinam crianças.
-
-    A liberdade é um grande valor.
-    A verdadeira liberdade é saber escolher o bem, assumir responsabilidade, respeitar os outros.
-
-    A felicidade não é um ponto final, é um caminho.
-    Ela não está em ter tudo, mas em valorizar o que se tem.
-    A felicidade é a luz da manhã, o chá quente, o riso de uma criança, o abraço de alguém próximo.
-
-    O cachorro é amigo do homem.
-    O cachorro gosta de brincar e correr.
-    O cachorro pode ter pelo, rabo, patas, orelhas.
-    O gato também gosta de brincar. O gato ronrona e dorme.
-    Os animais vivem ao lado do homem.
-
-    O carrapato deixa uma mancha escura na pele do cachorro.
-    A pulga morde o cachorro. A pulga é pequena e escura.
-    A micose é um fungo. A micose dá uma mancha redonda na pele.
-    A micose causa coceira. O fungo vive na pele.
-    O melanoma é um tumor. O melanoma é perigoso para o cachorro.
-    O melanoma aparece como uma mancha escura fixa.
-    O veterinário olha a pele do cachorro.
-    O veterinário cuida dos animais. O veterinário trata doenças.
-    """
-
-    dlm = DLM()
-    dlm.aprender(texto)
-    dlm.consolidar()
-
-    perguntas = [
+    for p in [
         "micose cachorro",
         "pulga cachorro",
+        "carrapato pele",
         "tempo infância",
         "amor",
         "melanoma",
-        "felicidade caminho",
-        "carrapato pele",
-        "o que é a vida",
+        "o cachorro está doente",
+        "cachorro doenças",
         "como o cachorro pode ficar doente",
-        "micose pele",
-        "mancha cachorro",
-        "cachorro gato",
-    ]
-
-    for p in perguntas:
+        "o que é a vida",
+        "felicidade caminho",
+        "ciência arte",
+    ]:
         print(f">>> {p}")
-        print(dlm.falar(p))
+        print(quantikus.falar(p))
         print()
