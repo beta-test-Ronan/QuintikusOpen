@@ -10,7 +10,6 @@ class QuintikusAGI:
     """
 
     def __init__(self, _t=0.5):
-        # Estados: 0:Temp(Pressão), 1:Sinergia(Harmonia), 2:Foco(Atenção)
         self._st = [0.5, 0.5, 0.5]
 
         # --- Núcleo DLM ---
@@ -21,8 +20,13 @@ class QuintikusAGI:
         self._ini = Counter()
         self._fim = Counter()
         self._assoc = defaultdict(lambda: defaultdict(float))
-        self._sentencas = []
+
+        # Frases em DUAS formas paralelas:
+        #   _sentencas_raw  → string original com pontuação (para retrieval)
+        #   _sentencas_stem → tupla de stems (para indexação/score/fusão)
+        self._sentencas_raw = []
         self._sentencas_stem = []
+
         self._stem_orig = defaultdict(Counter)
         self._avg_len = 10
 
@@ -48,10 +52,10 @@ class QuintikusAGI:
             'ошибка': -0.2, 'срочно': -0.3, 'провал': -0.2, 'шум': -0.1,
         }
 
-        # --- Linguística ---
         self._artigos = {"o", "a", "os", "as", "um", "uma"}
         self._preps = {"de", "do", "da", "dos", "das", "em", "no", "na",
                        "nos", "nas", "ao", "aos", "à", "às", "para", "com", "por"}
+        self._pont = {",", ".", "!", "?", ";", ":"}
         self._stop = set()
         self._stop_orig = set()
 
@@ -89,22 +93,44 @@ class QuintikusAGI:
             return stem
         return c.most_common(1)[0][0]
 
+    def _render(self, tokens):
+        out = []
+        for t in tokens:
+            if t in self._pont:
+                if out:
+                    out[-1] = out[-1] + t
+                else:
+                    out.append(t)
+            else:
+                out.append(t)
+        return " ".join(out)
+
     # ------------------------------------------------------------------
-    # Inicialização
+    # Inicialização — agora preserva pontuação
     # ------------------------------------------------------------------
     def inicializar(self, _txt):
         if not _txt or not _txt.strip():
             self._s = hashlib.sha256(b"vazio").hexdigest()[:8]
             return
-        for sent in re.split(r"[.!?]+", _txt):
+
+        # split preservando terminadores
+        partes = re.split(r"(?<=[.!?])\s+", _txt.strip())
+
+        for sent in partes:
+            sent = sent.strip()
+            if not sent:
+                continue
             toks = self._tok(sent)
             if len(toks) < 2:
                 continue
             stems = tuple(self._stem(t) for t in toks)
-            self._sentencas.append(tuple(toks))
+
+            self._sentencas_raw.append(sent)
             self._sentencas_stem.append(stems)
+
             self._ini[stems[0]] += 1
             self._fim[stems[-1]] += 1
+
             for i, (t, st) in enumerate(zip(toks, stems)):
                 self._freq[st] += 1
                 self._stem_orig[st][t] += 1
@@ -117,10 +143,11 @@ class QuintikusAGI:
                     self._bi[st][stems[i + 1]] += 1
                 if i + 2 < len(stems):
                     self._tri[(st, stems[i + 1])][stems[i + 2]] += 1
-        if self._sentencas:
-            self._avg_len = sum(len(s) for s in self._sentencas) / len(self._sentencas)
+
+        if self._sentencas_stem:
+            self._avg_len = sum(len(s) for s in self._sentencas_stem) / len(self._sentencas_stem)
         self._consolidar()
-        self._s = hashlib.sha256(str(len(self._sentencas)).encode()).hexdigest()[:8]
+        self._s = hashlib.sha256(str(len(self._sentencas_stem)).encode()).hexdigest()[:8]
 
     def _consolidar(self):
         if not self._freq:
@@ -349,81 +376,77 @@ class QuintikusAGI:
         if not ancoras: return 0
         return len(ancoras & set(sent_stem))
 
-    # ------------------------------------------------------------------
-    # Composição — CORRIGIDA (pontuação humana)
-    # ------------------------------------------------------------------
     def _tem_sujeito(self, sent_stem):
-        """Heurística: frase começa com artigo + substantivo?"""
         return len(sent_stem) >= 2 and sent_stem[0] in self._artigos
 
-    def _concatenar(self, s1, s2, ancoras):
-        """Junta duas sentenças como duas orações independentes."""
-        s1 = list(s1)
-        s2 = list(s2)
-
-        s2_limpo = list(s2)
-        while s2_limpo and s2_limpo[0] in self._artigos:
-            s2_limpo = s2_limpo[1:]
-
-        if self._tem_sujeito(s1) and self._tem_sujeito(s2):
-            nova = s1 + [",", "e"] + s2
+    # ------------------------------------------------------------------
+    # Composição — trabalha com TEXTO ORIGINAL
+    # ------------------------------------------------------------------
+    def _compor_texto(self, i, j):
+        raw1 = self._sentencas_raw[i].rstrip(".!? ")
+        raw2 = self._sentencas_raw[j]
+        if self._tem_sujeito(self._sentencas_stem[j]):
+            return raw1 + ". " + raw2[0].upper() + raw2[1:]
         else:
-            nova = s1 + s2_limpo
+            palavras = raw2.split()
+            while palavras and palavras[0].lower() in self._artigos:
+                palavras.pop(0)
+            return raw1 + " " + " ".join(palavras)
 
-        if len(nova) < 4:
-            return None
-        if not ancoras.issubset(set(nova)):
-            return None
-        return tuple(nova)
-
-    def _concatenar_multi(self, sentencas, ancoras):
-        """Junta N sentenças com vírgula+e."""
+    def _compor_texto_multi(self, indices):
         partes = []
-        for i, s in enumerate(sentencas):
-            s = list(s)
-            if i > 0 and not self._tem_sujeito(s):
-                while s and s[0] in self._artigos:
-                    s = s[1:]
-            partes.append(s)
+        for k, i in enumerate(indices):
+            raw = self._sentencas_raw[i]
+            if k == 0:
+                partes.append(raw.rstrip(".!? "))
+            else:
+                if self._tem_sujeito(self._sentencas_stem[i]):
+                    partes.append(raw[0].upper() + raw[1:])
+                else:
+                    palavras = raw.split()
+                    while palavras and palavras[0].lower() in self._artigos:
+                        palavras.pop(0)
+                    partes.append(" ".join(palavras))
+        return ". ".join(partes) + "."
 
-        nova = []
-        for i, p in enumerate(partes):
-            if i > 0:
-                nova.append(",")
-                nova.append("e")
-            nova.extend(p)
-
-        if len(nova) < 4:
-            return None
-        if not ancoras.issubset(set(nova)):
-            return None
-        return tuple(nova)
-
-    def _compor_ancorado(self, candidatas, ancoras):
+    def _compor_ancorado(self, indices, ancoras):
+        """indices: lista de índices de frases, ranqueadas."""
         if not ancoras: return None
-        for s in candidatas:
-            if ancoras.issubset(set(s)):
-                return s, "retrieval"
-        for i in range(len(candidatas)):
-            for j in range(i + 1, len(candidatas)):
-                s1, s2 = candidatas[i], candidatas[j]
+
+        # 1. retrieval direto
+        for i in indices:
+            if ancoras.issubset(set(self._sentencas_stem[i])):
+                return self._sentencas_raw[i], "retrieval"
+
+        # 2. fusão (trabalha em stems)
+        for a in range(len(indices)):
+            for b in range(a + 1, len(indices)):
+                i, j = indices[a], indices[b]
+                s1, s2 = self._sentencas_stem[i], self._sentencas_stem[j]
                 uniao = set(s1) | set(s2)
                 if not ancoras.issubset(uniao): continue
                 f = self._fundir(s1, s2, list(ancoras))
                 if f and ancoras.issubset(set(f)):
-                    return f, "fusão"
-                comp = self._concatenar(s1, s2, ancoras)
-                if comp:
-                    return comp, "composição"
-        for i in range(len(candidatas)):
-            for j in range(i + 1, len(candidatas)):
-                for k in range(j + 1, len(candidatas)):
-                    uniao = set(candidatas[i]) | set(candidatas[j]) | set(candidatas[k])
+                    return self._render([self._orig(st) for st in f]), "fusão"
+
+        # 3. composição por concatenação de textos originais
+        for a in range(len(indices)):
+            for b in range(a + 1, len(indices)):
+                i, j = indices[a], indices[b]
+                uniao = set(self._sentencas_stem[i]) | set(self._sentencas_stem[j])
+                if not ancoras.issubset(uniao): continue
+                return self._compor_texto(i, j), "composição"
+
+        # 4. três sentenças
+        for a in range(len(indices)):
+            for b in range(a + 1, len(indices)):
+                for c in range(b + 1, len(indices)):
+                    i, j, k = indices[a], indices[b], indices[c]
+                    uniao = (set(self._sentencas_stem[i]) |
+                             set(self._sentencas_stem[j]) |
+                             set(self._sentencas_stem[k]))
                     if not ancoras.issubset(uniao): continue
-                    comp = self._concatenar_multi(
-                        [candidatas[i], candidatas[j], candidatas[k]], ancoras)
-                    if comp:
-                        return comp, "composição-multi"
+                    return self._compor_texto_multi([i, j, k]), "composição-multi"
         return None
 
     # ------------------------------------------------------------------
@@ -523,7 +546,7 @@ class QuintikusAGI:
                 del self._assoc[a]
 
     # ------------------------------------------------------------------
-    # Fala — DLM-FLOW
+    # Fala
     # ------------------------------------------------------------------
     def falar(self, _qi, _debug=False):
         _t0 = time.perf_counter()
@@ -533,7 +556,6 @@ class QuintikusAGI:
         stems = [self._stem(t) for t in toks]
         self._upd_thermal(stems)
 
-        # Dado de Hummer
         _dice = random.randint(1, 10)
         _bias = 2 if self._st[0] > 0.6 else (-2 if self._st[0] < 0.4 else 0)
         _final_d = max(1, min(10, _dice + _bias))
@@ -557,36 +579,37 @@ class QuintikusAGI:
             for u, s in self._assoc.get(t, {}).items():
                 candidatos[u] += s
 
-        def _rank_key(s):
-            cob = self._cobertura(s, ancoras)
-            sc = self._score_sentenca(s, stems, candidatos, topico_set)
-            return (cob, sc)
-
-        pontuadas = sorted(self._sentencas_stem, key=_rank_key, reverse=True)[:10]
+        # rankeamento — retorna ÍNDICES
+        indices_rankeados = sorted(
+            range(len(self._sentencas_stem)),
+            key=lambda i: (
+                self._cobertura(self._sentencas_stem[i], ancoras),
+                self._score_sentenca(self._sentencas_stem[i], stems, candidatos, topico_set)
+            ),
+            reverse=True
+        )[:10]
 
         modo = "VOID"
         resposta = None
 
         # 1. composição ancorada
         if ancoras:
-            resultado = self._compor_ancorado(pontuadas, ancoras)
+            resultado = self._compor_ancorado(indices_rankeados, ancoras)
             if resultado:
-                comp, modo = resultado
-                resposta = " ".join(self._orig(st) for st in comp)
-                ativos = list(ancoras) + [w for w in comp if w not in self._stop]
+                resposta, modo = resultado
+                # aprende
+                ativos = list(ancoras)
                 self._hebb(ativos)
-                self._decair()
 
-        # 2. retrieval
-        if resposta is None and pontuadas:
-            melhor = pontuadas[0]
-            cob = self._cobertura(melhor, ancoras)
+        # 2. retrieval puro
+        if resposta is None and indices_rankeados:
+            i0 = indices_rankeados[0]
+            cob = self._cobertura(self._sentencas_stem[i0], ancoras)
             min_cob = 1 if len(ancoras) <= 1 else 2
             if cob >= min_cob or not ancoras:
-                idx = self._sentencas_stem.index(melhor)
-                resposta = " ".join(self._sentencas[idx])
+                resposta = self._sentencas_raw[i0]
                 modo = "retrieval"
-                self._hebb(list(topico) + [w for w in melhor if w not in self._stop])
+                self._hebb(list(topico) + list(self._sentencas_stem[i0]))
                 self._decair()
 
         # 3. geração token-a-token ancorada
@@ -632,10 +655,10 @@ class QuintikusAGI:
                     n = len(cache_tensao)
                     xs = list(range(n))
                     ys = [v for _, v in cache_tensao]
-                    mx, my = sum(xs)/n, sum(ys)/n
-                    num = sum((xs[i]-mx)*(ys[i]-my) for i in range(n))
-                    den = sum((xs[i]-mx)**2 for i in range(n))
-                    slope = num/den if den else 0.0
+                    mx, my = sum(xs) / n, sum(ys) / n
+                    num = sum((xs[i] - mx) * (ys[i] - my) for i in range(n))
+                    den = sum((xs[i] - mx) ** 2 for i in range(n))
+                    slope = num / den if den else 0.0
 
                 if slope < -0.03: drift_consec += 1
                 else: drift_consec = 0
@@ -674,7 +697,7 @@ class QuintikusAGI:
             while len(saida) > 1 and saida[-1] in self._stop:
                 saida.pop()
 
-            resposta = " ".join(self._orig(st) for st in saida)
+            resposta = self._render([self._orig(st) for st in saida])
             modo = "token-ancorado"
             self._hebb(list(ancoras) + [w for w in saida if w not in self._stop])
             self._decair()
@@ -687,7 +710,9 @@ class QuintikusAGI:
         else:
             _i, _c = ["Pela razão, ", "No vácuo, "], ["Aguardando nexo.", "Selado."]
 
-        resposta = resposta.strip().rstrip(".") + "."
+        resposta = resposta.strip()
+        if not resposta.endswith((".", "!", "?")):
+            resposta += "."
         resposta = resposta[0].upper() + resposta[1:]
         _res = f"{random.choice(_i)}{resposta} {random.choice(_c)}"
 
@@ -744,7 +769,8 @@ if __name__ == "__main__":
         O carrapato deixa uma mancha escura na pele do cachorro.
         A pulga morde o cachorro.
         A pulga é pequena e escura.
-        A micose é um fungo. A micose dá uma mancha redonda na pele.
+        A micose é um fungo.
+        A micose dá uma mancha redonda na pele.
         A micose causa coceira.
         O fungo vive na pele.
         O melanoma é um tumor.
