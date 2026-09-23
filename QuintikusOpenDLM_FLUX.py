@@ -21,9 +21,7 @@ class QuintikusAGI:
         self._fim = Counter()
         self._assoc = defaultdict(lambda: defaultdict(float))
 
-        # Frases em DUAS formas paralelas:
-        #   _sentencas_raw  → string original com pontuação (para retrieval)
-        #   _sentencas_stem → tupla de stems (para indexação/score/fusão)
+        # Frases em DUAS formas paralelas
         self._sentencas_raw = []
         self._sentencas_stem = []
 
@@ -53,6 +51,8 @@ class QuintikusAGI:
         }
 
         self._artigos = {"o", "a", "os", "as", "um", "uma"}
+        self._pronomes = {"nós", "eu", "ele", "ela", "você", "eles",
+                          "elas", "vocês", "tu", "nos", "vos"}
         self._preps = {"de", "do", "da", "dos", "das", "em", "no", "na",
                        "nos", "nas", "ao", "aos", "à", "às", "para", "com", "por"}
         self._pont = {",", ".", "!", "?", ";", ":"}
@@ -106,14 +106,13 @@ class QuintikusAGI:
         return " ".join(out)
 
     # ------------------------------------------------------------------
-    # Inicialização — agora preserva pontuação
+    # Inicialização
     # ------------------------------------------------------------------
     def inicializar(self, _txt):
         if not _txt or not _txt.strip():
             self._s = hashlib.sha256(b"vazio").hexdigest()[:8]
             return
 
-        # split preservando terminadores
         partes = re.split(r"(?<=[.!?])\s+", _txt.strip())
 
         for sent in partes:
@@ -377,7 +376,14 @@ class QuintikusAGI:
         return len(ancoras & set(sent_stem))
 
     def _tem_sujeito(self, sent_stem):
-        return len(sent_stem) >= 2 and sent_stem[0] in self._artigos
+        """Frase começa com artigo OU pronome pessoal?"""
+        if not sent_stem:
+            return False
+        if sent_stem[0] in self._artigos:
+            return True
+        if sent_stem[0] in self._pronomes:
+            return True
+        return False
 
     # ------------------------------------------------------------------
     # Composição — trabalha com TEXTO ORIGINAL
@@ -413,12 +419,19 @@ class QuintikusAGI:
         """indices: lista de índices de frases, ranqueadas."""
         if not ancoras: return None
 
-        # 1. retrieval direto
+        # 0. corte 80%: se a melhor cobre quase tudo, devolve sozinha
+        if indices:
+            i0 = indices[0]
+            cob0 = self._cobertura(self._sentencas_stem[i0], ancoras)
+            if cob0 / max(1, len(ancoras)) >= 0.80:
+                return self._sentencas_raw[i0], "retrieval-parcial"
+
+        # 1. retrieval direto (cobre 100%)
         for i in indices:
             if ancoras.issubset(set(self._sentencas_stem[i])):
                 return self._sentencas_raw[i], "retrieval"
 
-        # 2. fusão (trabalha em stems)
+        # 2. fusão
         for a in range(len(indices)):
             for b in range(a + 1, len(indices)):
                 i, j = indices[a], indices[b]
@@ -429,7 +442,7 @@ class QuintikusAGI:
                 if f and ancoras.issubset(set(f)):
                     return self._render([self._orig(st) for st in f]), "fusão"
 
-        # 3. composição por concatenação de textos originais
+        # 3. composição por concatenação
         for a in range(len(indices)):
             for b in range(a + 1, len(indices)):
                 i, j = indices[a], indices[b]
@@ -579,7 +592,6 @@ class QuintikusAGI:
             for u, s in self._assoc.get(t, {}).items():
                 candidatos[u] += s
 
-        # rankeamento — retorna ÍNDICES
         indices_rankeados = sorted(
             range(len(self._sentencas_stem)),
             key=lambda i: (
@@ -597,9 +609,9 @@ class QuintikusAGI:
             resultado = self._compor_ancorado(indices_rankeados, ancoras)
             if resultado:
                 resposta, modo = resultado
-                # aprende
                 ativos = list(ancoras)
                 self._hebb(ativos)
+                self._decair()
 
         # 2. retrieval puro
         if resposta is None and indices_rankeados:
@@ -779,7 +791,8 @@ if __name__ == "__main__":
         O veterinário olha a pele do cachorro.
         O veterinário cuida dos animais.
         O veterinário trata doenças.
-        A vida é o fenômeno mais raro que conhecemos no universo.
+        Desse modo, tudo se conecta: a vida rara, o mundo vasto, o tempo enigmático, o amor paciente, a ciência que cura e a arte que sente.
+    A vida é o fenômeno mais raro que conhecemos no universo.
 Nós acordamos, respiramos, vemos a luz, ouvimos vozes, andamos sobre a terra.
 Essa raridade se manifesta em cada instante, e cada instante nos liga ao todo.
 O mundo à nossa volta é vasto e diverso.
@@ -863,6 +876,7 @@ Cuidar do outro, seja humano ou animal, é cuidar da própria teia da vida.
         "o que é a vida",
         "felicidade caminho",
         "ciência arte",
+        "o que você pensa sobre vida e arte no mesmo contexto",
     ]:
         print(f">>> {p}")
         print(quantikus.falar(p))
