@@ -779,6 +779,72 @@ if __name__ == "__main__":
         O veterinário olha a pele do cachorro.
         O veterinário cuida dos animais.
         O veterinário trata doenças.
+        A vida é o fenômeno mais raro que conhecemos no universo.
+Nós acordamos, respiramos, vemos a luz, ouvimos vozes, andamos sobre a terra.
+Essa raridade se manifesta em cada instante, e cada instante nos liga ao todo.
+O mundo à nossa volta é vasto e diverso.
+Existem montanhas que lembram milhões de anos.
+Elas nos ensinam que a vida humana é breve, mas participa de uma história muito maior.
+O homem é parte desse mundo e também observador.
+Ao observar, ele interpreta, sente e transforma.
+A vida de cada um é feita de grandes e pequenos acontecimentos.
+Cada acontecimento se liga aos outros como fios de uma mesma teia.
+No mundo existe alegria e dor.
+Não se pode entender a felicidade sem conhecer a tristeza.
+Os opostos se explicam e se completam.
+O amor é uma das forças centrais do universo.
+O amor exige paciência, coragem, capacidade de perdoar.
+Sem essas qualidades, a união entre as pessoas se desfaz.
+O tempo é um enigma.
+Nós medimos o tempo em horas, dias, anos.
+Na infância o tempo passa devagar.
+Cada descoberta da infância inaugura um mundo novo.
+A morte é parte da vida.
+Lembrar disso dá sentido ao tempo que temos.
+A natureza é a nossa casa.
+Tudo o que existe na natureza está interligado.
+A ciência explica como o mundo funciona.
+A arte mostra como nós sentimos o mundo.
+A ciência cura doenças, constrói cidades, explora o cosmos.
+A arte dá forma ao espanto, à dor e à beleza.
+Ciência e arte não se opõem: são duas linguagens da mesma humanidade.
+A infância é o começo do caminho.
+A família é o primeiro mundo do homem.
+Nesse primeiro mundo aprendemos a amar, a respeitar, a cuidar.
+O trabalho enche a vida de sentido.
+O trabalho transforma esforço em contribuição.
+A liberdade é um grande valor.
+A liberdade só existe plenamente quando há responsabilidade.
+A felicidade não é um ponto final, é um caminho.
+A felicidade é a luz da manhã, o chá quente, o riso de uma criança.
+Essas pequenas coisas se conectam às grandes forças: o amor, o tempo, a natureza e a esperança.
+O cachorro é amigo do homem.
+O cachorro gosta de brincar e correr.
+O cachorro pode ter pelo, rabo, patas, orelhas.
+O gato também gosta de brincar.
+Os animais vivem ao lado do homem.
+A convivência com os animais amplia nossa compreensão de cuidado.
+O carrapato deixa uma mancha escura na pele do cachorro.
+A pulga morde o cachorro.
+A pulga é pequena e escura.
+A micose é um fungo.
+A micose dá uma mancha redonda na pele.
+A micose causa coceira.
+O fungo vive na pele.
+O melanoma é um tumor.
+O melanoma é perigoso para o cachorro.
+O melanoma aparece como uma mancha escura fixa.
+O veterinário olha a pele do cachorro.
+O veterinário cuida dos animais.
+O veterinário trata doenças.
+Assim, o amor pelos animais se traduz em cuidado, observação e ciência.
+O veterinário une conhecimento e afeto.
+A saúde do cachorro depende de atenção diária.
+Essa atenção é uma forma de respeito pela vida.
+Desse modo, tudo se conecta: a vida rara, o mundo vasto, o tempo enigmático, o amor paciente, a ciência que cura e a arte que sente.
+Cada parte existe em união geral com as outras.
+A vida de cada um é uma nota dentro de uma sinfonia maior.
+Cuidar do outro, seja humano ou animal, é cuidar da própria teia da vida.
         """
 
     quantikus = QuintikusAGI()
