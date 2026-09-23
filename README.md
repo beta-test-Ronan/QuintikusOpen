@@ -165,51 +165,8 @@ Os ficheiros <code>mc.txt</code> e <code>mm.txt</code> definem o comportamento l
     </li>
 </ol>
 
-<hr>
 
-<h2>📁 Arquivos Necessários</h2>
 
-<table>
-    <thead>
-        <tr><th>Arquivo</th><th>Função</th></tr>
-    </thead>
-    <tbody>
-        <tr><td><code>texto.txt</code></td><td>Texto fonte para treino do núcleo analítico.</td></tr>
-        <tr><td><code>mc.txt</code></td><td>Arquétipos de personalidade <em>"mc"</em> (intro / ponte / concl).</td></tr>
-        <tr><td><code>mm.txt</code></td><td>Arquétipos de personalidade <em>"mm"</em>.</td></tr>
-        <tr><td><code>blockchain_machado.cache</code></td><td>Cache da blockchain (gerado automaticamente).</td></tr>
-    </tbody>
-</table>
-
-<h2>✍️ Formato dos Arquétipos (<code>mc.txt</code>, <code>mm.txt</code>)</h2>
-<p>Os ficheiros devem conter marcadores como os seguintes:</p>
-
-<pre><code>&lt;intro&gt;
-Frase de introdução 1
-Frase de introdução 2
-&lt;ponte&gt;
-...
-&lt;concl&gt;
-...
-</code></pre>
-
-<h2>💬 Exemplo de Uso</h2>
-
-<pre><code>📄 PARÁGRAFO GERADO (mesmo texto para as duas IAs):
-</code></pre>
-
-<p>Saída típica durante a interação:</p>
-
-<pre><code class="language-text">👤 RONAN: Qual o sentido do fluxo galvânico?
-
-💡 [CARDUS MASTER FLOW | 0.15 μs | Quality: 100%]
-LAYER-1 (VISÃO): Analisei que Localizado nexo no ponteiro 12345678.
-LAYER-2 (MASSA): O fluxo galvânico inicializa o sistema sem base externa.
- | Pulse | [FLUXO] &lt;-&gt; [GALVÂNICO] | Densidade: 0.9234
--&gt; fim. (Selo: Cardus-100)
-[DLM-FLOW: 45.23μs | D:8/10 | T:0.2 | DLM-ACTIVE | SIGN: 25e0bb26]
-No vácuo, o fluxo galvânico inicializa o sistema sem base externa. Além disso, ... Aguardando nexo.
-</code></pre>
 
 <h2>📝 Notas Técnicas</h2>
 
