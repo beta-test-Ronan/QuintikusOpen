@@ -181,7 +181,7 @@ Os ficheiros <code>mc.txt</code> e <code>mm.txt</code> definem o comportamento l
 <h2>Model</h2>
 
 <pre><code>   
-   Agi = raw processing and search
+   Agi = raw processing and search by intelligent geometric agent
    Fast = large-context search speed 
    Doomoble = IA transformer de bolso
    SSML = Sensation Singularity model Logic
