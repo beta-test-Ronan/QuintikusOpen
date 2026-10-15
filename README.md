@@ -263,6 +263,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
      Quintikus_Listy-cortex v1.0 -> Model-View+Logic
      Quintikus_Listy_AI v1.0 -> Model-Self-employed
      Quintikus_Cosmos.py -> new agente
+     Quintikus_RLM -> The idea that it is related to the LLM
 </code>
 </pre>
 
