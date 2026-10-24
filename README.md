@@ -252,12 +252,11 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
     
 <h4>Novidade</h4>
 <pre><code>
-    [Sobre multiverso]
-  
-    
+    [Sobre multiverso] 
+  -
     [NEW MODEL]
-    
-</code>
+  -
+    </code>
 </pre>
 
 
