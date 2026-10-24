@@ -256,6 +256,7 @@ The TGP lineage demonstrates a clear evolution from pattern memorization (TGP‑
   -
     [NEW MODEL]
           QuintikusOpenDLM_WEBS
+          Quintikus_DSpark 3.0
     </code>
 </pre>
 
