@@ -1,30 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Quintikus DSpark 3.0 — Emergent Hebbian Reasoning
-=================================================
-Princípios (Biologically-Inspired Emergent Reasoning):
-  1. SEM gradiente, SEM backprop, SEM loss. Apenas plasticidade LOCAL.
-  2. Regra Hebbiana modulada:  Δw_ij = η·pre_i·post_j·M − λ·w_ij
-     M = neuromodulador intrínseco (curiosity/competência).
-  3. Conhecimento vive na TOPOLOGIA do grafo (T→T, T↔C, C→C, A→C, P→C).
-  4. Conceitos EMERGEM da co-ocorrência (sem rótulos).
-  5. Generalização mediada por conceito (gato↔cão via C:animal).
-  6. Raciocínio DUAL-PROCESS (DSpark):
-       - Draft (Sistema 1): paralelo, associativo, dirigido por conceito.
-       - Spark (Sistema 2): sequencial, coerente, guiado por bigrama.
-  7. Recompensa INTRÍNSECA: coerência − surpresa (não é recompensa de output).
-  8. Currículo: conceitos de baixa competência recebem mais atenção.
-  9. Auto-avaliação por SESSÃO (emergência ao longo do tempo).
+Quintikus DSpark 3.2 — Emergent Hebbian Reasoning
+==================================================
+Correções acumuladas (v3.0 → v3.1 → v3.2):
+  v3.1: cosseno, L2, Spark normalizado, anti-repetição, loop-breaker
+  v3.2: bigrama normalizado (peso 3.0), binding local, ativação com decaimento
+        exponencial, exploração só no início, parser train com espaço E dois pontos
 """
 
 import numpy as np
-import math, random, time, os, pickle, json, tempfile, sys
-from collections import defaultdict, deque, Counter
+import math, random, time, os, pickle, tempfile, sys
+from collections import defaultdict, deque
 from typing import List, Dict, Tuple, Optional
 
 # ==========================================
-# ANDROID VOZ (preservado, compacto)
+# ANDROID VOZ
 # ==========================================
 ANDROID_VOZ = False
 MODO_VOZ = False
@@ -64,15 +55,11 @@ def vibrar(ms=80):
 # UTILITÁRIOS
 # ==========================================
 def cosine(a, b):
-    na, nb = np.linalg.norm(a), np.linalg.norm(b)
-    if na < 1e-8 or nb < 1e-8: return 0.0
+    na = float(np.linalg.norm(a))
+    nb = float(np.linalg.norm(b))
+    if na < 1e-8 or nb < 1e-8:
+        return 0.0
     return float(np.dot(a, b) / (na * nb))
-
-def softmax(x, t=1.0):
-    x = x / max(t, 1e-6)
-    x = x - np.max(x)
-    e = np.exp(x)
-    return e / (e.sum() + 1e-12)
 
 def ajustar_pontuacao(s):
     if not s: return s
@@ -84,150 +71,155 @@ def ajustar_pontuacao(s):
     return s + '.'
 
 # ==========================================================
-# HEBBIAN GRAPH — núcleo de conhecimento (sem backprop)
+# HEBBIAN GRAPH (v3.2)
 # ==========================================================
 class HebbianGraph:
-    """
-    Nós: T (token), C (conceito emergente), A (ato), P (pragma)
-    Arestas:
-      T→T  bigrama de superfície
-      T↔C  binding token↔conceito (c_vec é o soft assignment)
-      C→C  transição conceitual (= composição/sintaxe emergente)
-      A→C  ato dialoga com conceitos (content selection)
-      P→C  pragma modula conceitos
-    Hebbian rule:  Δw_ij = η·a_i·a_j·M − λ·w_ij
-    """
-
     def __init__(self, n_concepts=48):
         self.tok_to_id: Dict[str, int] = {}
         self.id_to_tok: Dict[int, str] = {}
         self.n_concepts = n_concepts
-
-        self.c_vec: Dict[int, np.ndarray] = {}          # tid → soft concept vector
-        self.CC = np.zeros((n_concepts, n_concepts))    # concept transitions
+        self.c_vec: Dict[int, np.ndarray] = {}
+        self.CC = np.zeros((n_concepts, n_concepts))
         self.TT: Dict[int, Dict[int, float]] = defaultdict(lambda: defaultdict(float))
 
         self.act_to_id = {a: i for i, a in enumerate(
-            ['statement', 'question', 'request', 'ack', 'greeting', 'farewell', 'exclamation'])}
+            ['statement','question','request','ack','greeting','farewell','exclamation'])}
         self.id_to_act = {i: a for a, i in self.act_to_id.items()}
-        self.AC: Dict[int, np.ndarray] = {}   # act_id → concept prior
+        self.AC: Dict[int, np.ndarray] = {}
 
-        self.pragma_to_id = {p: i for i, p in enumerate(['formal', 'informal', 'technical', 'emotional'])}
-        self.PC: Dict[int, np.ndarray] = {}   # pragma_id → concept prior
+        self.pragma_to_id = {p: i for i, p in enumerate(
+            ['formal','informal','technical','emotional'])}
+        self.PC: Dict[int, np.ndarray] = {}
 
-        # Plasticity params
-        self.eta_tt = 0.03
-        self.eta_c = 0.04
-        self.eta_cc = 0.02
-        self.eta_ac = 0.02
-        self.eta_pc = 0.02
-        self.lambda_decay = 0.0005
-        self.w_max = 8.0
-        self.context_window = 5
+        # Plasticidade
+        self.eta_tt = 0.02
+        self.eta_c = 0.015
+        self.eta_cc = 0.01
+        self.eta_ac = 0.015
+        self.eta_pc = 0.015
+        self.lambda_decay = 0.001
+        self.w_max = 5.0
+        self.context_window = 4
         self.tau = 2.0
-        self.bigram_weight = 1.5
 
-        # Contexto corrente (definido pelo reasoner antes do update)
-        self.current_act: Optional[int] = None
-        self.current_pragma: Optional[int] = None
-
+        self.current_act = None
+        self.current_pragma = None
         self.session_updates = 0
 
-    # ---------- token management ----------
     def ensure_token(self, tok: str) -> int:
         if tok in self.tok_to_id: return self.tok_to_id[tok]
         tid = len(self.tok_to_id)
         self.tok_to_id[tok] = tid
         self.id_to_tok[tid] = tok
-        # inicialização Hebbiana: vetor Dirichlet esparso (poucos conceitos ativos)
-        cv = np.random.dirichlet(np.ones(self.n_concepts) * 0.3)
-        self.c_vec[tid] = cv
+        v = np.random.dirichlet(np.ones(self.n_concepts) * 0.3)
+        n = float(np.linalg.norm(v))
+        self.c_vec[tid] = v / n if n > 1e-8 else v
         return tid
 
-    # ---------- ativação conceitual ----------
+    # ── PATCH v3.2: peso exponencial (último token domina) ──
     def compute_concept_activation(self, tids: List[int]) -> np.ndarray:
         if not tids:
             return np.ones(self.n_concepts) / self.n_concepts
         a = np.zeros(self.n_concepts)
-        n = 0
-        for t in tids:
+        ws = [math.exp(-(len(tids) - 1 - i) * 0.35) for i in range(len(tids))]
+        tw = sum(ws) + 1e-8
+        for t, w in zip(tids, ws):
             if t in self.c_vec:
-                a += self.c_vec[t]; n += 1
-        if n == 0:
-            return np.ones(self.n_concepts) / self.n_concepts
-        a /= n
-        # espalhamento por transições conceituais (composição emergente)
-        a = a + 0.35 * (self.CC @ a)
+                a += (w / tw) * self.c_vec[t]
+        a = a + 0.15 * (self.CC @ a)
         a = np.clip(a, 0, None)
         s = a.sum()
         return a / s if s > 0 else a
 
-    # ---------- predição ----------
-    def predict_scores(self, context_tids: List[int], a_C: np.ndarray) -> Dict[int, float]:
-        scores: Dict[int, float] = {}
-        # similaridade conceito↔token (generalização mediada)
-        for tid, cv in self.c_vec.items():
-            s = float(a_C @ cv)
-            if s > 0.001:
-                scores[tid] = s
-        # bigrama de superfície
+    # ── PATCH v3.2: bigrama normalizado com peso 3.0 ──
+    def predict_scores(self, context_tids: List[int], a_C: np.ndarray,
+                       banned: Optional[set] = None) -> Dict[int, float]:
+        raw: Dict[int, float] = {}
+        banned = banned or set()
+        last6 = set(context_tids[-6:]) if context_tids else set()
+        last15 = set(context_tids[-15:]) if context_tids else set()
+
+        # bigrama normalizado (0-1)
+        bigram = {}
         if context_tids:
             last = context_tids[-1]
-            for nxt, w in self.TT.get(last, {}).items():
-                scores[nxt] = scores.get(nxt, 0.0) + self.bigram_weight * w
-        # evita repetição imediata
-        if context_tids:
-            for t in context_tids[-2:]:
-                scores.pop(t, None)
-        return scores
+            row = self.TT.get(last, {})
+            total = sum(row.values()) + 1e-8
+            for nxt, w in row.items():
+                if nxt in banned or nxt in last6:
+                    continue
+                bigram[nxt] = w / total
+
+        # conceito + bigrama
+        for tid, cv in self.c_vec.items():
+            if tid in banned or tid in last6:
+                continue
+            c = cosine(a_C, cv)
+            base = c
+            if tid in bigram:
+                base += 3.0 * bigram[tid]      # bigrama domina
+            if tid in last15:
+                base *= 0.15
+            if base > 0.15:
+                raw[tid] = base
+
+        if not raw and banned:
+            return self.predict_scores(context_tids, a_C, None)
+        return raw
 
     def sample(self, scores: Dict[int, float], temperature=0.85, top_k=8) -> Optional[int]:
         if not scores: return None
         items = sorted(scores.items(), key=lambda x: -x[1])[:top_k]
-        vals = np.array([v for _, v in items])
-        vals = np.exp(vals / max(temperature, 0.1))
+        vals = np.array([v for _, v in items], dtype=float)
+        vals = vals - vals.min() + 1e-8
+        vals = vals ** (1.0 / max(temperature, 0.1))
         probs = vals / vals.sum()
-        idx = int(np.random.choice(len(items), p=probs))
-        return items[idx][0]
+        return items[int(np.random.choice(len(items), p=probs))][0]
 
-    # ---------- REGRA HEBBIANA LOCAL ----------
+    def penalize_bigram(self, a: int, b: int, factor: float = 0.5):
+        if a in self.TT and b in self.TT[a]:
+            self.TT[a][b] *= factor
+            if self.TT[a][b] < 1e-3:
+                del self.TT[a][b]
+
+    # ── PATCH v3.2: binding LOCAL com vizinhos (não média global) ──
     def hebbian_update(self, fired_tids: List[int], reward: float = 0.0):
-        """
-        Δw_ij = η·a_i·a_j·M − λ·w_ij
-        M = 1 + tanh(reward) ∈ [0, 2]  — neuromodulador intrínseco
-        """
-        if len(fired_tids) < 1: return
+        if not fired_tids: return
         M = 1.0 + math.tanh(reward)
         self.session_updates += 1
-
-        # ── 1. T→T (com decaimento posicional tipo STDP) ──
-        eta_eff = self.eta_tt * M
         n = len(fired_tids)
+
+        # T→T (STDP)
+        eta_eff = self.eta_tt * M
         for i in range(n):
             a = fired_tids[i]
             for j in range(i + 1, min(i + 1 + self.context_window, n)):
                 b = fired_tids[j]
-                dt = j - i
-                d = eta_eff * math.exp(-dt / self.tau)
+                d = eta_eff * math.exp(-(j - i) / self.tau)
                 self.TT[a][b] = min(self.w_max, self.TT[a][b] + d)
-                # anti-Hebbian simétrico (mais fraco)
-                self.TT[b][a] = max(0.0, self.TT[b][a] - d * 0.25)
-            # decay da linha
+                self.TT[b][a] = max(0.0, self.TT[b][a] - d * 0.3)
             for dst in list(self.TT[a].keys()):
                 self.TT[a][dst] *= (1 - self.lambda_decay)
 
-        # ── 2. T↔C: cada token se aproxima do conceito do contexto ──
-        ctx_concept = self.compute_concept_activation(fired_tids[:-1]) if n > 1 \
-            else self.compute_concept_activation(fired_tids)
-        eta_c = self.eta_c * M
-        for t in fired_tids:
-            if t in self.c_vec:
-                new = (1 - eta_c) * self.c_vec[t] + eta_c * ctx_concept
-                new = np.clip(new, 0, None)
-                s = new.sum()
-                self.c_vec[t] = new / s if s > 0 else new
+        # T↔C: binding LOCAL com vizinhos
+        if n >= 2 and reward > 0.02:
+            eta_c = self.eta_c * M * min(1.0, max(0.0, reward))
+            for i, t in enumerate(fired_tids):
+                if t not in self.c_vec:
+                    continue
+                nbrs = []
+                if i > 0: nbrs.append(fired_tids[i - 1])
+                if i < n - 1: nbrs.append(fired_tids[i + 1])
+                if not nbrs:
+                    continue
+                for nb in nbrs:
+                    if nb in self.c_vec:
+                        new = (1 - eta_c) * self.c_vec[t] + eta_c * self.c_vec[nb]
+                        new = np.clip(new, 0, None)
+                        norm = float(np.linalg.norm(new))
+                        self.c_vec[t] = new / norm if norm > 1e-8 else new
 
-        # ── 3. C→C (composição emergente) ──
+        # C→C
         if n >= 2:
             vecs = [self.c_vec[t] for t in fired_tids if t in self.c_vec]
             eta_cc = self.eta_cc * M
@@ -238,77 +230,70 @@ class HebbianGraph:
             self.CC *= (1 - self.lambda_decay)
             np.clip(self.CC, 0, self.w_max, out=self.CC)
 
-        # ── 4. A→C (ato dialoga com conceito) ──
+        # A→C
         if self.current_act is not None:
             prior = self.AC.get(self.current_act, np.ones(self.n_concepts) / self.n_concepts)
-            new = (1 - self.eta_ac * M) * prior + self.eta_ac * M * ctx_concept
+            c = self.compute_concept_activation(fired_tids)
+            new = (1 - self.eta_ac * M) * prior + self.eta_ac * M * c
             s = new.sum()
             self.AC[self.current_act] = new / s if s > 0 else new
 
-        # ── 5. P→C (pragma modula conceito) ──
+        # P→C
         if self.current_pragma is not None:
             prior = self.PC.get(self.current_pragma, np.ones(self.n_concepts) / self.n_concepts)
-            new = (1 - self.eta_pc * M) * prior + self.eta_pc * M * ctx_concept
+            c = self.compute_concept_activation(fired_tids)
+            new = (1 - self.eta_pc * M) * prior + self.eta_pc * M * c
             s = new.sum()
             self.PC[self.current_pragma] = new / s if s > 0 else new
 
-    # ---------- relatório ----------
     def topology_stats(self) -> Dict:
-        edges_tt = sum(len(v) for v in self.TT.values())
-        edges_cc = int((self.CC > 0.01).sum())
         return {
             'tokens': len(self.tok_to_id),
             'concepts': self.n_concepts,
-            'edges_TT': edges_tt,
-            'edges_CC_active': edges_cc,
+            'edges_TT': sum(len(v) for v in self.TT.values()),
+            'edges_CC_active': int((self.CC > 0.01).sum()),
             'updates': self.session_updates,
         }
 
 # ==========================================================
-# INTRINSIC REWARD — curiosity (redução de incerteza)
+# INTRINSIC REWARD
 # ==========================================================
 class IntrinsicReward:
-    """Recompensa = coerência (fit ao conceito) − surpresa (incerteza)."""
     def __init__(self):
         self.surprise_ema = 2.0
         self.coherence_ema = 0.5
-        self.competence = defaultdict(lambda: 0.5)   # por conceito
+        self.competence = defaultdict(lambda: 0.5)
         self.reward_history = deque(maxlen=50)
         self.session_competence_log = []
 
-    def observe_input(self, tids, graph) -> float:
-        """Aprender com input: reward = coerência da sequência."""
+    def observe_input(self, tids, graph):
         if len(tids) < 2: return 0.0
         seq_concept = graph.compute_concept_activation(tids)
-        total = 0.0; n = 0
+        cs = []
         for t in tids:
             if t in graph.c_vec:
-                total += float(seq_concept @ graph.c_vec[t]); n += 1
-        if n == 0: return 0.0
-        coherence = total / n
+                cs.append(cosine(seq_concept, graph.c_vec[t]))
+        if not cs: return 0.0
+        coherence = float(np.mean(cs))
         delta = coherence - self.coherence_ema
         self.coherence_ema = 0.9 * self.coherence_ema + 0.1 * coherence
-        # update competência por conceito
         for c in range(len(seq_concept)):
             if seq_concept[c] > 0.1:
-                lr = 0.03 * seq_concept[c]
+                lr = 0.05 * seq_concept[c]
                 self.competence[c] = (1 - lr) * self.competence[c] + lr * coherence
-        return float(delta * 2.0)
+        return float(np.clip(delta * 3.0, -1.5, 1.5))
 
-    def compute_step_reward(self, coherence, surprise, a_C) -> float:
-        """Recompensa passo-a-passo: coerência − λ·surpresa."""
-        r = coherence - 0.35 * surprise
+    def compute_step_reward(self, coherence, surprise_norm, a_C):
+        r = coherence - 0.25 * surprise_norm
         self.reward_history.append(r)
-        # atualiza competência dos conceitos ativos
         for c in range(len(a_C)):
             if a_C[c] > 0.1:
                 lr = 0.05 * a_C[c]
                 self.competence[c] = (1 - lr) * self.competence[c] + lr * max(0.0, min(1.0, coherence))
         return float(r)
 
-    def mean_competence(self) -> float:
-        if not self.competence: return 0.5
-        return float(np.mean(list(self.competence.values())))
+    def mean_competence(self):
+        return float(np.mean(list(self.competence.values()))) if self.competence else 0.5
 
     def log_session(self):
         self.session_competence_log.append(self.mean_competence())
@@ -316,27 +301,26 @@ class IntrinsicReward:
             self.session_competence_log.pop(0)
 
 # ==========================================================
-# DIALOGUE TRACKER — state + act classification
+# DIALOGUE / PRAGMATICS / CURRICULUM
 # ==========================================================
 class DialogueTracker:
     def __init__(self):
         self.recent_acts = deque(maxlen=8)
-        self.topic_vector: Optional[np.ndarray] = None
+        self.topic_vector = None
         self.turn_count = 0
 
-    def classify_act(self, tokens: List[str], text: str) -> str:
+    def classify_act(self, tokens, text):
         if not tokens: return 'statement'
-        low = text.lower()
         if text.strip().endswith('?') or any(w in tokens for w in
-                ['quem','que','onde','quando','como','qual','por que','porque','?']):
+                ['quem','que','onde','quando','como','qual','porque']):
             return 'question'
-        if any(w in tokens for w in ['por favor','poderia','gostaria','quero','ajuda','faz','faça']):
+        if any(w in tokens for w in ['favor','poderia','gostaria','quero','ajuda']):
             return 'request'
-        if any(w in tokens for w in ['oi','olá','hello','eae','e aí','salve','bom dia','boa tarde','boa noite']):
+        if any(w in tokens for w in ['oi','olá','hello','eae','salve','bom','boa']):
             return 'greeting'
-        if any(w in tokens for w in ['tchau','até','adeus','bye','falou','adeus']):
+        if any(w in tokens for w in ['tchau','até','adeus','bye','falou']):
             return 'farewell'
-        if any(w in tokens for w in ['ok','sim','não','certo','entendi','beleza','tá','ta']):
+        if any(w in tokens for w in ['ok','sim','não','certo','entendi','beleza']):
             return 'ack'
         if text.strip().endswith('!'):
             return 'exclamation'
@@ -347,37 +331,32 @@ class DialogueTracker:
         act = self.classify_act(tokens, ' '.join(tokens))
         self.recent_acts.append(act)
         tv = graph.compute_concept_activation(tids)
-        self.topic_vector = tv if self.topic_vector is None else 0.65 * self.topic_vector + 0.35 * tv
+        self.topic_vector = tv if self.topic_vector is None else 0.65*self.topic_vector + 0.35*tv
 
-    def predict_act(self, graph) -> int:
+    def predict_act(self, graph):
         mapping = {'greeting':'greeting','question':'statement','request':'ack',
                    'farewell':'farewell','ack':'statement','exclamation':'statement',
                    'statement':'statement'}
         last = self.recent_acts[-1] if self.recent_acts else 'statement'
         return graph.act_to_id.get(mapping.get(last, 'statement'), 0)
 
-# ==========================================================
-# PRAGMATIC MODEL — adapta ao interlocutor
-# ==========================================================
 class PragmaticModel:
     def __init__(self):
         self.formality = 0.5
 
     def update_from_user(self, tokens):
-        formal = ['você','senhor','senhora','por favor','poderia','gostaria','atenciosamente']
-        informal = ['tu','cara','mano','oi','legal','né','vlw','fala','po']
+        formal = ['você','senhor','senhora','favor','poderia','gostaria','atenciosamente']
+        informal = ['tu','cara','mano','oi','legal','né','vlw','fala']
         delta = 0.0
         for t in tokens:
             if any(m in t for m in formal): delta += 0.08
             if any(m in t for m in informal): delta -= 0.08
-        self.formality = float(np.clip(0.9 * self.formality + 0.1 * (0.5 + delta), 0.0, 1.0))
+        self.formality = float(np.clip(0.9*self.formality + 0.1*(0.5+delta), 0.0, 1.0))
 
-    def modulate(self, a_C, graph) -> np.ndarray:
-        # pragma prior → concept
+    def modulate(self, a_C, graph):
         key = 0 if self.formality > 0.6 else (1 if self.formality < 0.4 else None)
         if key is not None and key in graph.PC:
-            prior = graph.PC[key]
-            a_C = a_C * (1.0 + 0.3 * prior)
+            a_C = a_C * (1.0 + 0.3 * graph.PC[key])
             s = a_C.sum()
             if s > 0: a_C = a_C / s
         return a_C
@@ -387,24 +366,21 @@ class PragmaticModel:
         if self.formality < 0.4: return 1
         return None
 
-# ==========================================================
-# CURRICULUM — competência por conceito → atenção
-# ==========================================================
 class CurriculumController:
     def __init__(self, intrinsic):
         self.intrinsic = intrinsic
 
-    def lr_modifier(self, a_C) -> np.ndarray:
+    def lr_modifier(self, a_C):
         mod = np.ones(len(a_C))
         for c in range(len(a_C)):
             comp = self.intrinsic.competence[c]
-            if comp < 0.4: mod[c] = 2.0     # precisa aprender
-            elif comp > 0.7: mod[c] = 0.7   # já domina
+            if comp < 0.4: mod[c] = 2.0
+            elif comp > 0.7: mod[c] = 0.7
         return mod
 
-    def curriculum_report(self) -> Dict:
+    def curriculum_report(self):
         comps = list(self.intrinsic.competence.values())
-        if not comps: return {'mean': 0.5, 'low': 0, 'high': 0}
+        if not comps: return {'mean': 0.5, 'low': 0, 'high': 0, 'total': 0}
         return {
             'mean': float(np.mean(comps)),
             'low': int(sum(1 for c in comps if c < 0.4)),
@@ -413,41 +389,61 @@ class CurriculumController:
         }
 
 # ==========================================================
-# DSPARK REASONER — Draft (S1) + Spark (S2) + Hebbian
+# DSPARK REASONER (v3.2)
 # ==========================================================
 class DSparkReasoner:
-    """
-    Draft (Sistema 1): amostragem paralela dirigida por conceito.
-    Spark (Sistema 2): avaliação sequencial coerência vs surpresa.
-    Cada passo gera um HEBBIAN UPDATE modulado por recompensa intrínseca.
-    """
     def __init__(self, brain):
         self.brain = brain
         self.draft_k = 8
         self.coherence_w = 1.0
-        self.surprise_w = 0.35
+        self.surprise_w = 0.25
         self.step_rewards = []
+        self.temperature = 0.75
+
+    def _detect_period(self, seq: List[int]) -> Optional[int]:
+        n = len(seq)
+        if n < 6: return None
+        for P in range(2, min(5, n // 2) + 1):
+            if seq[-2*P:-P] == seq[-P:]:
+                return P
+        return None
+
+    def _break_loop(self, context_tids, a_C, g):
+        P = self._detect_period(context_tids)
+        if P is None:
+            return context_tids, set()
+        loop = context_tids[-P:]
+        for i in range(len(loop) - 1):
+            g.penalize_bigram(loop[i], loop[i + 1], factor=0.25)
+        g.penalize_bigram(loop[-1], loop[0], factor=0.25)
+        banned = {loop[0]}
+        new_ctx = list(context_tids[:-P])
+        if len(new_ctx) < 3:
+            new_ctx = list(context_tids[-3:])
+        return new_ctx, banned
 
     def think(self, user_text: str, max_tokens=40) -> List[int]:
-        brain = self.brain; g = brain.graph
+        brain = self.brain
+        g = brain.graph
 
-        # ── 1. Parse + aprender com input ──
+        # 1) parse + aprendizagem
         toks = brain.tokenize(user_text)
         tids = [g.ensure_token(t) for t in toks]
         if len(tids) >= 2:
             r_in = brain.intrinsic.observe_input(tids, g)
-            g.current_act = None; g.current_pragma = None
+            g.current_act = None
+            g.current_pragma = None
             g.hebbian_update(tids, reward=r_in)
 
-        # ── 2. Estado de diálogo + pragmática ──
+        # 2) diálogo + pragmática
         brain.dialogue.observe_user(toks, tids, g)
         brain.pragmatics.update_from_user(toks)
 
-        # ── 3. Content selection: ativação conceitual ──
+        # 3) content selection
         a_C = g.compute_concept_activation(tids)
         a_C = brain.pragmatics.modulate(a_C, g)
 
-        # ── 4. Act priming (composição guiada por ato) ──
+        # 4) act priming
         g.current_act = brain.dialogue.predict_act(g)
         if g.current_act in g.AC:
             a_C = a_C * (1.0 + 0.25 * g.AC[g.current_act])
@@ -455,57 +451,85 @@ class DSparkReasoner:
             if s > 0: a_C = a_C / s
         g.current_pragma = brain.pragmatics.current_pragma_id()
 
-        # ── 5. Loop Draft + Spark + Hebbian ──
+        # 5) geração dual
         out_tids: List[int] = []
         context = list(tids)
         self.step_rewards = []
+        generated_ngrams = set()
 
         for step in range(max_tokens):
-            scores = g.predict_scores(context, a_C)
+            banned = set()
+            if step > 0 and step % 3 == 0:
+                context, banned = self._break_loop(context, a_C, g)
+                if context:
+                    a_C = g.compute_concept_activation(context[-(g.context_window + 1):])
+                    a_C = brain.pragmatics.modulate(a_C, g)
+
+            scores = g.predict_scores(context, a_C, banned)
             if not scores:
                 break
 
-            # ── DRAFT ──
             items = sorted(scores.items(), key=lambda x: -x[1])[:self.draft_k]
-            total = sum(s for _, s in items) + 1e-8
-            candidates = [(tid, s / total) for tid, s in items]
+            if not items:
+                break
 
-            # ── SPARK ──
-            best = None; best_score = -1e9
-            for tid, p in candidates:
+            vals = np.array([s for _, s in items], dtype=float)
+            vals = vals - vals.min() + 1e-8
+            cand_probs = vals / vals.sum()
+
+            best = None
+            best_score = -1e9
+            log_K = math.log(self.draft_k + 1)
+            for (tid, raw_s), p in zip(items, cand_probs):
                 cv = g.c_vec.get(tid)
-                coherence = float(a_C @ cv) if cv is not None else 0.0
-                surprise = -math.log(p + 1e-12)
-                score = self.coherence_w * coherence - self.surprise_w * surprise
+                coherence = float(cosine(a_C, cv)) if cv is not None else 0.0
+                surprise = -math.log(max(p, 1e-8))
+                surprise_norm = surprise / log_K
+                # raw já contém bigrama; score prioriza o raw
+                score = raw_s + 0.3 * coherence - self.surprise_w * surprise_norm
+
+                if len(context) >= 3 and tuple(context[-3:] + [tid]) in generated_ngrams:
+                    score -= 0.6
+                if tid in context[-8:]:
+                    score -= 0.4
+
                 if score > best_score:
                     best_score = score
-                    best = (tid, p, coherence, surprise)
-            if best is None: break
-            tid, p, coherence, surprise = best
-            out_tids.append(tid)
+                    best = (tid, p, coherence, surprise_norm)
 
-            # ── INTRINSIC REWARD ──
+            if best is None:
+                break
+            tid, p, coherence, surprise = best
+
+            # exploração SÓ nos primeiros tokens
+            if step <= 1 and random.random() < 0.15 and len(items) >= 2:
+                alt = items[1][0] if items[0][0] == tid else items[0][0]
+                if alt not in context[-6:]:
+                    tid = alt
+                    cv = g.c_vec.get(tid)
+                    coherence = float(cosine(a_C, cv)) if cv is not None else 0.0
+                    surprise = 0.5
+
+            out_tids.append(tid)
+            generated_ngrams.add(tuple(context[-3:] + [tid]))
+
             reward = brain.intrinsic.compute_step_reward(coherence, surprise, a_C)
             self.step_rewards.append(reward)
-
-            # ── HEBBIAN UPDATE (local, modulado por reward) ──
             window = context[-(g.context_window + 1):] + [tid]
             g.hebbian_update(window, reward=reward)
 
-            # ── Update contexto/ativação ──
             context.append(tid)
             a_C = g.compute_concept_activation(context[-(g.context_window + 1):])
             a_C = brain.pragmatics.modulate(a_C, g)
 
-            # parada em fim de sentença
             tok_str = g.id_to_tok[tid]
-            if tok_str in {'.', '?', '!'} and step >= 3:
+            if tok_str in {'.', '?', '!'} and step >= 2:
                 break
 
         return out_tids
 
 # ==========================================================
-# QUINTIKUS BRAIN — orquestrador
+# QUINTIKUS BRAIN
 # ==========================================================
 class QuintikusBrain:
     def __init__(self, file="cerebro_dspark3.bin"):
@@ -528,15 +552,15 @@ class QuintikusBrain:
 
     def learn_text(self, text: str, epochs: int = 1):
         for _ in range(epochs):
-            sentences = [s.strip() for s in
-                         text.replace('!', '.').replace('?', '.').split('.') if s.strip()]
+            raw = text.replace('!', '.').replace('?', '.').replace(';', '.')
+            sentences = [s.strip() for s in raw.split('.') if s.strip()]
             for sent in sentences:
                 toks = self.tokenize(sent)
                 if len(toks) < 2: continue
+                toks = toks + ['.']   # períodos preservados
                 tids = [self.graph.ensure_token(t) for t in toks]
                 r = self.intrinsic.observe_input(tids, self.graph)
                 self.graph.hebbian_update(tids, reward=r)
-                # sub-janelas (mais amostras para o grafo)
                 for i in range(len(tids) - 3):
                     self.graph.hebbian_update(tids[i:i+4], reward=r * 0.5)
 
@@ -547,9 +571,12 @@ class QuintikusBrain:
         if not out_tids:
             return "Não consegui gerar resposta."
         txt = ' '.join(self.graph.id_to_tok[t] for t in out_tids)
-        txt = txt.replace(' ,', ',').replace(' .', '.').replace(' !', '!').replace(' ?', '?')
+        txt = (txt.replace(' ,', ',').replace(' .', '.')
+                  .replace(' !', '!').replace(' ?', '?')
+                  .replace(' ;', ';').replace(' :', ':'))
         txt = ' '.join(txt.split())
-        if txt and txt[0].islower(): txt = txt[0].upper() + txt[1:]
+        if txt and txt[0].islower():
+            txt = txt[0].upper() + txt[1:]
         return ajustar_pontuacao(txt)
 
     # ---------- persistência ----------
@@ -577,16 +604,19 @@ class QuintikusBrain:
             d = os.path.dirname(os.path.abspath(self.file)) or '.'
             with tempfile.NamedTemporaryFile(mode='wb', dir=d, delete=False, suffix='.tmp') as tmp:
                 pickle.dump(data, tmp, protocol=pickle.HIGHEST_PROTOCOL)
-                tmp.flush(); os.fsync(tmp.fileno()); path = tmp.name
+                tmp.flush(); os.fsync(tmp.fileno())
+                path = tmp.name
             os.replace(path, self.file)
             return True
         except Exception as e:
-            print(f"⚠️ Save: {e}"); return False
+            print(f"⚠️ Save: {e}")
+            return False
 
     def load(self) -> bool:
         if not os.path.exists(self.file): return False
         try:
-            with open(self.file, 'rb') as f: data = pickle.load(f)
+            with open(self.file, 'rb') as f:
+                data = pickle.load(f)
             g = self.graph
             g.tok_to_id = data['tok_to_id']
             g.id_to_tok = data['id_to_tok']
@@ -609,7 +639,8 @@ class QuintikusBrain:
             self.max_tokens = data['max_tokens']
             return True
         except Exception as e:
-            print(f"⚠️ Load: {e}"); return False
+            print(f"⚠️ Load: {e}")
+            return False
 
     # ---------- relatórios ----------
     def report(self):
@@ -617,14 +648,13 @@ class QuintikusBrain:
         cur = self.curriculum.curriculum_report()
         mean_comp = self.intrinsic.mean_competence()
         ema_coh = self.intrinsic.coherence_ema
-        # emergência: delta entre últimas sessões
         if len(self.session_log) >= 2:
             trend = self.session_log[-1] - self.session_log[-2]
             trend_str = f"{'↑' if trend > 0.005 else ('↓' if trend < -0.005 else '→')} {trend:+.3f}"
         else:
             trend_str = "(sem baseline)"
         print("\n" + "═" * 50)
-        print("📊 RELATÓRIO DE EMERGÊNCIA — Quintikus DSpark 3.0")
+        print("📊 RELATÓRIO DE EMERGÊNCIA — Quintikus DSpark 3.2")
         print("═" * 50)
         print(f"  Topologia:")
         print(f"    Tokens: {topo['tokens']:>5}  Conceitos: {topo['concepts']}")
@@ -645,7 +675,7 @@ class QuintikusBrain:
         self.save()
 
 # ==========================================================
-# DEMO — dataset embutido (PT/EN) para auto-avaliação
+# DEMO
 # ==========================================================
 DEMO_CORPUS = """
 o gato come peixe. o cão come osso. o gato dorme no sofá.
@@ -668,8 +698,8 @@ o sol nasce no leste. a lua aparece à noite. estrelas brilham no céu.
 # MAIN
 # ==========================================================
 if __name__ == "__main__":
-    print("🧬 Quintikus DSpark 3.0 — Emergent Hebbian Reasoning")
-    print("   Sem backprop · Grafo Hebbiano · Curiosidade intrínseca · Dual-process")
+    print("🧬 Quintikus DSpark 3.2 — Emergent Hebbian Reasoning")
+    print("   Sem backprop · Grafo Hebbiano · Curiosidade · Dual-process")
     print("=" * 62)
 
     brain = QuintikusBrain()
@@ -686,17 +716,17 @@ if __name__ == "__main__":
 
     if ANDROID_VOZ:
         time.sleep(0.4)
-        falar("Quintikus DSpark três está online.")
+        falar("Quintikus DSpark três ponto dois está online.")
         print("\n🎤 [V] Microfone contínuo  [T] Teclado")
         modo = safe_input("   Modo > ").lower()
         MODO_VOZ = (modo == 'v')
 
     if not MODO_VOZ:
         print("\n💬 Comandos:")
-        print("   stats         → relatório de emergência")
-        print("   train:file    → aprender arquivo")
-        print("   tokens:N      → ajustar tamanho de resposta")
-        print("   debug:on/off  → ver sinais internos")
+        print("   stats              → relatório de emergência")
+        print("   train:file         → aprender arquivo (ou 'train file')")
+        print("   tokens:N           → tamanho máximo de resposta")
+        print("   debug:on/off       → ver sinais internos")
         print("   save | sair")
 
     while True:
@@ -726,9 +756,7 @@ if __name__ == "__main__":
 
             if low == "sair":
                 print("⚙️ Encerrando sessão (emergência registrada)...")
-                brain.end_session()
-                brain.report()
-                print("💤 Até mais!")
+                brain.end_session(); brain.report(); print("💤 Até mais!")
                 break
 
             if low == "stats":
@@ -748,17 +776,25 @@ if __name__ == "__main__":
                 brain.debug = entrada.split(":",1)[1].strip() == "on"
                 print(f"✅ debug = {brain.debug}"); continue
 
-            if low.startswith("train:"):
-                arq = entrada.split(":",1)[1].strip()
-                if os.path.exists(arq):
-                    with open(arq, "r", encoding="utf-8") as f: txt = f.read()
-                    t0 = time.time()
-                    brain.learn_text(txt, epochs=2)
-                    print(f"✅ Aprendido em {time.time()-t0:.2f}s. "
-                          f"Tokens={len(brain.graph.tok_to_id)}")
+            # ── PATCH v3.2: aceita "train:file", "train file", "treinar file" ──
+            if low.startswith("train") or low.startswith("treinar"):
+                parts = entrada.split(":", 1) if ":" in entrada else entrada.split(None, 1)
+                if len(parts) >= 2:
+                    arq = parts[1].strip()
+                    if os.path.exists(arq):
+                        with open(arq, "r", encoding="utf-8") as f:
+                            txt = f.read()
+                        t0 = time.time()
+                        brain.learn_text(txt, epochs=2)
+                        print(f"✅ Aprendido em {time.time()-t0:.2f}s. "
+                              f"Tokens={len(brain.graph.tok_to_id)}")
+                        continue
+                    else:
+                        print(f"❌ '{arq}' não encontrado.")
+                        continue
                 else:
-                    print(f"❌ '{arq}' não encontrado.")
-                continue
+                    print("❌ Use: train:arquivo.txt  ou  train arquivo.txt")
+                    continue
 
             resposta = brain.think(entrada)
             print(f"🧠: {resposta}")
@@ -771,8 +807,6 @@ if __name__ == "__main__":
 
         except KeyboardInterrupt:
             print("\n⚙️ Encerrando...")
-            brain.end_session()
-            brain.report()
-            break
+            brain.end_session(); brain.report(); break
         except Exception as e:
             print(f"❌ Erro: {e}")
