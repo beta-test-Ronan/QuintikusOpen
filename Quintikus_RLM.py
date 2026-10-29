@@ -1,12 +1,13 @@
 """
-RLM-Lastrimy v6.5 — Amostragem da Distribuição + Confiança + Multi-turno
-========================================================================
-- Amostragem do top-K (não greedy) → responde de "várias formas possíveis"
-- Bandas de confiança: alta (verbatim) / média (amostra) / baixa (honesto)
-- Bônus para linhas curtas (mais prováveis de serem respostas completas)
-- Contexto multi-turno para consultas curtas ("sim", "não", "continue")
-- Rastreamento de linhas usadas entre turnos
-- Preserva TUDO do v6.4 (RAG, MKN, Q&A chaining, diversidade)
+RLM-Lastrimy v6.8 — Amostragem + Confiança + Multi-turno
+                    + Motor Recursivo + PromptHandle
+                    + Attention Residuals (AttnRes) na síntese recursiva
+=========================================================================
+v6.8 adiciona (inspirado em arxiv.org/pdf/2603.15031):
+- AttentionResidual: agregação softmax sobre "profundidade" (respostas recursivas)
+- Pseudo-query aprendida = embedding da pergunta original
+- Substitui Jaccard por atenção content-aware na síntese do MotorLLMRecursivo
+- Mantém fallback Jaccard quando AttnRes está desativado ou indisponível
 """
 
 import hashlib
@@ -156,6 +157,74 @@ def _tokenize(texto):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# ATTENTION RESIDUAL (AttnRes) — agregação softmax sobre profundidade
+# ═══════════════════════════════════════════════════════════════════════
+class AttentionResidual:
+    """
+    Implementação do AttnRes do paper arxiv:2603.15031, adaptada para
+    respostas textuais da recursão.
+
+    Dado um conjunto de "valores" (respostas) e uma "pseudo-query"
+    (pergunta original), calcula pesos softmax e retorna a agregação.
+
+    No paper, a agregação é linear sobre tensores. Aqui, como os valores
+    são strings, a "agregação" é a seleção da resposta com maior peso
+    (hard attention), que é o análogo discreto da soma ponderada.
+    """
+
+    def __init__(self, rlm):
+        self.rlm = rlm
+        # pseudo-query aprendida: usamos o embedding da pergunta como proxy.
+        # Em um modelo treinável, w_l seria um vetor aprendido por camada.
+        # Aqui, a "camada" é a síntese final, então w = embedding(pergunta).
+
+    def _embed(self, texto):
+        """Embedding de um texto via perfil/pesos_head dos lastros."""
+        partes = []
+        for t in _tokenize(texto):
+            rid = self.rlm._hash(t)
+            la = self.rlm.lastros.get(rid)
+            if la is not None:
+                if la.pesos_head is not None:
+                    partes.append(la.pesos_head)   # 5-dim, softmax do perfil
+                elif la.perfil is not None:
+                    partes.append(la.perfil)
+        if not partes:
+            return np.zeros(5, dtype=float)
+        return np.mean(partes, axis=0)
+
+    def forward(self, pergunta, valores):
+        """
+        valores: lista de strings (respostas das sub-consultas).
+        Retorna: a string selecionada pela atenção softmax.
+        """
+        if not valores:
+            return None
+        if len(valores) == 1:
+            return valores[0]
+
+        # V: [N, d] — valores empilhados
+        V = np.stack([self._embed(v) for v in valores])
+        # q: [d] — pseudo-query (embedding da pergunta)
+        q = self._embed(pergunta)
+
+        # Normalização L2 (como no paper, as chaves são normalizadas)
+        V_norm = V / (np.linalg.norm(V, axis=1, keepdims=True) + 1e-9)
+        q_norm = q / (np.linalg.norm(q) + 1e-9)
+
+        # logits = q · k_i  (produto escalar)
+        logits = V_norm @ q_norm
+
+        # softmax sobre a profundidade
+        alpha = np.exp(logits - logits.max())
+        alpha /= alpha.sum()
+
+        # hard attention: seleciona o valor de maior peso
+        idx = int(np.argmax(alpha))
+        return valores[idx]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # LASTRO E RLM
 # ═══════════════════════════════════════════════════════════════════════
 class Lastro:
@@ -183,7 +252,6 @@ class RLM:
                  rag_echo_limiar=0.6, rag_min_tokens_linha=2,
                  rag_bonus_curta=1.20, rag_bonus_media=1.10,
                  rag_penalidade_longa=0.85):
-        # parâmetros
         self.n_max = n_max; self.D = D; self.tau_pos = tau_pos
         self.k_vizinhos = k_vizinhos
         self.limiar_forma = limiar_forma; self.limiar_ctx = limiar_ctx
@@ -197,7 +265,6 @@ class RLM:
         self.gns_max_vocab = gns_max_vocab; self.gns_hidden = gns_hidden
         self.gns_epocas = gns_epocas; self.gns_lr = gns_lr
 
-        # RAG
         self.rag_top_k = rag_top_k
         self.rag_penalidade_reuso = rag_penalidade_reuso
         self.rag_threshold_alta  = rag_threshold_alta
@@ -214,11 +281,11 @@ class RLM:
         self._unigram = {}; self._stats_globais = {}
         self._mkn_discounts = (0.5, 1.0, 1.5)
         self._rag_lines = []; self._rag_idf = {}
+        self._last_rag_info = {}
         self._kv_init()
         self._criar_lastro(self.BOS, "⟨BOS⟩", -1)
         self._criar_lastro(self.EOS, "⟨EOS⟩", -2)
 
-    # ───────────────────────────────────────────────────────────────────
     def _kv_init(self):
         self._pair_cache = {}
 
@@ -252,7 +319,6 @@ class RLM:
                 ramos.append(rid)
         return tuple(ramos)
 
-    # ───────────────────────────────────────────────────────────────────
     def _compute_mkn_discounts(self):
         N1 = N2 = N3 = N4 = 0
         for counter in self.transicoes.values():
@@ -300,9 +366,6 @@ class RLM:
             dist[w] = dist.get(w, 0.0) + max(cnt - D, 0.0) / total
         return dist
 
-    # ───────────────────────────────────────────────────────────────────
-    # RAG index + retrieval
-    # ───────────────────────────────────────────────────────────────────
     def _build_rag_index(self, texto):
         linhas = []
         for linha in texto.strip().splitlines():
@@ -349,7 +412,6 @@ class RLM:
             if s <= 0: continue
             if linhas_recentes and i in linhas_recentes:
                 s *= self.rag_penalidade_reuso
-            # bônus para linhas curtas (mais prováveis de serem respostas completas)
             n = len(linha.split())
             if n <= 8:  s *= self.rag_bonus_curta
             elif n <= 15: s *= self.rag_bonus_media
@@ -358,7 +420,6 @@ class RLM:
         scores.sort(key=lambda x: -x[0])
         return [(linha, s, i) for s, i, linha in scores[:top_k]]
 
-    # ───────────────────────────────────────────────────────────────────
     def _is_question(self, linha):
         l = linha.strip()
         return l.endswith("?") or l.endswith("?!")
@@ -374,12 +435,7 @@ class RLM:
         if score >= self.rag_threshold_media: return "media"
         return "baixa"
 
-    # ───────────────────────────────────────────────────────────────────
-    # AMOSTRAGEM DO TOP-K (o insight central da v6.5)
-    # ───────────────────────────────────────────────────────────────────
     def _sample_from_topk(self, retrieved, temperatura):
-        """Amostra uma linha do top-K ponderada por score e temperatura.
-        É o oposto de greedy: reflete 'as mil formas possíveis de responder'."""
         if not retrieved: return None
         if len(retrieved) == 1 or temperatura <= 0:
             return retrieved[0]
@@ -391,10 +447,7 @@ class RLM:
         idx = int(np.random.choice(len(retrieved), p=p))
         return retrieved[idx]
 
-    # ───────────────────────────────────────────────────────────────────
     def _fallback_honesto(self, retrieved):
-        """Quando nada é suficientemente bom, seja honesto em vez de
-        alucinar. Mostra as melhores correspondências como 'pistas'."""
         if not retrieved:
             return "Não tenho nada no que aprendi que se aproxime disso."
         top = retrieved[:3]
@@ -402,21 +455,15 @@ class RLM:
         return (f"Não tenho certeza do que responder a isso. "
                 f"O mais próximo que aprendi foi: {pistas}")
 
-    # ───────────────────────────────────────────────────────────────────
     def _assemble_query_context(self, texto, ultimo_par):
-        """Para consultas curtas ('sim', 'não', 'continue'), herda contexto
-        do turno anterior. Isso é o que dá coerência multi-turno."""
         if not ultimo_par:
             return texto
         n = len(_tokenize(texto))
-        if n <= 3:  # consulta curta → precisa de contexto
+        if n <= 3:
             pergunta_ant, resposta_ant = ultimo_par
             return f"{pergunta_ant} {resposta_ant} {texto}"
         return texto
 
-    # ───────────────────────────────────────────────────────────────────
-    # perfis / vizinhos (iguais v6.3)
-    # ───────────────────────────────────────────────────────────────────
     def _calcular_stats_globais(self):
         sucs  = [len(la.sucessores) for la in self.lastros.values()]
         freqs = [len(la.dados_ids) for la in self.lastros.values()]
@@ -536,7 +583,6 @@ class RLM:
                     t[prox] += self.peso_vizinho * score * cnt
             la.transicoes_aum = t
 
-    # ───────────────────────────────────────────────────────────────────
     def absorver(self, texto):
         linhas = 0
         for i, linha in enumerate(texto.strip().splitlines()):
@@ -575,9 +621,6 @@ class RLM:
             self.absorver(f.read())
         return self
 
-    # ───────────────────────────────────────────────────────────────────
-    # heads + KV cache
-    # ───────────────────────────────────────────────────────────────────
     def _head_pos(self, li, lj):
         return math.exp(-abs(li.pos - lj.pos) / self.tau_pos)
     def _head_forma(self, li, lj):
@@ -668,17 +711,12 @@ class RLM:
         p = np.exp(z); p /= p.sum()
         return top[int(np.random.choice(len(top), p=p))][0]
 
-    # ───────────────────────────────────────────────────────────────────
-    # PERCEBER (v6.5)
-    # ───────────────────────────────────────────────────────────────────
     def perceber(self, texto, cache_memoria=None, passos=12, temperatura=0.5,
                  alpha=0.5, min_passos=3, mostrar=True,
                  modo="rag", janela_ctx=12,
                  seeds_usados=None, linhas_recentes=None, ultimo_par=None):
         consulta = tuple(r for r in self._acende(texto, criar=False)
                          if r in self.lastros)
-
-        # contexto multi-turno: se a consulta for curta, herda contexto
         consulta_ctx = self._assemble_query_context(texto, ultimo_par)
 
         if mostrar:
@@ -687,7 +725,6 @@ class RLM:
             if consulta_ctx != texto:
                 print(f"  [contexto herdado] '{consulta_ctx}'")
 
-        # ─── FASE 1: retrieval ───
         retrieved = []
         top_linha, top_score, top_idx = None, 0.0, None
         if modo in ("rag", "rag_puro", "rag_curto", "rag_longo"):
@@ -700,7 +737,6 @@ class RLM:
             if retrieved:
                 top_linha, top_score, top_idx = retrieved[0]
 
-        # ─── FASE 2: decidir resposta por banda de confiança ───
         self._last_rag_info = {"top_linha": top_linha, "top_idx": top_idx,
                                 "banda": None, "amostrada": False}
 
@@ -711,14 +747,12 @@ class RLM:
         if modo == "rag" and top_linha:
             banda = self._confidence_band(top_score)
 
-            # ALTA: retorna verbatim (sem eco)
             if banda == "alta" and not self._is_echo(top_linha, texto):
                 if mostrar:
                     print(f"  [confiança ALTA ({top_score:.3f}) → resposta direta]")
                 self._last_rag_info.update({"banda": "alta"})
                 return top_linha
 
-            # ALTA + pergunta + próxima linha é resposta válida → Q&A chaining
             if banda == "alta" and top_idx is not None and self._is_question(top_linha):
                 if top_idx + 1 < len(self._rag_lines):
                     nxt = self._rag_lines[top_idx + 1][0]
@@ -731,7 +765,6 @@ class RLM:
                                                     "top_idx": top_idx + 1})
                         return nxt
 
-            # MÉDIA: amostra do top-3 (as "formas possíveis")
             if banda == "media":
                 amostra = self._sample_from_topk(retrieved[:3], temperatura)
                 if amostra:
@@ -743,14 +776,12 @@ class RLM:
                                                 "top_idx": i})
                     return l
 
-            # BAIXA: honestidade
             if banda == "baixa":
                 if mostrar:
                     print(f"  [confiança BAIXA ({top_score:.3f}) → fallback honesto]")
                 self._last_rag_info.update({"banda": "baixa"})
                 return self._fallback_honesto(retrieved)
 
-        # ─── FASE 3: gerar (limitado) ───
         passos_ger = passos
         if modo == "rag_curto": passos_ger = min(5, passos)
         elif modo == "rag": passos_ger = min(5, passos)
@@ -842,7 +873,6 @@ class RLM:
         if mostrar: print(f"  -> {resultado}")
         return resultado
 
-    # ───────────────────────────────────────────────────────────────────
     def salvar_estado(self, caminho="rlm_state.pkl"):
         with open(caminho, "wb") as f:
             pickle.dump({
@@ -877,6 +907,357 @@ class RLM:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# PROMPT HANDLE — "prompt como ambiente" (paper RLM, MIT 2026)
+# ═══════════════════════════════════════════════════════════════════════
+class PromptHandle:
+    def __init__(self, rlm):
+        self.rlm = rlm
+        self._linhas = [l for l, _ in rlm._rag_lines]
+        self._emb = np.full((len(self._linhas), 5), np.nan, dtype=float)
+        for i, linha in enumerate(self._linhas):
+            embs = []
+            for t in _tokenize(linha):
+                rid = rlm._hash(t)
+                la = rlm.lastros.get(rid)
+                if la is not None and la.perfil is not None:
+                    embs.append(la.perfil)
+            if embs:
+                self._emb[i] = np.mean(embs, axis=0)
+
+    def __len__(self):
+        return len(self._linhas)
+
+    def peek(self, i):
+        return self._linhas[i] if 0 <= i < len(self._linhas) else ""
+
+    def chunks(self, k=8):
+        for i in range(0, len(self._linhas), k):
+            yield (i, "\n".join(self._linhas[i:i + k]))
+
+    def semantic_top(self, pergunta, m=20):
+        if not len(self._linhas):
+            return []
+        q_parts = []
+        for t in _tokenize(pergunta):
+            rid = self.rlm._hash(t)
+            la = self.rlm.lastros.get(rid)
+            if la is not None and la.perfil is not None:
+                q_parts.append(la.perfil)
+        if not q_parts:
+            return list(range(min(m, len(self._linhas))))
+        q_emb = np.mean(q_parts, axis=0)
+        q_emb = q_emb / (np.linalg.norm(q_emb) + 1e-9)
+        valid = ~np.isnan(self._emb).any(axis=1)
+        sims = np.full(len(self._linhas), -1.0, dtype=float)
+        if valid.any():
+            E = self._emb[valid]
+            E = E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-9)
+            sims[valid] = E @ q_emb
+        return np.argsort(-sims)[:m].tolist()
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# MOTOR LLM RECURSIVO — agora com Attention Residuals
+# ═══════════════════════════════════════════════════════════════════════
+class MotorLLMRecursivo:
+    """
+    Orquestra o RLM em raciocínio multi-nível.
+
+    Estratégias:
+      "hibrido"        — decomposição + crítica + refino
+      "decomposicao"   — só decompõe
+      "refino"         — só refina
+      "critica"        — só crítica + refino
+      "denso"          — SEMPRE processamento denso (PromptHandle + varredura)
+      "hibrido_denso"  — denso SÓ se _detectar_densa() identificar agregação
+
+    AttnRes:
+      use_attn_res=True → síntese usa AttentionResidual (softmax sobre respostas)
+      use_attn_res=False → fallback Jaccard (comportamento v6.7)
+    """
+
+    _CONECTORES = re.compile(
+        r'\s*(?:;|\.\.\.|,)\s*|'
+        r'\s+(?:e|ou|mas|porém|porque|pois|também|além\s+disso|'
+        r'depois|então|enquanto|quando|se|caso)\s+',
+        re.IGNORECASE,
+    )
+
+    def __init__(self, rlm, max_depth=2, max_refinos=2,
+                 limiar_convergencia=0.82, strategy="hibrido",
+                 min_tokens_decompor=5, verbose=False,
+                 max_linhas_denso=40, use_attn_res=True):
+        self.rlm = rlm
+        self.max_depth = max_depth
+        self.max_refinos = max_refinos
+        self.limiar_convergencia = limiar_convergencia
+        self.strategy = strategy
+        self.min_tokens_decompor = min_tokens_decompor
+        self.verbose = verbose
+        self.max_linhas_denso = max_linhas_denso
+        self.use_attn_res = use_attn_res
+        self._attn_res = AttentionResidual(rlm)
+        self._trace = []
+        self._calls = 0
+        self._last_info = {}
+        self._cached_handle = None
+        self._cached_handle_len = -1
+
+    # ─── utilidades ────────────────────────────────────────────────
+    def _sim(self, a, b):
+        ta, tb = set(_tokenize(a)), set(_tokenize(b))
+        if not ta or not tb:
+            return 0.0
+        return len(ta & tb) / len(ta | tb)
+
+    def _decompor(self, texto):
+        toks = _tokenize(texto)
+        if len(toks) < self.min_tokens_decompor:
+            return [texto]
+        partes = [p.strip() for p in self._CONECTORES.split(texto) if p.strip()]
+        partes = [p for p in partes if len(_tokenize(p)) >= 3]
+        if len(partes) <= 1:
+            return [texto]
+        if texto.count("?") >= 2:
+            return partes
+        lens = [len(_tokenize(p)) for p in partes]
+        if min(lens) / max(lens) >= 0.55:
+            return partes
+        return [texto]
+
+    def _get_handle(self):
+        n_current = len(self.rlm._rag_lines)
+        if (self._cached_handle is None
+                or self._cached_handle_len != n_current):
+            self._cached_handle = PromptHandle(self.rlm)
+            self._cached_handle_len = n_current
+        return self._cached_handle
+
+    def _perceber(self, pergunta, kwargs):
+        self._calls += 1
+        return self.rlm.perceber(
+            pergunta,
+            cache_memoria=kwargs.get("cache_memoria"),
+            passos=kwargs.get("passos", 12),
+            temperatura=kwargs.get("temperatura", 0.5),
+            alpha=kwargs.get("alpha", 0.5),
+            modo=kwargs.get("sub_modo", "rag"),
+            janela_ctx=kwargs.get("janela_ctx", 12),
+            seeds_usados=kwargs.get("seeds_usados"),
+            linhas_recentes=kwargs.get("linhas_recentes"),
+            ultimo_par=kwargs.get("ultimo_par"),
+            mostrar=False,
+        )
+
+    def batch_subcall(self, perguntas, **kwargs):
+        return [self._perceber(q, kwargs) for q in perguntas]
+
+    def _detectar_densa(self, pergunta):
+        toks = _tokenize(pergunta)
+        if len(toks) < 4:
+            return False
+        low = pergunta.lower()
+        if re.search(
+            r'\b(todos?|todas?|liste|listar|enumere|quantos?|quantas?|quais)\b',
+            low):
+            return True
+        if pergunta.count("?") >= 2:
+            return True
+        if 'entre' in low and re.search(r'rela(ç|c)(ão|ao|ões|oes)', low):
+            return True
+        return False
+
+    # ─── síntese com AttnRes ───────────────────────────────────────
+    def _sintetizar(self, respostas, pergunta=None):
+        respostas = [r for r in respostas
+                     if r and not r.startswith("Não tenho")]
+        if not respostas:
+            return None
+        if len(respostas) == 1:
+            return respostas[0]
+
+        # AttnRes: atenção softmax sobre a profundidade (respostas)
+        if self.use_attn_res and pergunta is not None:
+            return self._attn_res.forward(pergunta, respostas)
+
+        # Fallback Jaccard (v6.7)
+        scores = []
+        for i, r in enumerate(respostas):
+            sim = sum(self._sim(r, o)
+                      for j, o in enumerate(respostas) if j != i)
+            scores.append((sim / max(len(respostas) - 1, 1), i))
+        scores.sort(reverse=True)
+        return respostas[scores[0][1]]
+
+    def _sintetizar_denso(self, respostas, pergunta):
+        return self._sintetizar(respostas, pergunta=pergunta)
+
+    # ─── núcleo do modo denso ──────────────────────────────────────
+    def _raciocinar_denso(self, pergunta, kwargs):
+        handle = kwargs.pop("_prompt_handle", None) or self._get_handle()
+        n = len(handle)
+        if n == 0:
+            return self._perceber(pergunta, kwargs)
+
+        if n > 60:
+            retrieved = self.rlm._rag_retrieve(
+                pergunta, top_k=self.max_linhas_denso)
+            indices = [i for _, _, i in retrieved] or \
+                      list(range(min(self.max_linhas_denso, n)))
+        elif n > 20:
+            indices = handle.semantic_top(pergunta, m=self.max_linhas_denso)
+        else:
+            indices = list(range(n))
+
+        if self.verbose:
+            print(f"  [denso] varrendo {len(indices)}/{n} linhas")
+
+        relevantes = []
+        for i in indices:
+            linha = handle.peek(i)
+            if not linha:
+                continue
+            consulta = f"{pergunta} {linha}"
+            self._calls += 1
+            r = self.rlm.perceber(
+                consulta, modo="rag", mostrar=False,
+                temperatura=0.0,
+                cache_memoria=kwargs.get("cache_memoria"),
+                alpha=kwargs.get("alpha", 0.5),
+                janela_ctx=kwargs.get("janela_ctx", 12),
+            )
+            info = getattr(self.rlm, "_last_rag_info", {}) or {}
+            banda = info.get("banda")
+            if banda in ("alta", "media", "alta_qa") and r:
+                relevantes.append((i, linha, r))
+
+        if self.verbose:
+            print(f"  [denso] {len(relevantes)} linhas com confiança ≥ média")
+
+        if not relevantes:
+            amostra = "\n".join(handle.peek(i) for i in indices[:8])
+            return self._perceber(
+                f"{pergunta}\n\nContexto próximo:\n{amostra}", kwargs)
+
+        sintese = self._sintetizar_denso([r for _, _, r in relevantes], pergunta)
+        if sintese:
+            self._trace.append(("denso", pergunta, sintese))
+            return sintese
+        return self._perceber(pergunta, kwargs)
+
+    # ─── refinamento iterativo ─────────────────────────────────────
+    def _refinar(self, pergunta, resposta0, profundidade, kwargs):
+        atual = resposta0
+        historico = [atual]
+        for i in range(self.max_refinos):
+            consulta_refino = f"{pergunta} {atual}"
+            nova = self._perceber(consulta_refino, kwargs)
+            if not nova or nova == atual:
+                break
+            sim = self._sim(atual, nova)
+            historico.append(nova)
+            if self.verbose:
+                print(f"    {'  ' * profundidade}[refino {i}] sim={sim:.2f} | {nova[:60]}")
+            if sim >= self.limiar_convergencia:
+                atual = nova if len(nova) > len(atual) else atual
+                break
+            atual = nova
+        return atual, historico
+
+    def _critica(self, pergunta, resposta):
+        if not resposta or resposta.startswith("Não tenho"):
+            return None
+        toks = [t for t in _tokenize(resposta) if len(t) > 3]
+        if not toks:
+            return None
+        amostra = random.sample(toks, min(2, len(toks)))
+        return (f"o que é {amostra[0]}? "
+                f"qual a relação entre {amostra[0]} e {pergunta}?")
+
+    # ─── núcleo recursivo ──────────────────────────────────────────
+    def raciocinar(self, pergunta, **kwargs):
+        self._trace = []
+        self._calls = 0
+        self._last_info = {"depth": self.max_depth,
+                           "refinos": self.max_refinos,
+                           "strategy": self.strategy}
+
+        modo_denso_explicito = kwargs.pop("modo_denso", False)
+        usar_denso = (
+            modo_denso_explicito
+            or self.strategy == "denso"
+            or (self.strategy == "hibrido_denso"
+                and self._detectar_densa(pergunta))
+        )
+
+        if usar_denso:
+            if self.verbose:
+                print(f"  [motor] modo Denso ativado")
+            return self._raciocinar_denso(pergunta, kwargs)
+
+        if self.strategy == "hibrido_denso":
+            saved = self.strategy
+            self.strategy = "hibrido"
+            try:
+                return self._raciocinar(pergunta, 0, kwargs)
+            finally:
+                self.strategy = saved
+
+        return self._raciocinar(pergunta, 0, kwargs)
+
+    def _raciocinar(self, pergunta, profundidade, kwargs):
+        prefixo = "  " * profundidade
+
+        if profundidade > self.max_depth:
+            return self._perceber(pergunta, kwargs)
+
+        if self.strategy in ("hibrido", "decomposicao"):
+            partes = self._decompor(pergunta)
+            if len(partes) > 1:
+                if self.verbose:
+                    print(f"{prefixo}[decompõe d={profundidade}] {len(partes)} partes")
+                respostas = []
+                for sub in partes:
+                    r = self._raciocinar(sub, profundidade + 1, kwargs)
+                    if r:
+                        respostas.append(r)
+                sintese = self._sintetizar(respostas, pergunta=pergunta)
+                if sintese:
+                    self._trace.append(("decomposta", pergunta, sintese))
+                    if self.strategy == "decomposicao":
+                        return sintese
+                    if self.max_refinos > 0:
+                        refinada, _ = self._refinar(
+                            pergunta, sintese, profundidade, kwargs)
+                        self._trace.append(("refinada", pergunta, refinada))
+                        return refinada
+                    return sintese
+
+        base = self._perceber(pergunta, kwargs)
+        if not base:
+            return base
+
+        if (self.strategy in ("hibrido", "critica")
+                and profundidade < self.max_depth):
+            critica = self._critica(pergunta, base)
+            if critica:
+                if self.verbose:
+                    print(f"{prefixo}[crítica] {critica[:60]}")
+                info_extra = self._raciocinar(critica, profundidade + 1, kwargs)
+                if info_extra and info_extra != base:
+                    base = self._sintetizar([base, info_extra],
+                                            pergunta=pergunta) or base
+                    self._trace.append(("critica", pergunta, base))
+
+        if self.strategy in ("hibrido", "refino", "critica"):
+            refinada, _ = self._refinar(pergunta, base, profundidade, kwargs)
+            self._trace.append(("refinada", pergunta, refinada))
+            return refinada
+
+        return base
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
@@ -884,7 +1265,7 @@ if __name__ == "__main__":
     ARQUIVO_ESTADO = "rlm_state.pkl"
 
     print("=" * 70)
-    print("RLM-Lastrimy v6.5 — Amostragem + Confiança + Multi-turno")
+    print("RLM-Lastrimy v6.8 — AttnRes + Motor Recursivo + PromptHandle")
     print("=" * 70)
 
     kwargs = dict(
@@ -906,9 +1287,20 @@ if __name__ == "__main__":
         rlm.absorver_arquivo(ARQUIVO_CORPUS)
         rlm.salvar_estado(ARQUIVO_ESTADO)
 
-    MODOS = ("rag", "rag_puro", "rag_curto", "rag_longo", "responder", "continuar")
+    # use_attn_res=True ativa a síntese por AttentionResidual
+    motor = MotorLLMRecursivo(rlm, max_depth=2, max_refinos=2,
+                              strategy="hibrido", verbose=True,
+                              max_linhas_denso=40, use_attn_res=True)
 
-    print("\nModos: rag (padrão) | rag_puro | rag_curto | rag_longo | responder | continuar")
+    MODOS = ("rag", "rag_puro", "rag_curto", "rag_longo",
+             "responder", "continuar",
+             "recursivo", "recursivo_profundo",
+             "denso", "hibrido_denso")
+
+    print("\nModos:")
+    print("  rag | rag_puro | rag_curto | rag_longo | responder | continuar")
+    print("  recursivo (leve) | recursivo_profundo (pesado)")
+    print("  denso (varredura total) | hibrido_denso (detector automático)")
     print("Comandos: sair | T=0.3 | a=0.7 | limpar | thA=0.6 | thM=0.35 | m=rag")
     print("-" * 70)
 
@@ -919,7 +1311,7 @@ if __name__ == "__main__":
     cache_memoria = set()
     seeds_usados = set()
     linhas_usadas = []
-    ultimo_par = None   # (pergunta, resposta) da última interação
+    ultimo_par = None
 
     while True:
         try:
@@ -965,18 +1357,71 @@ if __name__ == "__main__":
 
         print("-" * 70)
 
-        resposta = rlm.perceber(
-            entrada,
-            cache_memoria=cache_memoria,
-            passos=12,
-            temperatura=temperatura,
-            alpha=alpha,
-            modo=modo,
-            janela_ctx=janela_ctx,
-            seeds_usados=seeds_usados if modo == "responder" else None,
-            linhas_recentes=linhas_usadas if modo == "rag" else None,
-            ultimo_par=ultimo_par,
-        )
+        if modo in ("recursivo", "recursivo_profundo"):
+            motor.max_depth   = 2 if modo == "recursivo" else 3
+            motor.max_refinos = 2 if modo == "recursivo" else 3
+            motor.strategy    = "hibrido"
+            resposta = motor.raciocinar(
+                entrada,
+                cache_memoria=cache_memoria,
+                temperatura=temperatura,
+                alpha=alpha,
+                janela_ctx=janela_ctx,
+                seeds_usados=seeds_usados,
+                linhas_recentes=linhas_usadas,
+                ultimo_par=ultimo_par,
+                sub_modo="rag",
+            )
+            if motor._trace:
+                print(f"  [motor] {motor._calls} subcalls | "
+                      f"{len(motor._trace)} passos")
+                for tipo, q, r in motor._trace[-3:]:
+                    print(f"    · {tipo}: '{q[:42]}' → '{r[:42]}'")
+
+        elif modo == "denso":
+            motor.strategy = "denso"
+            motor.verbose  = True
+            resposta = motor.raciocinar(
+                entrada,
+                cache_memoria=cache_memoria,
+                temperatura=temperatura,
+                alpha=alpha,
+                janela_ctx=janela_ctx,
+                ultimo_par=ultimo_par,
+                sub_modo="rag",
+            )
+            print(f"  [denso] {motor._calls} subcalls")
+
+        elif modo == "hibrido_denso":
+            motor.strategy = "hibrido_denso"
+            motor.verbose  = True
+            resposta = motor.raciocinar(
+                entrada,
+                cache_memoria=cache_memoria,
+                temperatura=temperatura,
+                alpha=alpha,
+                janela_ctx=janela_ctx,
+                seeds_usados=seeds_usados,
+                linhas_recentes=linhas_usadas,
+                ultimo_par=ultimo_par,
+                sub_modo="rag",
+            )
+            print(f"  [hibrido_denso] {motor._calls} subcalls")
+
+        else:
+            resposta = rlm.perceber(
+                entrada,
+                cache_memoria=cache_memoria,
+                passos=12,
+                temperatura=temperatura,
+                alpha=alpha,
+                modo=modo,
+                janela_ctx=janela_ctx,
+                seeds_usados=seeds_usados if modo == "responder" else None,
+                linhas_recentes=linhas_usadas if modo == "rag" else None,
+                ultimo_par=ultimo_par,
+            )
+
         resposta = resposta.replace("⟨EOS⟩", "").replace("⟨BOS⟩", "").strip()
 
         if not resposta:
@@ -1002,7 +1447,6 @@ if __name__ == "__main__":
                     if len(linhas_usadas) > 6:
                         linhas_usadas.pop(0)
 
-            # guarda o par para multi-turno
             ultimo_par = (entrada, resposta)
 
         print("-" * 70)
