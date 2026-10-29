@@ -1,13 +1,14 @@
 """
-RLM-Lastrimy v6.8 — Amostragem + Confiança + Multi-turno
-                    + Motor Recursivo + PromptHandle
-                    + Attention Residuals (AttnRes) na síntese recursiva
+RLM-Lastrimy v6.9 — Recursivo como padrão + Anti-surto
 =========================================================================
-v6.8 adiciona (inspirado em arxiv.org/pdf/2603.15031):
-- AttentionResidual: agregação softmax sobre "profundidade" (respostas recursivas)
-- Pseudo-query aprendida = embedding da pergunta original
-- Substitui Jaccard por atenção content-aware na síntese do MotorLLMRecursivo
-- Mantém fallback Jaccard quando AttnRes está desativado ou indisponível
+v6.9:
+- Modo PADRÃO agora é "recursivo" (não "rag")
+- Patch 1: _pergunta_simples() → bypass de recursão em perguntas curtas
+- Patch 2: _critica() extrai entidade da PERGUNTA (não da resposta)
+- Patch 3: gate de banda ALTA no _raciocinar (não refina o que já está certo)
+- Patch 4: _refinar() detecta oscilação e eco da pergunta (para antes de piorar)
+
+Tudo do v6.8 preservado (AttnRes, PromptHandle, MotorLLMRecursivo, GNS).
 """
 
 import hashlib
@@ -157,36 +158,20 @@ def _tokenize(texto):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# ATTENTION RESIDUAL (AttnRes) — agregação softmax sobre profundidade
+# ATTENTION RESIDUAL (AttnRes)
 # ═══════════════════════════════════════════════════════════════════════
 class AttentionResidual:
-    """
-    Implementação do AttnRes do paper arxiv:2603.15031, adaptada para
-    respostas textuais da recursão.
-
-    Dado um conjunto de "valores" (respostas) e uma "pseudo-query"
-    (pergunta original), calcula pesos softmax e retorna a agregação.
-
-    No paper, a agregação é linear sobre tensores. Aqui, como os valores
-    são strings, a "agregação" é a seleção da resposta com maior peso
-    (hard attention), que é o análogo discreto da soma ponderada.
-    """
-
     def __init__(self, rlm):
         self.rlm = rlm
-        # pseudo-query aprendida: usamos o embedding da pergunta como proxy.
-        # Em um modelo treinável, w_l seria um vetor aprendido por camada.
-        # Aqui, a "camada" é a síntese final, então w = embedding(pergunta).
 
     def _embed(self, texto):
-        """Embedding de um texto via perfil/pesos_head dos lastros."""
         partes = []
         for t in _tokenize(texto):
             rid = self.rlm._hash(t)
             la = self.rlm.lastros.get(rid)
             if la is not None:
                 if la.pesos_head is not None:
-                    partes.append(la.pesos_head)   # 5-dim, softmax do perfil
+                    partes.append(la.pesos_head)
                 elif la.perfil is not None:
                     partes.append(la.perfil)
         if not partes:
@@ -194,32 +179,17 @@ class AttentionResidual:
         return np.mean(partes, axis=0)
 
     def forward(self, pergunta, valores):
-        """
-        valores: lista de strings (respostas das sub-consultas).
-        Retorna: a string selecionada pela atenção softmax.
-        """
         if not valores:
             return None
         if len(valores) == 1:
             return valores[0]
-
-        # V: [N, d] — valores empilhados
         V = np.stack([self._embed(v) for v in valores])
-        # q: [d] — pseudo-query (embedding da pergunta)
         q = self._embed(pergunta)
-
-        # Normalização L2 (como no paper, as chaves são normalizadas)
         V_norm = V / (np.linalg.norm(V, axis=1, keepdims=True) + 1e-9)
         q_norm = q / (np.linalg.norm(q) + 1e-9)
-
-        # logits = q · k_i  (produto escalar)
         logits = V_norm @ q_norm
-
-        # softmax sobre a profundidade
         alpha = np.exp(logits - logits.max())
         alpha /= alpha.sum()
-
-        # hard attention: seleciona o valor de maior peso
         idx = int(np.argmax(alpha))
         return valores[idx]
 
@@ -907,7 +877,7 @@ class RLM:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PROMPT HANDLE — "prompt como ambiente" (paper RLM, MIT 2026)
+# PROMPT HANDLE
 # ═══════════════════════════════════════════════════════════════════════
 class PromptHandle:
     def __init__(self, rlm):
@@ -957,23 +927,17 @@ class PromptHandle:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MOTOR LLM RECURSIVO — agora com Attention Residuals
+# MOTOR LLM RECURSIVO — v6.9 com 4 patches anti-surto
 # ═══════════════════════════════════════════════════════════════════════
 class MotorLLMRecursivo:
     """
     Orquestra o RLM em raciocínio multi-nível.
 
-    Estratégias:
-      "hibrido"        — decomposição + crítica + refino
-      "decomposicao"   — só decompõe
-      "refino"         — só refina
-      "critica"        — só crítica + refino
-      "denso"          — SEMPRE processamento denso (PromptHandle + varredura)
-      "hibrido_denso"  — denso SÓ se _detectar_densa() identificar agregação
-
-    AttnRes:
-      use_attn_res=True → síntese usa AttentionResidual (softmax sobre respostas)
-      use_attn_res=False → fallback Jaccard (comportamento v6.7)
+    v6.9 patches:
+      P1. _pergunta_simples() → bypass de recursão
+      P2. _critica() extrai entidade da PERGUNTA
+      P3. gate de banda ALTA (não refina o que já está certo)
+      P4. _refinar() detecta oscilação/eco
     """
 
     _CONECTORES = re.compile(
@@ -982,6 +946,18 @@ class MotorLLMRecursivo:
         r'depois|então|enquanto|quando|se|caso)\s+',
         re.IGNORECASE,
     )
+
+    _STOP_CONTEUDO = {
+        "maior", "menor", "melhor", "pior", "bom", "boa", "ruim",
+        "grande", "pequeno", "pequena", "muito", "muita", "pouco", "pouca",
+        "mais", "menos", "onde", "quando", "como", "qual", "quais",
+        "porque", "sobre", "para", "isso", "aquilo", "coisa", "gente",
+        "pessoa", "aqui", "agora", "tudo", "nada", "sim", "não",
+        "você", "esta", "está", "estou", "estamos", "obrigado", "obrigada",
+        "agradecer", "agradeço", "ajuda", "ajudar", "favor", "por",
+        "sempre", "nunca", "talvez", "ainda", "depois", "antes",
+        "hoje", "ontem", "amanhã", "medo", "amor", "coração",
+    }
 
     def __init__(self, rlm, max_depth=2, max_refinos=2,
                  limiar_convergencia=0.82, strategy="hibrido",
@@ -1025,6 +1001,16 @@ class MotorLLMRecursivo:
             return partes
         return [texto]
 
+    def _pergunta_simples(self, pergunta):
+        """P1: perguntas curtas ou sem conectores não ganham com recursão."""
+        toks = _tokenize(pergunta)
+        if len(toks) <= 6:
+            return True
+        if not re.search(r'\b(e|ou|mas|porque|pois|relação|entre|além)\b',
+                         pergunta.lower()):
+            return True
+        return False
+
     def _get_handle(self):
         n_current = len(self.rlm._rag_lines)
         if (self._cached_handle is None
@@ -1067,7 +1053,6 @@ class MotorLLMRecursivo:
             return True
         return False
 
-    # ─── síntese com AttnRes ───────────────────────────────────────
     def _sintetizar(self, respostas, pergunta=None):
         respostas = [r for r in respostas
                      if r and not r.startswith("Não tenho")]
@@ -1075,12 +1060,8 @@ class MotorLLMRecursivo:
             return None
         if len(respostas) == 1:
             return respostas[0]
-
-        # AttnRes: atenção softmax sobre a profundidade (respostas)
         if self.use_attn_res and pergunta is not None:
             return self._attn_res.forward(pergunta, respostas)
-
-        # Fallback Jaccard (v6.7)
         scores = []
         for i, r in enumerate(respostas):
             sim = sum(self._sim(r, o)
@@ -1092,7 +1073,7 @@ class MotorLLMRecursivo:
     def _sintetizar_denso(self, respostas, pergunta):
         return self._sintetizar(respostas, pergunta=pergunta)
 
-    # ─── núcleo do modo denso ──────────────────────────────────────
+    # ─── modo denso ───────────────────────────────────────────────
     def _raciocinar_denso(self, pergunta, kwargs):
         handle = kwargs.pop("_prompt_handle", None) or self._get_handle()
         n = len(handle)
@@ -1145,36 +1126,57 @@ class MotorLLMRecursivo:
             return sintese
         return self._perceber(pergunta, kwargs)
 
-    # ─── refinamento iterativo ─────────────────────────────────────
+    # ─── P4: refino com anti-oscilação e anti-eco ─────────────────
     def _refinar(self, pergunta, resposta0, profundidade, kwargs):
         atual = resposta0
         historico = [atual]
+        sim_anterior = None
         for i in range(self.max_refinos):
             consulta_refino = f"{pergunta} {atual}"
             nova = self._perceber(consulta_refino, kwargs)
             if not nova or nova == atual:
                 break
+            if self._sim(nova, pergunta) > 0.70:
+                if self.verbose:
+                    print(f"    {'  ' * profundidade}[refino {i}] eco da pergunta → para")
+                break
             sim = self._sim(atual, nova)
             historico.append(nova)
             if self.verbose:
                 print(f"    {'  ' * profundidade}[refino {i}] sim={sim:.2f} | {nova[:60]}")
+            if sim_anterior is not None and sim < sim_anterior:
+                if self.verbose:
+                    print(f"    {'  ' * profundidade}[refino {i}] "
+                          f"oscilou ({sim_anterior:.2f}→{sim:.2f}) → para")
+                break
+            sim_anterior = sim
             if sim >= self.limiar_convergencia:
                 atual = nova if len(nova) > len(atual) else atual
                 break
             atual = nova
         return atual, historico
 
+    # ─── P2: crítica extrai entidade da PERGUNTA ──────────────────
     def _critica(self, pergunta, resposta):
         if not resposta or resposta.startswith("Não tenho"):
             return None
-        toks = [t for t in _tokenize(resposta) if len(t) > 3]
-        if not toks:
+        cands = []
+        n_linhas = len(self.rlm._rag_lines)
+        for t in _tokenize(pergunta):
+            if len(t) < 5:
+                continue
+            if t in self._STOP_CONTEUDO:
+                continue
+            if n_linhas > 0:
+                df = sum(1 for l, _ in self.rlm._rag_lines if t in l.lower())
+                if df / n_linhas > 0.20:
+                    continue
+            cands.append(t)
+        if not cands:
             return None
-        amostra = random.sample(toks, min(2, len(toks)))
-        return (f"o que é {amostra[0]}? "
-                f"qual a relação entre {amostra[0]} e {pergunta}?")
+        return f"o que é {cands[0]}?"
 
-    # ─── núcleo recursivo ──────────────────────────────────────────
+    # ─── núcleo recursivo ─────────────────────────────────────────
     def raciocinar(self, pergunta, **kwargs):
         self._trace = []
         self._calls = 0
@@ -1194,6 +1196,13 @@ class MotorLLMRecursivo:
             if self.verbose:
                 print(f"  [motor] modo Denso ativado")
             return self._raciocinar_denso(pergunta, kwargs)
+
+        # P1: bypass de pergunta simples (exceto se strategy=decomposicao pura)
+        if (self.strategy in ("hibrido", "refino", "critica")
+                and self._pergunta_simples(pergunta)):
+            if self.verbose:
+                print(f"  [motor] pergunta simples → RAG direto (sem recursão)")
+            return self._perceber(pergunta, kwargs)
 
         if self.strategy == "hibrido_denso":
             saved = self.strategy
@@ -1237,6 +1246,13 @@ class MotorLLMRecursivo:
         if not base:
             return base
 
+        # P3: gate de banda ALTA — resposta direta, sem crítica/refino
+        info = getattr(self.rlm, "_last_rag_info", {}) or {}
+        if info.get("banda") == "alta":
+            if self.verbose:
+                print(f"{prefixo}[gate] banda ALTA → resposta direta")
+            return base
+
         if (self.strategy in ("hibrido", "critica")
                 and profundidade < self.max_depth):
             critica = self._critica(pergunta, base)
@@ -1258,14 +1274,15 @@ class MotorLLMRecursivo:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MAIN
+# MAIN — v6.9: modo padrão = "recursivo"
 # ═══════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     ARQUIVO_CORPUS = "corpus.txt"
     ARQUIVO_ESTADO = "rlm_state.pkl"
 
     print("=" * 70)
-    print("RLM-Lastrimy v6.8 — AttnRes + Motor Recursivo + PromptHandle")
+    print("RLM-Lastrimy v6.9 — Recursivo padrão + Anti-surto")
+    print("                     (AttnRes + PromptHandle + Motor Recursivo)")
     print("=" * 70)
 
     kwargs = dict(
@@ -1287,7 +1304,6 @@ if __name__ == "__main__":
         rlm.absorver_arquivo(ARQUIVO_CORPUS)
         rlm.salvar_estado(ARQUIVO_ESTADO)
 
-    # use_attn_res=True ativa a síntese por AttentionResidual
     motor = MotorLLMRecursivo(rlm, max_depth=2, max_refinos=2,
                               strategy="hibrido", verbose=True,
                               max_linhas_denso=40, use_attn_res=True)
@@ -1298,15 +1314,14 @@ if __name__ == "__main__":
              "denso", "hibrido_denso")
 
     print("\nModos:")
-    print("  rag | rag_puro | rag_curto | rag_longo | responder | continuar")
-    print("  recursivo (leve) | recursivo_profundo (pesado)")
-    print("  denso (varredura total) | hibrido_denso (detector automático)")
+    print("  recursivo (PADRÃO) | recursivo_profundo | hibrido_denso")
+    print("  rag | rag_puro | rag_curto | rag_longo | responder | continuar | denso")
     print("Comandos: sair | T=0.3 | a=0.7 | limpar | thA=0.6 | thM=0.35 | m=rag")
     print("-" * 70)
 
     temperatura = 0.5
     alpha = 0.5
-    modo = "rag"
+    modo = "recursivo"          # ← PADRÃO MUDADO
     janela_ctx = 12
     cache_memoria = set()
     seeds_usados = set()
