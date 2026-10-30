@@ -1,10 +1,11 @@
 """
-RLM-Lastrimy v7.2 — GNS + PosEnc + AdamW + Motor Recursivo + Difusão
+RLM-Lastrimy v8.2 — Motor Recursivo + Auto-Evolução Lifelong Adaptativa
 =========================================================================
-- PositionalEncoding sinusoidal (Vaswani et al. 2017) aplicado à entrada GNS
-- AdamW (Loshchilov & Hutter 2019) com weight decay desacoplado no treino GNS
-- Flags: usar_pos_enc=True, usar_adamw=True na RedeLinhagem
-- Todo o resto do v7.1 preservado (motor recursivo simples + difusão)
+- AdaptadorLinear: ajusta hiperparâmetros linearmente com o tempo
+- MotorAutoEvolucao: detecta lacunas e faz perguntas ao usuário
+- MotorLLMRecursivo escolhe modo (recursivo/construir/denso) por performance
+- Persiste histórico de evolução em rlm_evolucao.pkl
+- Adaptação dinâmica: thresholds, temperatura, alpha, n_frags, modo padrão
 """
 
 import hashlib
@@ -13,23 +14,16 @@ import random
 import re
 import os
 import pickle
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 import numpy as np
 
 _SENT = "\uE000"
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# POSITIONAL ENCODING (sinusoidal — Vaswani et al. 2017)
+# POSITIONAL ENCODING
 # ═══════════════════════════════════════════════════════════════════════
 class PositionalEncoding:
-    """
-    Encoding posicional sinusoidal clássico:
-        PE[pos, 2i]   = sin(pos / 10000^(2i/d))
-        PE[pos, 2i+1] = cos(pos / 10000^(2i/d))
-    Aplicado à matriz de entrada X de forma (n, d): PE gerado para (n, d).
-    """
-
     def __init__(self, dropout=0.0):
         self.dropout = dropout
 
@@ -56,25 +50,16 @@ class PositionalEncoding:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# ADAMW (Adam com weight decay desacoplado — Loshchilov & Hutter 2019)
+# ADAMW
 # ═══════════════════════════════════════════════════════════════════════
 class AdamW:
-    """
-    Implementação de AdamW:
-        θ ← θ - lr · wd · θ                (decoupled weight decay)
-        m ← β1·m + (1-β1)·g
-        v ← β2·v + (1-β2)·g²
-        θ ← θ - lr · m̂ / (√v̂ + ε)
-    O weight decay NÃO é aplicado a biases (apply_decay=False).
-    """
-
-    def __init__(self, lr=0.001, betas=(0.9, 0.999), eps=1e-8,
-                 weight_decay=0.01):
+    def __init__(self, lr=0.01, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.001):
         self.lr = lr
         self.beta1, self.beta2 = betas
         self.eps = eps
         self.weight_decay = weight_decay
-        self.state = {}  # param_key → {'m', 'v', 't'}
+        self.state = {}
 
     def step(self, key, param, grad, apply_decay=True):
         if key not in self.state:
@@ -128,10 +113,10 @@ class Camada:
 
 class RedeLinhagem:
     def __init__(self, tamanhos, alpha=1.0, softmax_saida=True,
-                 usar_pos_enc=True, pos_enc_dropout=0.0,
-                 usar_adamw=True, adamw_lr=0.001,
+                 usar_pos_enc=False, pos_enc_dropout=0.0,
+                 usar_adamw=True, adamw_lr=0.01,
                  adamw_betas=(0.9, 0.999),
-                 adamw_eps=1e-8, adamw_wd=0.01):
+                 adamw_eps=1e-8, adamw_wd=0.001):
         self.tamanhos = tamanhos
         self.alpha = alpha
         self.softmax_saida = softmax_saida
@@ -149,11 +134,9 @@ class RedeLinhagem:
             M /= (M.sum(axis=1, keepdims=True) + 1e-9)
             self.matrizes_dist.append(M)
 
-        # ─── PosEnc + AdamW ───
         self.usar_pos_enc = usar_pos_enc
         self.pos_enc = PositionalEncoding(dropout=pos_enc_dropout) \
             if usar_pos_enc else None
-
         self.usar_adamw = usar_adamw
         self.opt = AdamW(lr=adamw_lr, betas=adamw_betas,
                          eps=adamw_eps, weight_decay=adamw_wd) \
@@ -257,6 +240,203 @@ def _tokenize(texto):
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# ADAPTADOR LINEAR — ajusta hiperparâmetros ao longo do tempo
+# ═══════════════════════════════════════════════════════════════════════
+class AdaptadorLinear:
+    """
+    Adapta hiperparâmetros linearmente com base em métricas observadas.
+
+    Métricas rastreadas:
+      - media_reward:       EMA do reward (0.9 antigo + 0.1 novo)
+      - taxa_sucesso:       % de interações com reward > 0
+      - taxa_fallback:      % de respostas em banda baixa
+      - diversidade:        nº de padrões distintos / interações
+      - confianca:          0→1, cresce com sucesso contínuo
+
+    Ajustes lineares:
+      - temperatura:    0.5 → 0.2 (menos exploração com mais confiança)
+      - threshold_alta: 0.55 → 0.45 (mais exigente se errou muito)
+      - threshold_media:0.30 → 0.40 (mais exigente se errou muito)
+      - alpha:          0.5 → 0.7 (mais Lastrimy quando MKN falha)
+      - n_frags:        3 → 6 (mais fragmentos com corpus maior)
+      - modo_padrao:    performance histórica escolhe
+    """
+
+    MODOS = ("recursivo", "construir", "denso")
+
+    def __init__(self):
+        self.turnos = 0
+        self.media_reward = 0.0
+        self.rewards_recentes = deque(maxlen=20)
+        self.taxa_sucesso = 0.5
+        self.taxa_fallback = 0.0
+        self.confianca = 0.3
+        self.padroes_distintos = 0
+        self.fallbacks_recentes = 0
+
+        # performance por modo
+        self.performance_modo = {
+            "recursivo": {"usos": 0, "sucesso": 0, "soma_reward": 0.0},
+            "construir": {"usos": 0, "sucesso": 0, "soma_reward": 0.0},
+            "denso":     {"usos": 0, "sucesso": 0, "soma_reward": 0.0},
+        }
+
+        # hiperparâmetros (mutáveis)
+        self.temperatura_sugerida = 0.5
+        self.threshold_alta = 0.55
+        self.threshold_media = 0.30
+        self.alpha_sugerido = 0.5
+        self.n_frags_sugerido = 3
+        self.modo_padrao = "recursivo"
+
+        # histórico de adaptação (para visualizar evolução linear)
+        self.historico = []
+
+    def registrar(self, reward, modo, foi_fallback):
+        self.turnos += 1
+        self.rewards_recentes.append(reward)
+        self.media_reward = 0.9 * self.media_reward + 0.1 * reward
+
+        if reward > 0:
+            self.taxa_sucesso = 0.9 * self.taxa_sucesso + 0.1 * 1.0
+        else:
+            self.taxa_sucesso = 0.9 * self.taxa_sucesso + 0.1 * 0.0
+
+        if foi_fallback:
+            self.fallbacks_recentes += 1
+        else:
+            self.fallbacks_recentes = max(0, self.fallbacks_recentes - 1)
+        self.taxa_fallback = self.fallbacks_recentes / max(self.turnos, 1)
+
+        # performance por modo
+        if modo in self.performance_modo:
+            p = self.performance_modo[modo]
+            p["usos"] += 1
+            p["soma_reward"] += reward
+            if reward > 0:
+                p["sucesso"] += 1
+
+        # confiança: cresce com sucesso, decresce com fallback
+        delta_conf = (0.01 if reward > 0 else -0.015)
+        self.confianca = max(0.05, min(0.95, self.confianca + delta_conf))
+
+        # adapta hiperparâmetros linearmente
+        self._adaptar()
+        self._escolher_melhor_modo()
+
+    def _adaptar(self):
+        # temperatura: decresce com confiança (0.5 → 0.2)
+        self.temperatura_sugerida = 0.5 - 0.3 * self.confianca
+
+        # threshold_alta: sobe se fallback alto, desce se sucesso alto
+        if self.taxa_fallback > 0.3:
+            self.threshold_alta = min(0.70, self.threshold_alta + 0.01)
+            self.threshold_media = min(0.50, self.threshold_media + 0.01)
+        elif self.taxa_sucesso > 0.7:
+            self.threshold_alta = max(0.40, self.threshold_alta - 0.005)
+            self.threshold_media = max(0.20, self.threshold_media - 0.005)
+
+        # alpha: mais Lastrimy se MKN falha, mais MKN se funciona
+        self.alpha_sugerido = 0.5 + 0.2 * self.taxa_sucesso
+
+        # n_frags: cresce com confiança (3 → 6)
+        self.n_frags_sugerido = 3 + int(3 * self.confianca)
+
+        # registra snapshot a cada 5 turnos
+        if self.turnos % 5 == 0:
+            self.historico.append({
+                "turno": self.turnos,
+                "confianca": round(self.confianca, 3),
+                "taxa_sucesso": round(self.taxa_sucesso, 3),
+                "taxa_fallback": round(self.taxa_fallback, 3),
+                "temperatura": round(self.temperatura_sugerida, 3),
+                "thr_alta": round(self.threshold_alta, 3),
+                "thr_media": round(self.threshold_media, 3),
+                "alpha": round(self.alpha_sugerido, 3),
+                "n_frags": self.n_frags_sugerido,
+                "modo": self.modo_padrao,
+            })
+
+    def _escolher_melhor_modo(self):
+        """Escolhe modo com maior média de reward (mín. 3 usos)."""
+        melhor_modo = self.modo_padrao
+        melhor_media = -999.0
+        for modo, p in self.performance_modo.items():
+            if p["usos"] < 3:
+                continue
+            media = p["soma_reward"] / p["usos"]
+            if media > melhor_media:
+                melhor_media = media
+                melhor_modo = modo
+        self.modo_padrao = melhor_modo
+
+    def sugerir_modo(self):
+        return self.modo_padrao
+
+    def estado_atual(self):
+        return {
+            "turnos": self.turnos,
+            "media_reward": round(self.media_reward, 3),
+            "confianca": round(self.confianca, 3),
+            "taxa_sucesso": round(self.taxa_sucesso, 3),
+            "taxa_fallback": round(self.taxa_fallback, 3),
+            "temperatura": round(self.temperatura_sugerida, 3),
+            "thr_alta": round(self.threshold_alta, 3),
+            "thr_media": round(self.threshold_media, 3),
+            "alpha": round(self.alpha_sugerido, 3),
+            "n_frags": self.n_frags_sugerido,
+            "modo_padrao": self.modo_padrao,
+            "performance_modo": {
+                m: {
+                    "usos": p["usos"],
+                    "media_reward": (round(p["soma_reward"] / p["usos"], 3)
+                                     if p["usos"] > 0 else 0.0)
+                }
+                for m, p in self.performance_modo.items()
+            },
+            "historico": self.historico[-10:],
+        }
+
+    def salvar(self, caminho="rlm_adaptador.pkl"):
+        with open(caminho, "wb") as f:
+            pickle.dump({
+                "turnos": self.turnos,
+                "media_reward": self.media_reward,
+                "taxa_sucesso": self.taxa_sucesso,
+                "taxa_fallback": self.taxa_fallback,
+                "confianca": self.confianca,
+                "performance_modo": self.performance_modo,
+                "temperatura_sugerida": self.temperatura_sugerida,
+                "threshold_alta": self.threshold_alta,
+                "threshold_media": self.threshold_media,
+                "alpha_sugerido": self.alpha_sugerido,
+                "n_frags_sugerido": self.n_frags_sugerido,
+                "modo_padrao": self.modo_padrao,
+                "historico": self.historico,
+            }, f)
+
+    def carregar(self, caminho="rlm_adaptador.pkl"):
+        if not os.path.exists(caminho):
+            return False
+        with open(caminho, "rb") as f:
+            d = pickle.load(f)
+        self.turnos = d.get("turnos", 0)
+        self.media_reward = d.get("media_reward", 0.0)
+        self.taxa_sucesso = d.get("taxa_sucesso", 0.5)
+        self.taxa_fallback = d.get("taxa_fallback", 0.0)
+        self.confianca = d.get("confianca", 0.3)
+        self.performance_modo = d.get("performance_modo", self.performance_modo)
+        self.temperatura_sugerida = d.get("temperatura_sugerida", 0.5)
+        self.threshold_alta = d.get("threshold_alta", 0.55)
+        self.threshold_media = d.get("threshold_media", 0.30)
+        self.alpha_sugerido = d.get("alpha_sugerido", 0.5)
+        self.n_frags_sugerido = d.get("n_frags_sugerido", 3)
+        self.modo_padrao = d.get("modo_padrao", "recursivo")
+        self.historico = d.get("historico", [])
+        return True
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # LASTRO E RLM
 # ═══════════════════════════════════════════════════════════════════════
 class Lastro:
@@ -272,6 +452,7 @@ class Lastro:
 
 class RLM:
     HEADS = ("pos", "forma", "ctx", "trans", "freq")
+    EMB_DIM = 21
 
     def __init__(self, n_max=4, D=0.75, tau_pos=2.0, k_vizinhos=5,
                  limiar_forma=0.70, limiar_ctx=0.15, peso_vizinho=0.5,
@@ -279,13 +460,11 @@ class RLM:
                  anti_loop_sintatico_forca=0.2, tau_perfil=1.0,
                  auto_ajuste_limiar=True, usar_rede_neural=True,
                  gns_max_vocab=800, gns_hidden=24, gns_epocas=400,
-                 gns_lr=0.05, gns_pos_enc=True, gns_adamw=True,
-                 gns_adamw_lr=0.001, gns_adamw_wd=0.01,
-                 rag_top_k=5, rag_penalidade_reuso=0.5,
-                 rag_threshold_alta=0.60, rag_threshold_media=0.35,
-                 rag_echo_limiar=0.6, rag_min_tokens_linha=2,
-                 rag_bonus_curta=1.20, rag_bonus_media=1.10,
-                 rag_penalidade_longa=0.85):
+                 gns_lr=0.05, gns_pos_enc=False, gns_adamw=True,
+                 gns_adamw_lr=0.01, gns_adamw_wd=0.001,
+                 emb_threshold_alta=0.55, emb_threshold_media=0.30,
+                 emb_penalidade_reuso=0.5, emb_echo_limiar=0.6,
+                 emb_min_tokens=2):
         self.n_max = n_max; self.D = D; self.tau_pos = tau_pos
         self.k_vizinhos = k_vizinhos
         self.limiar_forma = limiar_forma; self.limiar_ctx = limiar_ctx
@@ -303,22 +482,18 @@ class RLM:
         self.gns_adamw_lr = gns_adamw_lr
         self.gns_adamw_wd = gns_adamw_wd
 
-        self.rag_top_k = rag_top_k
-        self.rag_penalidade_reuso = rag_penalidade_reuso
-        self.rag_threshold_alta  = rag_threshold_alta
-        self.rag_threshold_media = rag_threshold_media
-        self.rag_echo_limiar = rag_echo_limiar
-        self.rag_min_tokens_linha = rag_min_tokens_linha
-        self.rag_bonus_curta = rag_bonus_curta
-        self.rag_bonus_media = rag_bonus_media
-        self.rag_penalidade_longa = rag_penalidade_longa
+        self.emb_threshold_alta  = emb_threshold_alta
+        self.emb_threshold_media = emb_threshold_media
+        self.emb_penalidade_reuso = emb_penalidade_reuso
+        self.emb_echo_limiar = emb_echo_limiar
+        self.emb_min_tokens = emb_min_tokens
 
         self.BOS = self._hash((_SENT, "BOS", -1))
         self.EOS = self._hash((_SENT, "EOS", -2))
         self.lastros = {}; self.transicoes = {}
         self._unigram = {}; self._stats_globais = {}
         self._mkn_discounts = (0.5, 1.0, 1.5)
-        self._rag_lines = []; self._rag_idf = {}
+        self._rag_lines = []
         self._last_rag_info = {}
         self._kv_init()
         self._criar_lastro(self.BOS, "⟨BOS⟩", -1)
@@ -356,6 +531,25 @@ class RLM:
             elif rid in self.lastros:
                 ramos.append(rid)
         return tuple(ramos)
+
+    def _embed_token(self, tok):
+        rid = self._hash(tok)
+        la = self.lastros.get(rid)
+        if la is None:
+            return np.zeros(self.EMB_DIM, dtype=float)
+        perfil = la.perfil if la.perfil is not None else np.zeros(5)
+        return np.concatenate([perfil, la.lf_forma])
+
+    def _embed_texto(self, texto):
+        toks = _tokenize(texto)
+        embs = []
+        for t in toks:
+            rid = self._hash(t)
+            if rid in self.lastros:
+                embs.append(self._embed_token(t))
+        if not embs:
+            return np.zeros(self.EMB_DIM, dtype=float)
+        return np.mean(embs, axis=0)
 
     def _compute_mkn_discounts(self):
         N1 = N2 = N3 = N4 = 0
@@ -404,56 +598,42 @@ class RLM:
             dist[w] = dist.get(w, 0.0) + max(cnt - D, 0.0) / total
         return dist
 
-    def _build_rag_index(self, texto):
+    def _build_embed_index(self, texto):
         linhas = []
         for linha in texto.strip().splitlines():
             linha = linha.strip()
             if not linha: continue
             toks = _tokenize(linha)
-            if len(toks) < self.rag_min_tokens_linha: continue
-            linhas.append((linha, toks))
-        if not linhas:
-            self._rag_lines = []; self._rag_idf = {}
-            return
-        N = len(linhas)
-        df = Counter()
-        for _, toks in linhas:
-            for w in set(toks):
-                df[w] += 1
-        idf = {w: math.log((1.0 + N) / (1.0 + df[w])) + 1.0 for w in df}
-        rag = []
-        for linha, toks in linhas:
-            tf = Counter(toks)
-            weights = {w: (1.0 + math.log(c)) * idf[w] for w, c in tf.items()}
-            norm = math.sqrt(sum(v * v for v in weights.values())) or 1.0
-            weights = {w: v / norm for w, v in weights.items()}
-            rag.append((linha, weights))
-        self._rag_lines = rag
-        self._rag_idf = idf
-        print(f"  [RAG] índice: {len(rag)} frases | vocab={len(idf)}")
+            if len(toks) < self.emb_min_tokens: continue
+            emb = self._embed_texto(linha)
+            if np.linalg.norm(emb) < 1e-9: continue
+            linhas.append((linha, emb))
+        self._rag_lines = linhas
+        dim = linhas[0][1].shape[0] if linhas else 0
+        print(f"  [EMBED] índice neural: {len(linhas)} frases | dim={dim}")
 
-    def _rag_retrieve(self, texto, top_k=5, linhas_recentes=None):
+    def _retrieve_por_embedding(self, texto, top_k=5, linhas_recentes=None):
         if not self._rag_lines: return []
-        toks = _tokenize(texto)
-        if not toks: return []
-        tf = Counter(toks)
-        q_weights = {}
-        for w, c in tf.items():
-            if w in self._rag_idf:
-                q_weights[w] = (1.0 + math.log(c)) * self._rag_idf[w]
-        q_norm = math.sqrt(sum(v * v for v in q_weights.values()))
-        if q_norm < 1e-12: return []
-        q_weights = {w: v / q_norm for w, v in q_weights.items()}
+        q = self._embed_texto(texto)
+        qn = np.linalg.norm(q)
+        if qn < 1e-9: return []
+        q = q / qn
+
+        negadores = {"não", "nao", "nunca", "jamais", "sem", "nem"}
+        q_negado = bool(set(_tokenize(texto)) & negadores)
+
         scores = []
-        for i, (linha, weights) in enumerate(self._rag_lines):
-            s = sum(q_weights.get(w, 0.0) * v for w, v in weights.items())
+        for i, (linha, emb) in enumerate(self._rag_lines):
+            en = np.linalg.norm(emb)
+            if en < 1e-9: continue
+            s = float(np.dot(q, emb / en))
             if s <= 0: continue
             if linhas_recentes and i in linhas_recentes:
-                s *= self.rag_penalidade_reuso
-            n = len(linha.split())
-            if n <= 8:  s *= self.rag_bonus_curta
-            elif n <= 15: s *= self.rag_bonus_media
-            elif n >= 30: s *= self.rag_penalidade_longa
+                s *= self.emb_penalidade_reuso
+            if q_negado:
+                l_toks = set(_tokenize(linha))
+                if not (l_toks & negadores):
+                    s *= 0.5
             scores.append((s, i, linha))
         scores.sort(key=lambda x: -x[0])
         return [(linha, s, i) for s, i, linha in scores[:top_k]]
@@ -466,11 +646,13 @@ class RLM:
         l_toks = set(_tokenize(linha))
         t_toks = set(_tokenize(texto))
         if not l_toks or not t_toks: return False
-        return len(l_toks & t_toks) / len(l_toks | t_toks) > self.rag_echo_limiar
+        return len(l_toks & t_toks) / len(l_toks | t_toks) > self.emb_echo_limiar
 
-    def _confidence_band(self, score):
-        if score >= self.rag_threshold_alta:  return "alta"
-        if score >= self.rag_threshold_media: return "media"
+    def _confidence_band(self, score, thr_a=None, thr_m=None):
+        if thr_a is None: thr_a = self.emb_threshold_alta
+        if thr_m is None: thr_m = self.emb_threshold_media
+        if score >= thr_a:  return "alta"
+        if score >= thr_m:  return "media"
         return "baixa"
 
     def _sample_from_topk(self, retrieved, temperatura):
@@ -656,7 +838,7 @@ class RLM:
             if not self._ajustar_limiar_se_preciso(aceitos, len(self.lastros)):
                 break
         self._precalcular_transicoes_aumentadas()
-        self._build_rag_index(texto)
+        self._build_embed_index(texto)
         self._kv_init()
         print(f"[ABSORVEU] {linhas} linhas | {len(self.transicoes)} ctx | "
               f"{len(self.lastros)} lastros | MKN D=({self._mkn_discounts[0]:.2f},"
@@ -760,10 +942,12 @@ class RLM:
     def perceber(self, texto, cache_memoria=None, passos=12, temperatura=0.5,
                  alpha=0.5, min_passos=3, mostrar=True,
                  modo="rag", janela_ctx=12,
-                 seeds_usados=None, linhas_recentes=None, ultimo_par=None):
+                 seeds_usados=None, linhas_recentes=None, ultimo_par=None,
+                 thr_alta=None, thr_media=None):
         consulta = tuple(r for r in self._acende(texto, criar=False)
                          if r in self.lastros)
         consulta_ctx = self._assemble_query_context(texto, ultimo_par)
+        n_input = len(_tokenize(texto))
 
         if mostrar:
             print(f"\n[PERCEBEU] '{texto}' | modo={modo} | T={temperatura}")
@@ -773,10 +957,10 @@ class RLM:
         retrieved = []
         top_linha, top_score, top_idx = None, 0.0, None
         if modo in ("rag", "rag_puro", "rag_curto", "rag_longo"):
-            retrieved = self._rag_retrieve(consulta_ctx, top_k=self.rag_top_k,
-                                           linhas_recentes=linhas_recentes)
+            retrieved = self._retrieve_por_embedding(
+                consulta_ctx, top_k=5, linhas_recentes=linhas_recentes)
             if mostrar and retrieved:
-                print(f"  [RAG] frases recuperadas:")
+                print(f"  [EMBED] frases recuperadas (cosseno neural):")
                 for linha, s, idx in retrieved:
                     print(f"    ({s:.3f}) {linha[:78]}")
             if retrieved:
@@ -790,7 +974,14 @@ class RLM:
             return top_linha
 
         if modo == "rag" and top_linha:
-            banda = self._confidence_band(top_score)
+            ta = thr_alta if thr_alta is not None else self.emb_threshold_alta
+            tm = thr_media if thr_media is not None else self.emb_threshold_media
+            if n_input <= 2:
+                ta += 0.20; tm += 0.20
+            elif n_input <= 4:
+                ta += 0.10; tm += 0.10
+
+            banda = self._confidence_band(top_score, ta, tm)
 
             if banda == "alta" and not self._is_echo(top_linha, texto):
                 if mostrar:
@@ -803,7 +994,7 @@ class RLM:
                     nxt = self._rag_lines[top_idx + 1][0]
                     if (not self._is_question(nxt)
                             and not self._is_echo(nxt, texto)
-                            and len(nxt.split()) >= self.rag_min_tokens_linha):
+                            and len(nxt.split()) >= self.emb_min_tokens):
                         if mostrar:
                             print(f"  [Q&A chaining]")
                         self._last_rag_info.update({"banda": "alta_qa",
@@ -821,16 +1012,17 @@ class RLM:
                                                 "top_idx": i})
                     return l
 
-            if banda == "baixa":
-                if mostrar:
-                    print(f"  [BAIXA ({top_score:.3f}) → fallback]")
-                self._last_rag_info.update({"banda": "baixa"})
-                return self._fallback_honesto(retrieved)
+            if mostrar:
+                print(f"  [BAIXA ({top_score:.3f}) → fallback]")
+            self._last_rag_info.update({"banda": "baixa"})
+            return self._fallback_honesto(retrieved)
 
+        # geração via MKN + Lastrimy
         passos_ger = passos
-        if modo == "rag_curto": passos_ger = min(5, passos)
-        elif modo == "rag": passos_ger = min(5, passos)
-        elif modo == "rag_longo": passos_ger = passos
+        if modo in ("rag_curto", "rag"):
+            passos_ger = min(5, passos)
+        elif modo == "rag_longo":
+            passos_ger = passos
 
         historico, saida = None, []
         if top_linha and modo in ("rag", "rag_curto", "rag_longo"):
@@ -927,9 +1119,8 @@ class RLM:
                 "limiar_ctx": self.limiar_ctx,
                 "mkn_discounts": self._mkn_discounts,
                 "rag_lines": self._rag_lines,
-                "rag_idf": self._rag_idf,
-                "rag_thresholds": (self.rag_threshold_alta,
-                                   self.rag_threshold_media),
+                "emb_thresholds": (self.emb_threshold_alta,
+                                   self.emb_threshold_media),
             }, f)
         print(f"💾 Estado salvo em '{caminho}'")
 
@@ -941,13 +1132,24 @@ class RLM:
         g.lastros = d["lastros"]; g.transicoes = d["transicoes"]
         g._unigram = d["unigram"]; g.limiar_ctx = d["limiar_ctx"]
         g._mkn_discounts = d.get("mkn_discounts", (0.5, 1.0, 1.5))
-        g._rag_lines = d.get("rag_lines", []); g._rag_idf = d.get("rag_idf", {})
-        th = d.get("rag_thresholds", (g.rag_threshold_alta, g.rag_threshold_media))
-        g.rag_threshold_alta, g.rag_threshold_media = th
+        g._rag_lines = d.get("rag_lines", [])
+
+        if g._rag_lines and isinstance(g._rag_lines[0][1], dict):
+            print("   [EMBED] índice antigo detectado, reconstruindo neural...")
+            linhas_str = [l for l, _ in g._rag_lines]
+            g._rag_lines = []
+            for l in linhas_str:
+                emb = g._embed_texto(l)
+                if np.linalg.norm(emb) > 1e-9:
+                    g._rag_lines.append((l, emb))
+
+        th = d.get("emb_thresholds",
+                   (g.emb_threshold_alta, g.emb_threshold_media))
+        g.emb_threshold_alta, g.emb_threshold_media = th
         g._kv_init()
         print(f"⚡ Estado carregado de '{caminho}'.")
         if g._rag_lines:
-            print(f"   [RAG] {len(g._rag_lines)} frases indexadas")
+            print(f"   [EMBED] {len(g._rag_lines)} frases neurais indexadas")
         return g
 
 
@@ -958,16 +1160,9 @@ class PromptHandle:
     def __init__(self, rlm):
         self.rlm = rlm
         self._linhas = [l for l, _ in rlm._rag_lines]
-        self._emb = np.full((len(self._linhas), 5), np.nan, dtype=float)
-        for i, linha in enumerate(self._linhas):
-            embs = []
-            for t in _tokenize(linha):
-                rid = rlm._hash(t)
-                la = rlm.lastros.get(rid)
-                if la is not None and la.perfil is not None:
-                    embs.append(la.perfil)
-            if embs:
-                self._emb[i] = np.mean(embs, axis=0)
+        self._emb = np.full((len(self._linhas), rlm.EMB_DIM), np.nan, dtype=float)
+        for i, (linha, emb) in enumerate(rlm._rag_lines):
+            self._emb[i] = emb
 
     def __len__(self):
         return len(self._linhas)
@@ -982,39 +1177,50 @@ class PromptHandle:
     def semantic_top(self, pergunta, m=20):
         if not len(self._linhas):
             return []
-        q_parts = []
-        for t in _tokenize(pergunta):
-            rid = self.rlm._hash(t)
-            la = self.rlm.lastros.get(rid)
-            if la is not None and la.perfil is not None:
-                q_parts.append(la.perfil)
-        if not q_parts:
+        q = self.rlm._embed_texto(pergunta)
+        qn = np.linalg.norm(q)
+        if qn < 1e-9:
             return list(range(min(m, len(self._linhas))))
-        q_emb = np.mean(q_parts, axis=0)
-        q_emb = q_emb / (np.linalg.norm(q_emb) + 1e-9)
+        q = q / qn
         valid = ~np.isnan(self._emb).any(axis=1)
         sims = np.full(len(self._linhas), -1.0, dtype=float)
         if valid.any():
             E = self._emb[valid]
             E = E / (np.linalg.norm(E, axis=1, keepdims=True) + 1e-9)
-            sims[valid] = E @ q_emb
+            sims[valid] = E @ q
         return np.argsort(-sims)[:m].tolist()
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MOTOR LLM RECURSIVO — simples
+# MOTOR LLM RECURSIVO — v8.2 adaptativo
 # ═══════════════════════════════════════════════════════════════════════
 class MotorLLMRecursivo:
-    def __init__(self, rlm, max_depth=2, verbose=False, max_linhas_denso=40):
+    """
+    Motor adaptativo. Usa AdaptadorLinear para:
+      - escolher modo (recursivo/construir/denso) por performance histórica
+      - ajustar temperatura, thresholds, alpha, n_frags
+      - registrar cada interação para evolução
+    """
+
+    _CONECTORES = [
+        "mas", "e", "então", "por isso", "porque", "e também",
+        "só que", "ainda assim", "ao mesmo tempo", "é que",
+    ]
+
+    def __init__(self, rlm, max_depth=2, verbose=False, max_linhas_denso=40,
+                 adaptador=None):
         self.rlm = rlm
         self.max_depth = max_depth
         self.verbose = verbose
         self.max_linhas_denso = max_linhas_denso
+        self.adaptador = adaptador
         self._trace = []
         self._calls = 0
         self._last_info = {}
         self._cached_handle = None
         self._cached_handle_len = -1
+        self._ultimo_modo_usado = None
+        self._ultima_resposta_foi_fallback = False
 
     def _perceber(self, pergunta, kwargs):
         self._calls += 1
@@ -1045,6 +1251,180 @@ class MotorLLMRecursivo:
             return True
         return False
 
+    def _extrair_fragmentos(self, retrieved, min_tok=4, max_tok=20):
+        fragmentos = []
+        for linha, score, idx in retrieved:
+            partes = re.split(r'[.!?;]\s+', linha)
+            for parte in partes:
+                parte = parte.strip().strip(",;")
+                if not parte:
+                    continue
+                n = len(_tokenize(parte))
+                if min_tok <= n <= max_tok:
+                    fragmentos.append((parte, float(score)))
+        unicos = []
+        for frag, score in fragmentos:
+            tf = set(_tokenize(frag))
+            if not tf:
+                continue
+            dup = False
+            for existente, _ in unicos:
+                te = set(_tokenize(existente))
+                if not te:
+                    continue
+                jacc = len(tf & te) / len(tf | te)
+                if jacc > 0.75:
+                    dup = True
+                    break
+            if not dup:
+                unicos.append((frag, score))
+        return unicos
+
+    def _ordenar_fragmentos(self, fragmentos):
+        if len(fragmentos) <= 1:
+            return fragmentos
+
+        fragmentos = sorted(fragmentos, key=lambda x: -x[1])
+        ordenados = [fragmentos[0]]
+        resto = list(fragmentos[1:])
+
+        while resto:
+            ult = ordenados[-1][0]
+            ult_toks = _tokenize(ult)
+            if not ult_toks:
+                break
+            ctx = tuple(
+                self.rlm._hash(t) for t in ult_toks[-2:]
+                if self.rlm._hash(t) in self.rlm.lastros)
+            if not ctx:
+                ordenados.append(resto.pop(0))
+                continue
+
+            dist = self.rlm._kn_rec(ctx)
+            melhor_i, melhor_score = -1, -1.0
+            for i, (cand, sc) in enumerate(resto):
+                toks_c = _tokenize(cand)
+                if not toks_c:
+                    continue
+                alvo = self.rlm._hash(toks_c[0])
+                p_trans = dist.get(alvo, 0.0)
+                score = p_trans * 0.7 + sc * 0.3
+                if score > melhor_score:
+                    melhor_score = score
+                    melhor_i = i
+
+            if melhor_i < 0:
+                break
+            ordenados.append(resto.pop(melhor_i))
+
+        return ordenados
+
+    def _conectar_fragmentos(self, ordenados):
+        if not ordenados:
+            return ""
+        if len(ordenados) == 1:
+            texto = ordenados[0][0].strip()
+            if texto and texto[0].islower():
+                texto = texto[0].upper() + texto[1:]
+            if texto and texto[-1] not in ".!?":
+                texto += "."
+            return texto
+
+        texto = ordenados[0][0].strip()
+        if texto and texto[0].islower():
+            texto = texto[0].upper() + texto[1:]
+
+        for i in range(1, len(ordenados)):
+            frag = ordenados[i][0].strip()
+            if not frag:
+                continue
+
+            ult_toks = _tokenize(texto)
+            prim_toks = _tokenize(frag)
+            if not ult_toks or not prim_toks:
+                continue
+
+            ctx = tuple(
+                self.rlm._hash(t) for t in ult_toks[-2:]
+                if self.rlm._hash(t) in self.rlm.lastros)
+            p_trans = 0.0
+            if ctx:
+                dist = self.rlm._kn_rec(ctx)
+                alvo = self.rlm._hash(prim_toks[0])
+                p_trans = dist.get(alvo, 0.0)
+
+            if frag and frag[0].isupper():
+                frag = frag[0].lower() + frag[1:]
+
+            if p_trans > 0.05:
+                texto += ", " + frag
+            else:
+                conector = random.choice(self._CONECTORES)
+                texto += f". {conector.capitalize()} {frag}"
+
+        if texto and texto[-1] not in ".?!":
+            texto += "."
+
+        return texto
+
+    def construir_paragrafo(self, pergunta, kwargs, n_frags=None):
+        if n_frags is None:
+            n_frags = (self.adaptador.n_frags_sugerido
+                       if self.adaptador else 3)
+
+        self._trace = []
+        self._calls = 0
+        self._last_info = {"modo": "construir", "n_frags_alvo": n_frags}
+
+        temperatura = (self.adaptador.temperatura_sugerida
+                       if self.adaptador else kwargs.get("temperatura", 0.5))
+        alpha = (self.adaptador.alpha_sugerido
+                 if self.adaptador else kwargs.get("alpha", 0.5))
+
+        retrieved = self.rlm._retrieve_por_embedding(pergunta, top_k=8)
+        if len(retrieved) < 2:
+            if self.verbose:
+                print("  [construtor] poucos resultados → fallback para base")
+            return self._perceber(pergunta, kwargs)
+
+        if self.verbose:
+            print(f"  [construtor] {len(retrieved)} linhas recuperadas")
+
+        frags = self._extrair_fragmentos(retrieved)
+        if self.verbose:
+            print(f"  [construtor] {len(frags)} fragmentos extraídos")
+
+        if len(frags) < 2:
+            if self.verbose:
+                print("  [construtor] poucos fragmentos → fallback para base")
+            return self._perceber(pergunta, kwargs)
+
+        frags = frags[:n_frags + 2]
+        ordenados = self._ordenar_fragmentos(frags)
+        if self.verbose:
+            print(f"  [construtor] ordem final:")
+            for f, _ in ordenados:
+                print(f"    · {f[:60]}")
+
+        texto = self._conectar_fragmentos(ordenados)
+
+        toks = _tokenize(texto)
+        if len(toks) > 60:
+            partes = re.split(r'(?<=[.!?])\s+', texto)
+            acumulado = ""
+            for p in partes:
+                if len(_tokenize(acumulado + " " + p)) > 60:
+                    break
+                acumulado = (acumulado + " " + p).strip()
+            texto = acumulado or texto
+
+        self._trace.append(("construir", pergunta, texto))
+        if self.verbose:
+            print(f"  [construtor] parágrafo final ({len(_tokenize(texto))} tokens)")
+        self._ultimo_modo_usado = "construir"
+        self._ultima_resposta_foi_fallback = False
+        return texto
+
     def _raciocinar_denso(self, pergunta, kwargs):
         handle = self._get_handle()
         n = len(handle)
@@ -1052,7 +1432,8 @@ class MotorLLMRecursivo:
             return self._perceber(pergunta, kwargs)
 
         if n > 60:
-            retrieved = self.rlm._rag_retrieve(pergunta, top_k=self.max_linhas_denso)
+            retrieved = self.rlm._retrieve_por_embedding(
+                pergunta, top_k=self.max_linhas_denso)
             indices = [i for _, _, i in retrieved] or \
                       list(range(min(self.max_linhas_denso, n)))
         elif n > 20:
@@ -1088,27 +1469,61 @@ class MotorLLMRecursivo:
             return self._perceber(f"{pergunta}\n\nContexto próximo:\n{amostra}", kwargs)
 
         self._trace.append(("denso", pergunta, relevantes[0][2]))
+        self._ultimo_modo_usado = "denso"
+        self._ultima_resposta_foi_fallback = False
         return relevantes[0][2]
 
-    def raciocinar(self, pergunta, **kwargs):
+    def raciocinar(self, pergunta, modo_forcado=None, **kwargs):
+        """
+        modo_forcado: None → usa sugestão do adaptador
+                      "recursivo"/"construir"/"denso" → força
+        """
         self._trace = []
         self._calls = 0
         self._last_info = {"depth": self.max_depth}
 
-        if self._detectar_densa(pergunta):
-            if self.verbose:
-                print(f"  [motor] modo denso ativado")
+        # escolhe modo
+        if modo_forcado is None and self.adaptador is not None:
+            modo_escolhido = self.adaptador.sugerir_modo()
+        else:
+            modo_escolhido = modo_forcado or "recursivo"
+
+        if self.verbose:
+            print(f"  [motor] modo escolhido: {modo_escolhido}")
+
+        # denso automático se detector disparar
+        if self._detectar_densa(pergunta) and modo_escolhido != "construir":
             return self._raciocinar_denso(pergunta, kwargs)
+
+        if modo_escolhido == "construir":
+            return self.construir_paragrafo(pergunta, kwargs)
+
+        # recursivo padrão
+        self._ultimo_modo_usado = "recursivo"
+        self._ultima_resposta_foi_fallback = False
 
         frase = self._perceber(pergunta, kwargs)
         if not frase:
             return ""
+        info = getattr(self.rlm, "_last_rag_info", {}) or {}
+        self._ultima_resposta_foi_fallback = (info.get("banda") == "baixa")
+
         frases = [frase]
         self._trace.append(("base", pergunta, frase))
         if self.verbose:
             print(f"  [motor] base: {frase[:80]}")
 
         for i in range(self.max_depth):
+            stripped = frase.rstrip()
+            if stripped and stripped[-1] in ".?!":
+                if self.verbose:
+                    print(f"  [motor] encadeia {i}: base completa, para")
+                break
+            if len(_tokenize(frase)) >= 15:
+                if self.verbose:
+                    print(f"  [motor] encadeia {i}: base longa, para")
+                break
+
             nova = self._perceber(frase, kwargs)
             if not nova or nova == frase or nova in frases:
                 if self.verbose:
@@ -1121,6 +1536,15 @@ class MotorLLMRecursivo:
             frase = nova
 
         return frase
+
+    def registrar_reward(self, reward):
+        """Chamado pelo MAIN após calcular reward."""
+        if self.adaptador is not None:
+            self.adaptador.registrar(
+                reward,
+                self._ultimo_modo_usado or "recursivo",
+                self._ultima_resposta_foi_fallback,
+            )
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -1276,17 +1700,20 @@ class MotorDifusaoEstocastica:
         toks = _tokenize(linha)
         if len(toks) < 2:
             return False
-        N = len(self.rlm._rag_lines)
-        for w in set(toks):
-            if w not in self.rlm._rag_idf:
-                self.rlm._rag_idf[w] = math.log((1.0 + N) / 2.0) + 1.0
-        tf = Counter(toks)
-        weights = {w: (1.0 + math.log(c)) * self.rlm._rag_idf[w]
-                   for w, c in tf.items()}
-        norm = math.sqrt(sum(v * v for v in weights.values())) or 1.0
-        weights = {w: v / norm for w, v in weights.items()}
-        self.rlm._rag_lines.append((linha, weights))
+
         self.rlm._acende(linha, frase_id=-1, criar=True)
+        for t in toks:
+            rid = self.rlm._hash(t)
+            la = self.rlm.lastros.get(rid)
+            if la is not None and la.perfil is None:
+                la.perfil = self.rlm._derivar_perfil(la)
+                la.pesos_head = _softmax(la.perfil, T=self.rlm.tau_perfil)
+
+        emb = self.rlm._embed_texto(linha)
+        if np.linalg.norm(emb) < 1e-9:
+            return False
+
+        self.rlm._rag_lines.append((linha, emb))
         self.linhas_sintetizadas.add(linha)
         if self.motor:
             self.motor._cached_handle = None
@@ -1317,7 +1744,7 @@ class MotorDifusaoEstocastica:
 
     def relatorio(self):
         print("\n" + "═" * 60)
-        print("  RELATÓRIO DE APRENDIZADO")
+        print("  RELATÓRIO DE APRENDIZADO (v8.2)")
         print("═" * 60)
         taxa = self.total_positivas / max(self.total_interacoes, 1)
         print(f"  Interações: {self.total_interacoes} "
@@ -1326,6 +1753,7 @@ class MotorDifusaoEstocastica:
               f"Pesos: {len(self.pesos_caminho)} | "
               f"Linhas sintetizadas: {len(self.linhas_sintetizadas)}")
         print(f"  Buffer: {len(self.buffer)}/{self.buffer_size}")
+        print(f"  Índice neural: {len(self.rlm._rag_lines)} frases")
         top = sorted(self.padroes.items(),
                      key=lambda x: x[1]["reforco"] * x[1]["contagem"],
                      reverse=True)[:5]
@@ -1369,15 +1797,211 @@ class MotorDifusaoEstocastica:
 
 
 # ═══════════════════════════════════════════════════════════════════════
+# MOTOR DE AUTO-EVOLUÇÃO LIFELONG
+# ═══════════════════════════════════════════════════════════════════════
+class MotorAutoEvolucao:
+    def __init__(self, rlm, motor, difusao):
+        self.rlm = rlm
+        self.motor = motor
+        self.difusao = difusao
+        self.lacunas_atuais = []
+        self.pergunta_pendente = None
+        self.historico_evolucao = []
+        self.turno_atual = 0
+        self.melhorias_historicas = []
+
+    def _detectar_lacunas(self):
+        lacunas = []
+
+        for rid, la in self.rlm.lastros.items():
+            if la.token.startswith("⟨"):
+                continue
+            n = len(la.dados_ids)
+            if 1 <= n <= 2:
+                lacunas.append(("token_raro", la.token, 1.0 - n / 3.0))
+
+        for linha, emb in self.rlm._rag_lines:
+            if not isinstance(emb, np.ndarray):
+                continue
+            norma = float(np.linalg.norm(emb))
+            if 0.0 < norma < 0.3:
+                lacunas.append(("embedding_fraco", linha, 1.0 - norma / 0.3))
+
+        for ctx, counter in self.rlm.transicoes.items():
+            total = sum(counter.values())
+            if len(counter) == 1 and total == 1:
+                ctx_tokens = [
+                    self.rlm.lastros[r].token
+                    for r in ctx if r in self.rlm.lastros
+                ]
+                if ctx_tokens and not any(t.startswith("⟨") for t in ctx_tokens):
+                    lacunas.append(
+                        ("transicao_fraca", " ".join(ctx_tokens), 0.8))
+
+        for exp in self.difusao.buffer:
+            if exp["reward"] < -0.2:
+                lacunas.append(
+                    ("resposta_ruim", exp["input"], min(1.0, -exp["reward"])))
+
+        for padrao, dados in self.difusao.padroes.items():
+            if (dados["reforco"] > 0.3 and dados["contagem"] >= 2
+                    and dados["respostas"]):
+                melhor = max(dados["respostas"].items(),
+                             key=lambda x: x[1])[0]
+                if melhor not in self.difusao.linhas_sintetizadas:
+                    lacunas.append(("padrao_orfao", padrao, 0.6))
+
+        return lacunas
+
+    def _pergunta_para_lacuna(self, lacuna):
+        tipo, alvo, _ = lacuna
+        if tipo == "token_raro":
+            return f"o que significa '{alvo}' pra você?"
+        if tipo == "embedding_fraco":
+            return f"me conta mais sobre: {alvo[:70]}"
+        if tipo == "transicao_fraca":
+            return f"como você conecta '{alvo}' com outras ideias?"
+        if tipo == "resposta_ruim":
+            return (f"quando eu disse '{alvo[:40]}', "
+                    f"o que você realmente queria ouvir?")
+        if tipo == "padrao_orfao":
+            return (f"sobre '{alvo}', tem algo que você gostaria "
+                    f"que eu soubesse dizer melhor?")
+        return None
+
+    def explorar(self, n_perguntas=3):
+        self.turno_atual += 1
+        self.lacunas_atuais = self._detectar_lacunas()
+        if not self.lacunas_atuais:
+            return []
+
+        self.lacunas_atuais.sort(key=lambda x: -x[2])
+        perguntas = []
+        tipos_usados = set()
+
+        for lacuna in self.lacunas_atuais:
+            tipo = lacuna[0]
+            if tipo in tipos_usados:
+                continue
+            texto = self._pergunta_para_lacuna(lacuna)
+            if texto:
+                perguntas.append({
+                    "pergunta": texto,
+                    "lacuna": lacuna,
+                    "tipo": tipo,
+                })
+                tipos_usados.add(tipo)
+            if len(perguntas) >= n_perguntas:
+                break
+
+        if perguntas:
+            self.pergunta_pendente = perguntas[0]
+        return perguntas
+
+    def processar_resposta(self, resposta_usuario):
+        if not self.pergunta_pendente:
+            return None
+
+        lacuna = self.pergunta_pendente["lacuna"]
+        tipo, alvo, _ = lacuna
+        pergunta = self.pergunta_pendente["pergunta"]
+
+        antes = len(self.rlm._rag_lines)
+
+        self.rlm._acende(resposta_usuario, frase_id=-1, criar=True)
+        for t in _tokenize(resposta_usuario):
+            rid = self.rlm._hash(t)
+            la = self.rlm.lastros.get(rid)
+            if la is not None and la.perfil is None:
+                la.perfil = self.rlm._derivar_perfil(la)
+                la.pesos_head = _softmax(la.perfil, T=self.rlm.tau_perfil)
+
+        emb = self.rlm._embed_texto(resposta_usuario)
+        if np.linalg.norm(emb) > 1e-9:
+            combinado = f"{pergunta} {resposta_usuario}"
+            emb_comb = self.rlm._embed_texto(combinado)
+            if np.linalg.norm(emb_comb) < np.linalg.norm(emb):
+                emb_comb = emb
+            self.rlm._rag_lines.append((resposta_usuario, emb_comb))
+
+        self.difusao.observar(
+            input_user=pergunta,
+            output_robo=resposta_usuario,
+            continuou=True,
+            proxima_entrada=None,
+        )
+
+        depois = len(self.rlm._rag_lines)
+        ganho = depois - antes
+        self.historico_evolucao.append({
+            "turno": self.turno_atual,
+            "tipo": tipo,
+            "alvo": alvo[:40],
+            "ganho_linhas": ganho,
+        })
+
+        self.melhorias_historicas.append(lacuna)
+        self.pergunta_pendente = None
+
+        return {
+            "tipo": tipo,
+            "alvo": alvo,
+            "linhas_novas": ganho,
+        }
+
+    def refletir(self):
+        por_tipo = Counter()
+        for lac in self.lacunas_atuais:
+            por_tipo[lac[0]] += 1
+
+        melh_por_tipo = Counter()
+        for mel in self.melhorias_historicas:
+            melh_por_tipo[mel[0]] += 1
+
+        return {
+            "turno_atual": self.turno_atual,
+            "interacoes": self.difusao.total_interacoes,
+            "lacunas_abertas": len(self.lacunas_atuais),
+            "lacunas_por_tipo": dict(por_tipo),
+            "melhorias_resolvidas": len(self.melhorias_historicas),
+            "melhorias_por_tipo": dict(melh_por_tipo),
+            "linhas_aprendidas": len(self.difusao.linhas_sintetizadas),
+            "indice_atual": len(self.rlm._rag_lines),
+        }
+
+    def auto_curriculo(self, n=5):
+        if not self.lacunas_atuais:
+            self.lacunas_atuais = self._detectar_lacunas()
+
+        pesos_tipo = {
+            "resposta_ruim": 1.5,
+            "transicao_fraca": 1.2,
+            "token_raro": 1.0,
+            "embedding_fraco": 1.0,
+            "padrao_orfao": 0.8,
+        }
+
+        ranqueadas = []
+        for lac in self.lacunas_atuais:
+            tipo, alvo, sev = lac
+            peso = pesos_tipo.get(tipo, 1.0)
+            ranqueadas.append((sev * peso, lac))
+
+        ranqueadas.sort(reverse=True)
+        return [lac for _, lac in ranqueadas[:n]]
+
+
+# ═══════════════════════════════════════════════════════════════════════
 # MAIN
 # ═══════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     ARQUIVO_CORPUS = "corpus.txt"
     ARQUIVO_ESTADO = "rlm_state.pkl"
     ARQUIVO_DIFUSAO = "rlm_difusao.pkl"
+    ARQUIVO_ADAPTADOR = "rlm_adaptador.pkl"
 
     print("=" * 70)
-    print("RLM-Lastrimy v7.2 — PosEnc + AdamW + Recursivo + Difusão")
+    print("RLM-Lastrimy v8.2 — Auto-Evolução Lifelong Adaptativa")
     print("=" * 70)
 
     kwargs = dict(
@@ -1386,9 +2010,9 @@ if __name__ == "__main__":
         anti_loop_sintatico_forca=0.2, tau_perfil=1.0,
         auto_ajuste_limiar=True, usar_rede_neural=True,
         gns_max_vocab=800, gns_hidden=24, gns_epocas=400, gns_lr=0.05,
-        gns_pos_enc=True, gns_adamw=True,
-        gns_adamw_lr=0.001, gns_adamw_wd=0.01,
-        rag_top_k=5, rag_threshold_alta=0.60, rag_threshold_media=0.35,
+        gns_pos_enc=False, gns_adamw=True,
+        gns_adamw_lr=0.01, gns_adamw_wd=0.001,
+        emb_threshold_alta=0.55, emb_threshold_media=0.30,
     )
 
     rlm = RLM.carregar_estado(ARQUIVO_ESTADO, **kwargs)
@@ -1400,26 +2024,32 @@ if __name__ == "__main__":
         rlm = RLM(**kwargs)
         rlm.absorver_arquivo(ARQUIVO_CORPUS)
         rlm.salvar_estado(ARQUIVO_ESTADO)
-    else:
-        # Estado carregado: reaplica pos_enc/adamw config no RLM
-        rlm.gns_pos_enc = kwargs["gns_pos_enc"]
-        rlm.gns_adamw = kwargs["gns_adamw"]
 
-    motor = MotorLLMRecursivo(rlm, max_depth=2, verbose=True, max_linhas_denso=40)
+    # Adaptador linear
+    adaptador = AdaptadorLinear()
+    adaptador.carregar(ARQUIVO_ADAPTADOR)
+
+    motor = MotorLLMRecursivo(rlm, max_depth=2, verbose=True,
+                              max_linhas_denso=40, adaptador=adaptador)
     difusao = MotorDifusaoEstocastica(rlm, motor, taxa_aprendizado=0.05)
     difusao.carregar(ARQUIVO_DIFUSAO)
+    auto_evol = MotorAutoEvolucao(rlm, motor, difusao)
+    rlm._auto_evol = auto_evol
 
-    MODOS = ("recursivo", "denso", "rag", "rag_puro", "rag_curto",
-             "rag_longo", "responder", "continuar")
+    MODOS = ("auto", "recursivo", "construir", "denso",
+             "rag", "rag_puro", "rag_curto", "rag_longo",
+             "responder", "continuar")
 
-    print("\nModos:")
-    print("  recursivo (PADRÃO) | denso | rag | rag_puro | rag_curto | rag_longo")
-    print("Comandos: sair | T=0.3 | a=0.7 | limpar | m=rag | relatorio | aprender")
+    print("\nModos (v8.2):")
+    print("  auto (PADRÃO — adapta) | recursivo | construir | denso | rag")
+    print("Comandos: sair | T=0.3 | a=0.7 | limpar | m=rag")
+    print("          relatorio | aprender | explorar | refletir | curriculo")
+    print("          adaptacao | estado")
     print("-" * 70)
 
     temperatura = 0.5
     alpha = 0.5
-    modo = "recursivo"
+    modo = "auto"          # ← PADRÃO MUDADO
     janela_ctx = 12
     cache_memoria = set()
     seeds_usados = set()
@@ -1433,8 +2063,10 @@ if __name__ == "__main__":
         if not entrada: continue
         low = entrada.lower()
 
+        # ─── comandos ───
         if low in ("sair", "exit", "quit"):
             difusao.salvar(ARQUIVO_DIFUSAO)
+            adaptador.salvar(ARQUIVO_ADAPTADOR)
             rlm.salvar_estado(ARQUIVO_ESTADO)
             break
         if low == "limpar":
@@ -1449,6 +2081,80 @@ if __name__ == "__main__":
             for l in novas:
                 print(f"  → '{l[:60]}'")
             continue
+        if low == "explorar":
+            perguntas = auto_evol.explorar(n_perguntas=3)
+            if not perguntas:
+                print("\n[explorar] nenhuma lacuna — modelo saturado")
+            else:
+                print(f"\n[explorar] {len(perguntas)} pergunta(s):")
+                for i, p in enumerate(perguntas, 1):
+                    print(f"  {i}. [{p['tipo']}] {p['pergunta']}")
+                print(f"\n(responda a 1ª na próxima linha)")
+            continue
+        if low == "refletir":
+            rel = auto_evol.refletir()
+            print("\n" + "═" * 60)
+            print("  REFLEXÃO DO ROBÔ")
+            print("═" * 60)
+            print(f"  Turno: {rel['turno_atual']} | "
+                  f"Interações: {rel['interacoes']}")
+            print(f"  Lacunas abertas: {rel['lacunas_abertas']}")
+            for tipo, n in rel["lacunas_por_tipo"].items():
+                print(f"    · {tipo}: {n}")
+            print(f"  Melhorias resolvidas: {rel['melhorias_resolvidas']}")
+            for tipo, n in rel["melhorias_por_tipo"].items():
+                print(f"    · {tipo}: {n}")
+            print(f"  Linhas aprendidas: {rel['linhas_aprendidas']}")
+            print(f"  Índice neural: {rel['indice_atual']} frases")
+            print("═" * 60 + "\n")
+            continue
+        if low == "curriculo":
+            plano = auto_evol.auto_curriculo(n=8)
+            if not plano:
+                print("[curriculo] nada a priorizar")
+            else:
+                print(f"\n[curriculo] top {len(plano)} lacunas:")
+                for i, (tipo, alvo, sev) in enumerate(plano, 1):
+                    print(f"  {i}. [{tipo}] sev={sev:.2f} · {alvo[:60]}")
+            continue
+        if low == "adaptacao":
+            est = adaptador.estado_atual()
+            print("\n" + "═" * 60)
+            print("  ESTADO DO ADAPTADOR LINEAR")
+            print("═" * 60)
+            print(f"  Turnos: {est['turnos']} | "
+                  f"Média reward: {est['media_reward']:+.3f}")
+            print(f"  Confiança: {est['confianca']:.3f} | "
+                  f"Sucesso: {est['taxa_sucesso']:.2f} | "
+                  f"Fallback: {est['taxa_fallback']:.2f}")
+            print(f"  Temperatura: {est['temperatura']:.3f} | "
+                  f"Alpha: {est['alpha']:.3f}")
+            print(f"  Threshold alta: {est['thr_alta']:.3f} | "
+                  f"media: {est['thr_media']:.3f}")
+            print(f"  n_frags (construir): {est['n_frags']}")
+            print(f"  Modo padrão: {est['modo_padrao']}")
+            print("\n  Performance por modo:")
+            for m, p in est["performance_modo"].items():
+                print(f"    {m}: {p['usos']} usos, "
+                      f"reward médio {p['media_reward']:+.3f}")
+            if est["historico"]:
+                print("\n  Últimos snapshots (adaptação ao longo do tempo):")
+                for h in est["historico"][-5:]:
+                    print(f"    t={h['turno']:3d} | "
+                          f"conf={h['confianca']:.2f} | "
+                          f"T={h['temperatura']:.2f} | "
+                          f"α={h['alpha']:.2f} | "
+                          f"modo={h['modo']}")
+            print("═" * 60 + "\n")
+            continue
+        if low == "estado":
+            print(f"\n[estado] modo={modo} | T={temperatura} | α={alpha}")
+            print(f"         confiança adaptador={adaptador.confianca:.2f}")
+            print(f"         modo padrão={adaptador.modo_padrao}")
+            print(f"         índice={len(rlm._rag_lines)} frases | "
+                  f"perguntas pendentes={auto_evol.pergunta_pendente is not None}")
+            continue
+
         if low.startswith("t="):
             temperatura = float(entrada.split("=", 1)[1])
             print(f"[T={temperatura}]"); continue
@@ -1472,27 +2178,56 @@ if __name__ == "__main__":
 
         print("-" * 70)
 
+        # ─── se pergunta exploratória pendente, absorve resposta ───
+        if auto_evol.pergunta_pendente is not None:
+            resultado = auto_evol.processar_resposta(entrada)
+            if resultado:
+                print(f"  [evolução] absorvi sobre '{resultado['tipo']}': "
+                      f"+{resultado['linhas_novas']} linha(s)")
+                print(f"\nRLM  > Entendi. Aprendi sobre "
+                      f"'{resultado['alvo'][:40]}'.")
+                ultimo_par = (auto_evol.pergunta_pendente["pergunta"]
+                              if auto_evol.pergunta_pendente else entrada,
+                              entrada)
+                continue
+
+        # ─── pontua interação anterior ───
         if ultimo_par is not None:
             pergunta_ant, resposta_ant = ultimo_par
             reward = difusao.observar(
                 pergunta_ant, resposta_ant,
                 continuou=True, proxima_entrada=entrada)
+            motor.registrar_reward(reward)
             if abs(reward) > 0.3:
                 sinal = "✓" if reward > 0 else "✗"
                 print(f"  [aprendizado] {sinal} anterior reward={reward:+.2f}")
 
-        if modo == "recursivo":
+        # ─── gera resposta ───
+        if modo == "auto":
             resposta = motor.raciocinar(
                 entrada,
                 cache_memoria=cache_memoria,
-                temperatura=temperatura,
-                alpha=alpha,
+                temperatura=adaptador.temperatura_sugerida,
+                alpha=adaptador.alpha_sugerido,
                 janela_ctx=janela_ctx,
                 ultimo_par=ultimo_par,
+                thr_alta=adaptador.threshold_alta,
+                thr_media=adaptador.threshold_media,
             )
-            if motor._trace:
-                print(f"  [motor] {motor._calls} chamadas | "
-                      f"{len(motor._trace)} passos")
+            print(f"  [auto] modo={motor._ultimo_modo_usado} | "
+                  f"T={adaptador.temperatura_sugerida:.2f} | "
+                  f"conf={adaptador.confianca:.2f}")
+
+        elif modo == "construir":
+            resposta = motor.construir_paragrafo(
+                entrada,
+                {"cache_memoria": cache_memoria,
+                 "temperatura": temperatura,
+                 "alpha": alpha,
+                 "janela_ctx": janela_ctx,
+                 "ultimo_par": ultimo_par})
+            print(f"  [construtor] {len(_tokenize(resposta))} tokens")
+
         elif modo == "denso":
             resposta = motor._raciocinar_denso(
                 entrada,
@@ -1500,6 +2235,20 @@ if __name__ == "__main__":
                  "alpha": alpha, "janela_ctx": janela_ctx,
                  "ultimo_par": ultimo_par})
             print(f"  [denso] {motor._calls} chamadas")
+
+        elif modo in ("recursivo",):
+            resposta = motor.raciocinar(
+                entrada,
+                modo_forcado="recursivo",
+                cache_memoria=cache_memoria,
+                temperatura=temperatura,
+                alpha=alpha,
+                janela_ctx=janela_ctx,
+                ultimo_par=ultimo_par)
+            if motor._trace:
+                print(f"  [motor] {motor._calls} chamadas | "
+                      f"{len(motor._trace)} passos")
+
         else:
             resposta = rlm.perceber(
                 entrada,
@@ -1511,6 +2260,8 @@ if __name__ == "__main__":
                 janela_ctx=janela_ctx,
                 seeds_usados=seeds_usados if modo == "responder" else None,
                 ultimo_par=ultimo_par,
+                thr_alta=adaptador.threshold_alta,
+                thr_media=adaptador.threshold_media,
             )
 
         resposta = resposta.replace("⟨EOS⟩", "").replace("⟨BOS⟩", "").strip()
@@ -1527,6 +2278,7 @@ if __name__ == "__main__":
                              - stopwords)
             ultimo_par = (entrada, resposta)
 
+        # ─── difusão periódica ───
         if (difusao.total_interacoes > 0
                 and difusao.total_interacoes % 3 == 0):
             n_paths, novas = difusao.aprender()
@@ -1535,5 +2287,11 @@ if __name__ == "__main__":
                       f"{len(novas)} linha(s) sintetizada(s)")
                 for l in novas:
                     print(f"    ✨ aprendi: '{l[:60]}'")
+
+        # ─── adaptação automática a cada 5 turnos ───
+        if adaptador.turnos > 0 and adaptador.turnos % 5 == 0:
+            print(f"  [adaptação] conf={adaptador.confianca:.2f} | "
+                  f"T={adaptador.temperatura_sugerida:.2f} | "
+                  f"modo padrão={adaptador.modo_padrao}")
 
         print("-" * 70)
