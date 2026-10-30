@@ -1,14 +1,10 @@
 """
-RLM-Lastrimy v6.9 — Recursivo como padrão + Anti-surto
+RLM-Lastrimy v7.2 — GNS + PosEnc + AdamW + Motor Recursivo + Difusão
 =========================================================================
-v6.9:
-- Modo PADRÃO agora é "recursivo" (não "rag")
-- Patch 1: _pergunta_simples() → bypass de recursão em perguntas curtas
-- Patch 2: _critica() extrai entidade da PERGUNTA (não da resposta)
-- Patch 3: gate de banda ALTA no _raciocinar (não refina o que já está certo)
-- Patch 4: _refinar() detecta oscilação e eco da pergunta (para antes de piorar)
-
-Tudo do v6.8 preservado (AttnRes, PromptHandle, MotorLLMRecursivo, GNS).
+- PositionalEncoding sinusoidal (Vaswani et al. 2017) aplicado à entrada GNS
+- AdamW (Loshchilov & Hutter 2019) com weight decay desacoplado no treino GNS
+- Flags: usar_pos_enc=True, usar_adamw=True na RedeLinhagem
+- Todo o resto do v7.1 preservado (motor recursivo simples + difusão)
 """
 
 import hashlib
@@ -24,7 +20,83 @@ _SENT = "\uE000"
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# GNS (inalterado)
+# POSITIONAL ENCODING (sinusoidal — Vaswani et al. 2017)
+# ═══════════════════════════════════════════════════════════════════════
+class PositionalEncoding:
+    """
+    Encoding posicional sinusoidal clássico:
+        PE[pos, 2i]   = sin(pos / 10000^(2i/d))
+        PE[pos, 2i+1] = cos(pos / 10000^(2i/d))
+    Aplicado à matriz de entrada X de forma (n, d): PE gerado para (n, d).
+    """
+
+    def __init__(self, dropout=0.0):
+        self.dropout = dropout
+
+    @staticmethod
+    def sinusoidal(seq_len, d_model):
+        pe = np.zeros((seq_len, d_model), dtype=float)
+        if d_model == 0 or seq_len == 0:
+            return pe
+        pos = np.arange(seq_len, dtype=float)[:, None]
+        div = np.exp(np.arange(0, d_model, 2, dtype=float) *
+                     -(math.log(10000.0) / d_model))
+        pe[:, 0::2] = np.sin(pos * div)
+        if d_model % 2 == 0:
+            pe[:, 1::2] = np.cos(pos * div)
+        else:
+            pe[:, 1::2] = np.cos(pos * div[:pe[:, 1::2].shape[1]])
+        return pe
+
+    def apply(self, X):
+        if self.dropout > 0:
+            mask = (np.random.rand(*X.shape) >= self.dropout).astype(float)
+            X = X * mask / (1.0 - self.dropout)
+        return X + self.sinusoidal(X.shape[0], X.shape[1])
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# ADAMW (Adam com weight decay desacoplado — Loshchilov & Hutter 2019)
+# ═══════════════════════════════════════════════════════════════════════
+class AdamW:
+    """
+    Implementação de AdamW:
+        θ ← θ - lr · wd · θ                (decoupled weight decay)
+        m ← β1·m + (1-β1)·g
+        v ← β2·v + (1-β2)·g²
+        θ ← θ - lr · m̂ / (√v̂ + ε)
+    O weight decay NÃO é aplicado a biases (apply_decay=False).
+    """
+
+    def __init__(self, lr=0.001, betas=(0.9, 0.999), eps=1e-8,
+                 weight_decay=0.01):
+        self.lr = lr
+        self.beta1, self.beta2 = betas
+        self.eps = eps
+        self.weight_decay = weight_decay
+        self.state = {}  # param_key → {'m', 'v', 't'}
+
+    def step(self, key, param, grad, apply_decay=True):
+        if key not in self.state:
+            self.state[key] = {
+                "m": np.zeros_like(param, dtype=float),
+                "v": np.zeros_like(param, dtype=float),
+                "t": 0,
+            }
+        s = self.state[key]
+        s["t"] += 1
+        if apply_decay and self.weight_decay > 0:
+            param *= (1.0 - self.lr * self.weight_decay)
+        s["m"] = self.beta1 * s["m"] + (1 - self.beta1) * grad
+        s["v"] = self.beta2 * s["v"] + (1 - self.beta2) * (grad * grad)
+        m_hat = s["m"] / (1 - self.beta1 ** s["t"])
+        v_hat = s["v"] / (1 - self.beta2 ** s["t"])
+        param -= self.lr * m_hat / (np.sqrt(v_hat) + self.eps)
+        return param
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# GNS
 # ═══════════════════════════════════════════════════════════════════════
 class Camada:
     ESCALA_INTERNA = 1.0
@@ -55,7 +127,11 @@ class Camada:
 
 
 class RedeLinhagem:
-    def __init__(self, tamanhos, alpha=1.0, softmax_saida=True):
+    def __init__(self, tamanhos, alpha=1.0, softmax_saida=True,
+                 usar_pos_enc=True, pos_enc_dropout=0.0,
+                 usar_adamw=True, adamw_lr=0.001,
+                 adamw_betas=(0.9, 0.999),
+                 adamw_eps=1e-8, adamw_wd=0.01):
         self.tamanhos = tamanhos
         self.alpha = alpha
         self.softmax_saida = softmax_saida
@@ -73,10 +149,22 @@ class RedeLinhagem:
             M /= (M.sum(axis=1, keepdims=True) + 1e-9)
             self.matrizes_dist.append(M)
 
+        # ─── PosEnc + AdamW ───
+        self.usar_pos_enc = usar_pos_enc
+        self.pos_enc = PositionalEncoding(dropout=pos_enc_dropout) \
+            if usar_pos_enc else None
+
+        self.usar_adamw = usar_adamw
+        self.opt = AdamW(lr=adamw_lr, betas=adamw_betas,
+                         eps=adamw_eps, weight_decay=adamw_wd) \
+            if usar_adamw else None
+
     def forward(self, X):
         X = np.asarray(X, dtype=float)
         if X.ndim == 1:
             X = X[None, :]
+        if self.usar_pos_enc and self.pos_enc is not None:
+            X = self.pos_enc.apply(X)
         ativ = [X]
         for camada in self.camadas:
             X = camada.forward_batch(X)
@@ -87,17 +175,28 @@ class RedeLinhagem:
         X, Y = np.asarray(X, dtype=float), np.asarray(Y, dtype=float)
         n_ex, n_cam = len(X), len(self.camadas)
         hist = []
+        if verbose:
+            modo = (f"AdamW(lr={self.opt.lr}, wd={self.opt.weight_decay})"
+                    if self.usar_adamw else f"SGD(lr={lr})")
+            print(f"      [otimizador] {modo} | "
+                  f"pos_enc={'ON' if self.usar_pos_enc else 'OFF'}")
         for ep in range(epocas):
             saida, ativ = self.forward(X)
             erros = saida - Y
-            erro = float(np.mean(np.sum(erros**2, axis=1)))
+            erro = float(np.mean(np.sum(erros ** 2, axis=1)))
             delta = erros / n_ex
             for c in range(n_cam - 1, -1, -1):
                 cam = self.camadas[c]
                 grad_W = delta.T @ ativ[c]
                 grad_b = delta.sum(axis=0)
-                cam.pesos -= lr * grad_W
-                cam.bias  -= lr * grad_b
+                if self.usar_adamw:
+                    cam.pesos = self.opt.step(
+                        (c, "W"), cam.pesos, grad_W, apply_decay=True)
+                    cam.bias = self.opt.step(
+                        (c, "b"), cam.bias, grad_b, apply_decay=False)
+                else:
+                    cam.pesos -= lr * grad_W
+                    cam.bias  -= lr * grad_b
                 np.clip(cam.pesos, -5.0, 5.0, out=cam.pesos)
                 np.clip(cam.bias,  -5.0, 5.0, out=cam.bias)
                 if c > 0:
@@ -158,43 +257,6 @@ def _tokenize(texto):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# ATTENTION RESIDUAL (AttnRes)
-# ═══════════════════════════════════════════════════════════════════════
-class AttentionResidual:
-    def __init__(self, rlm):
-        self.rlm = rlm
-
-    def _embed(self, texto):
-        partes = []
-        for t in _tokenize(texto):
-            rid = self.rlm._hash(t)
-            la = self.rlm.lastros.get(rid)
-            if la is not None:
-                if la.pesos_head is not None:
-                    partes.append(la.pesos_head)
-                elif la.perfil is not None:
-                    partes.append(la.perfil)
-        if not partes:
-            return np.zeros(5, dtype=float)
-        return np.mean(partes, axis=0)
-
-    def forward(self, pergunta, valores):
-        if not valores:
-            return None
-        if len(valores) == 1:
-            return valores[0]
-        V = np.stack([self._embed(v) for v in valores])
-        q = self._embed(pergunta)
-        V_norm = V / (np.linalg.norm(V, axis=1, keepdims=True) + 1e-9)
-        q_norm = q / (np.linalg.norm(q) + 1e-9)
-        logits = V_norm @ q_norm
-        alpha = np.exp(logits - logits.max())
-        alpha /= alpha.sum()
-        idx = int(np.argmax(alpha))
-        return valores[idx]
-
-
-# ═══════════════════════════════════════════════════════════════════════
 # LASTRO E RLM
 # ═══════════════════════════════════════════════════════════════════════
 class Lastro:
@@ -217,7 +279,9 @@ class RLM:
                  anti_loop_sintatico_forca=0.2, tau_perfil=1.0,
                  auto_ajuste_limiar=True, usar_rede_neural=True,
                  gns_max_vocab=800, gns_hidden=24, gns_epocas=400,
-                 gns_lr=0.05, rag_top_k=5, rag_penalidade_reuso=0.5,
+                 gns_lr=0.05, gns_pos_enc=True, gns_adamw=True,
+                 gns_adamw_lr=0.001, gns_adamw_wd=0.01,
+                 rag_top_k=5, rag_penalidade_reuso=0.5,
                  rag_threshold_alta=0.60, rag_threshold_media=0.35,
                  rag_echo_limiar=0.6, rag_min_tokens_linha=2,
                  rag_bonus_curta=1.20, rag_bonus_media=1.10,
@@ -234,6 +298,10 @@ class RLM:
         self.usar_rede_neural = usar_rede_neural
         self.gns_max_vocab = gns_max_vocab; self.gns_hidden = gns_hidden
         self.gns_epocas = gns_epocas; self.gns_lr = gns_lr
+        self.gns_pos_enc = gns_pos_enc
+        self.gns_adamw = gns_adamw
+        self.gns_adamw_lr = gns_adamw_lr
+        self.gns_adamw_wd = gns_adamw_wd
 
         self.rag_top_k = rag_top_k
         self.rag_penalidade_reuso = rag_penalidade_reuso
@@ -481,9 +549,16 @@ class RLM:
         norms = np.linalg.norm(X, axis=1, keepdims=True)
         nz = norms[:, 0] > 0
         X[nz] = X[nz] / norms[nz]
-        print(f"  [GNS] V={V} | docs={N_doc} | arquitetura={V}-{self.gns_hidden}-{self.gns_hidden}-{V}")
-        rede = RedeLinhagem([V, self.gns_hidden, self.gns_hidden, V],
-                            alpha=1.0, softmax_saida=False)
+        print(f"  [GNS] V={V} | docs={N_doc} | "
+              f"arquitetura={V}-{self.gns_hidden}-{self.gns_hidden}-{V}")
+        print(f"  [GNS] pos_enc={self.gns_pos_enc} | adamw={self.gns_adamw}")
+        rede = RedeLinhagem(
+            [V, self.gns_hidden, self.gns_hidden, V],
+            alpha=1.0, softmax_saida=False,
+            usar_pos_enc=self.gns_pos_enc,
+            usar_adamw=self.gns_adamw,
+            adamw_lr=self.gns_adamw_lr,
+            adamw_wd=self.gns_adamw_wd)
         hist = rede.treinar(X, X.copy(), epocas=self.gns_epocas,
                             lr=self.gns_lr, tol_erro=0.01, verbose=True)
         W0 = rede.camadas[0].pesos
@@ -498,7 +573,8 @@ class RLM:
             la.perfil = p
             la.pesos_head = _softmax(p, T=self.tau_perfil)
             n_aplicados += 1
-        print(f"  [GNS] erro final={hist[-1]:.6f} | perfis={n_aplicados}/{len(self.lastros)}")
+        print(f"  [GNS] erro final={hist[-1]:.6f} | "
+              f"perfis={n_aplicados}/{len(self.lastros)}")
         return True
 
     def _precalcular_sucessores(self):
@@ -690,8 +766,7 @@ class RLM:
         consulta_ctx = self._assemble_query_context(texto, ultimo_par)
 
         if mostrar:
-            print(f"\n[PERCEBEU] '{texto}' | modo={modo} | T={temperatura} | "
-                  f"α={alpha} | janela={janela_ctx}")
+            print(f"\n[PERCEBEU] '{texto}' | modo={modo} | T={temperatura}")
             if consulta_ctx != texto:
                 print(f"  [contexto herdado] '{consulta_ctx}'")
 
@@ -701,7 +776,7 @@ class RLM:
             retrieved = self._rag_retrieve(consulta_ctx, top_k=self.rag_top_k,
                                            linhas_recentes=linhas_recentes)
             if mostrar and retrieved:
-                print(f"  [RAG] frases recuperadas (cosseno TF-IDF, com bônus curta):")
+                print(f"  [RAG] frases recuperadas:")
                 for linha, s, idx in retrieved:
                     print(f"    ({s:.3f}) {linha[:78]}")
             if retrieved:
@@ -719,7 +794,7 @@ class RLM:
 
             if banda == "alta" and not self._is_echo(top_linha, texto):
                 if mostrar:
-                    print(f"  [confiança ALTA ({top_score:.3f}) → resposta direta]")
+                    print(f"  [ALTA ({top_score:.3f}) → verbatim]")
                 self._last_rag_info.update({"banda": "alta"})
                 return top_linha
 
@@ -730,7 +805,7 @@ class RLM:
                             and not self._is_echo(nxt, texto)
                             and len(nxt.split()) >= self.rag_min_tokens_linha):
                         if mostrar:
-                            print(f"  [Q&A chaining: pergunta → linha {top_idx+1}]")
+                            print(f"  [Q&A chaining]")
                         self._last_rag_info.update({"banda": "alta_qa",
                                                     "top_idx": top_idx + 1})
                         return nxt
@@ -740,7 +815,7 @@ class RLM:
                 if amostra:
                     l, s, i = amostra
                     if mostrar:
-                        print(f"  [confiança MÉDIA ({s:.3f}) → amostra do top-3]")
+                        print(f"  [MÉDIA ({s:.3f}) → amostra top-3]")
                     self._last_rag_info.update({"banda": "media",
                                                 "amostrada": True,
                                                 "top_idx": i})
@@ -748,7 +823,7 @@ class RLM:
 
             if banda == "baixa":
                 if mostrar:
-                    print(f"  [confiança BAIXA ({top_score:.3f}) → fallback honesto]")
+                    print(f"  [BAIXA ({top_score:.3f}) → fallback]")
                 self._last_rag_info.update({"banda": "baixa"})
                 return self._fallback_honesto(retrieved)
 
@@ -856,7 +931,7 @@ class RLM:
                 "rag_thresholds": (self.rag_threshold_alta,
                                    self.rag_threshold_media),
             }, f)
-        print(f"💾 Estado do RLM salvo em '{caminho}'")
+        print(f"💾 Estado salvo em '{caminho}'")
 
     @classmethod
     def carregar_estado(cls, caminho="rlm_state.pkl", **kwargs):
@@ -870,7 +945,7 @@ class RLM:
         th = d.get("rag_thresholds", (g.rag_threshold_alta, g.rag_threshold_media))
         g.rag_threshold_alta, g.rag_threshold_media = th
         g._kv_init()
-        print(f"⚡ Estado carregado de '{caminho}' (instantâneo).")
+        print(f"⚡ Estado carregado de '{caminho}'.")
         if g._rag_lines:
             print(f"   [RAG] {len(g._rag_lines)} frases indexadas")
         return g
@@ -927,116 +1002,33 @@ class PromptHandle:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MOTOR LLM RECURSIVO — v6.9 com 4 patches anti-surto
+# MOTOR LLM RECURSIVO — simples
 # ═══════════════════════════════════════════════════════════════════════
 class MotorLLMRecursivo:
-    """
-    Orquestra o RLM em raciocínio multi-nível.
-
-    v6.9 patches:
-      P1. _pergunta_simples() → bypass de recursão
-      P2. _critica() extrai entidade da PERGUNTA
-      P3. gate de banda ALTA (não refina o que já está certo)
-      P4. _refinar() detecta oscilação/eco
-    """
-
-    _CONECTORES = re.compile(
-        r'\s*(?:;|\.\.\.|,)\s*|'
-        r'\s+(?:e|ou|mas|porém|porque|pois|também|além\s+disso|'
-        r'depois|então|enquanto|quando|se|caso)\s+',
-        re.IGNORECASE,
-    )
-
-    _STOP_CONTEUDO = {
-        "maior", "menor", "melhor", "pior", "bom", "boa", "ruim",
-        "grande", "pequeno", "pequena", "muito", "muita", "pouco", "pouca",
-        "mais", "menos", "onde", "quando", "como", "qual", "quais",
-        "porque", "sobre", "para", "isso", "aquilo", "coisa", "gente",
-        "pessoa", "aqui", "agora", "tudo", "nada", "sim", "não",
-        "você", "esta", "está", "estou", "estamos", "obrigado", "obrigada",
-        "agradecer", "agradeço", "ajuda", "ajudar", "favor", "por",
-        "sempre", "nunca", "talvez", "ainda", "depois", "antes",
-        "hoje", "ontem", "amanhã", "medo", "amor", "coração",
-    }
-
-    def __init__(self, rlm, max_depth=2, max_refinos=2,
-                 limiar_convergencia=0.82, strategy="hibrido",
-                 min_tokens_decompor=5, verbose=False,
-                 max_linhas_denso=40, use_attn_res=True):
+    def __init__(self, rlm, max_depth=2, verbose=False, max_linhas_denso=40):
         self.rlm = rlm
         self.max_depth = max_depth
-        self.max_refinos = max_refinos
-        self.limiar_convergencia = limiar_convergencia
-        self.strategy = strategy
-        self.min_tokens_decompor = min_tokens_decompor
         self.verbose = verbose
         self.max_linhas_denso = max_linhas_denso
-        self.use_attn_res = use_attn_res
-        self._attn_res = AttentionResidual(rlm)
         self._trace = []
         self._calls = 0
         self._last_info = {}
         self._cached_handle = None
         self._cached_handle_len = -1
 
-    # ─── utilidades ────────────────────────────────────────────────
-    def _sim(self, a, b):
-        ta, tb = set(_tokenize(a)), set(_tokenize(b))
-        if not ta or not tb:
-            return 0.0
-        return len(ta & tb) / len(ta | tb)
-
-    def _decompor(self, texto):
-        toks = _tokenize(texto)
-        if len(toks) < self.min_tokens_decompor:
-            return [texto]
-        partes = [p.strip() for p in self._CONECTORES.split(texto) if p.strip()]
-        partes = [p for p in partes if len(_tokenize(p)) >= 3]
-        if len(partes) <= 1:
-            return [texto]
-        if texto.count("?") >= 2:
-            return partes
-        lens = [len(_tokenize(p)) for p in partes]
-        if min(lens) / max(lens) >= 0.55:
-            return partes
-        return [texto]
-
-    def _pergunta_simples(self, pergunta):
-        """P1: perguntas curtas ou sem conectores não ganham com recursão."""
-        toks = _tokenize(pergunta)
-        if len(toks) <= 6:
-            return True
-        if not re.search(r'\b(e|ou|mas|porque|pois|relação|entre|além)\b',
-                         pergunta.lower()):
-            return True
-        return False
-
-    def _get_handle(self):
-        n_current = len(self.rlm._rag_lines)
-        if (self._cached_handle is None
-                or self._cached_handle_len != n_current):
-            self._cached_handle = PromptHandle(self.rlm)
-            self._cached_handle_len = n_current
-        return self._cached_handle
-
     def _perceber(self, pergunta, kwargs):
         self._calls += 1
-        return self.rlm.perceber(
-            pergunta,
-            cache_memoria=kwargs.get("cache_memoria"),
-            passos=kwargs.get("passos", 12),
-            temperatura=kwargs.get("temperatura", 0.5),
-            alpha=kwargs.get("alpha", 0.5),
-            modo=kwargs.get("sub_modo", "rag"),
-            janela_ctx=kwargs.get("janela_ctx", 12),
-            seeds_usados=kwargs.get("seeds_usados"),
-            linhas_recentes=kwargs.get("linhas_recentes"),
-            ultimo_par=kwargs.get("ultimo_par"),
-            mostrar=False,
-        )
+        return self.rlm.perceber(pergunta, mostrar=False, **kwargs)
 
     def batch_subcall(self, perguntas, **kwargs):
         return [self._perceber(q, kwargs) for q in perguntas]
+
+    def _get_handle(self):
+        n_current = len(self.rlm._rag_lines)
+        if self._cached_handle is None or self._cached_handle_len != n_current:
+            self._cached_handle = PromptHandle(self.rlm)
+            self._cached_handle_len = n_current
+        return self._cached_handle
 
     def _detectar_densa(self, pergunta):
         toks = _tokenize(pergunta)
@@ -1053,36 +1045,14 @@ class MotorLLMRecursivo:
             return True
         return False
 
-    def _sintetizar(self, respostas, pergunta=None):
-        respostas = [r for r in respostas
-                     if r and not r.startswith("Não tenho")]
-        if not respostas:
-            return None
-        if len(respostas) == 1:
-            return respostas[0]
-        if self.use_attn_res and pergunta is not None:
-            return self._attn_res.forward(pergunta, respostas)
-        scores = []
-        for i, r in enumerate(respostas):
-            sim = sum(self._sim(r, o)
-                      for j, o in enumerate(respostas) if j != i)
-            scores.append((sim / max(len(respostas) - 1, 1), i))
-        scores.sort(reverse=True)
-        return respostas[scores[0][1]]
-
-    def _sintetizar_denso(self, respostas, pergunta):
-        return self._sintetizar(respostas, pergunta=pergunta)
-
-    # ─── modo denso ───────────────────────────────────────────────
     def _raciocinar_denso(self, pergunta, kwargs):
-        handle = kwargs.pop("_prompt_handle", None) or self._get_handle()
+        handle = self._get_handle()
         n = len(handle)
         if n == 0:
             return self._perceber(pergunta, kwargs)
 
         if n > 60:
-            retrieved = self.rlm._rag_retrieve(
-                pergunta, top_k=self.max_linhas_denso)
+            retrieved = self.rlm._rag_retrieve(pergunta, top_k=self.max_linhas_denso)
             indices = [i for _, _, i in retrieved] or \
                       list(range(min(self.max_linhas_denso, n)))
         elif n > 20:
@@ -1101,15 +1071,13 @@ class MotorLLMRecursivo:
             consulta = f"{pergunta} {linha}"
             self._calls += 1
             r = self.rlm.perceber(
-                consulta, modo="rag", mostrar=False,
-                temperatura=0.0,
+                consulta, modo="rag", mostrar=False, temperatura=0.0,
                 cache_memoria=kwargs.get("cache_memoria"),
                 alpha=kwargs.get("alpha", 0.5),
                 janela_ctx=kwargs.get("janela_ctx", 12),
             )
             info = getattr(self.rlm, "_last_rag_info", {}) or {}
-            banda = info.get("banda")
-            if banda in ("alta", "media", "alta_qa") and r:
+            if info.get("banda") in ("alta", "media", "alta_qa") and r:
                 relevantes.append((i, linha, r))
 
         if self.verbose:
@@ -1117,172 +1085,299 @@ class MotorLLMRecursivo:
 
         if not relevantes:
             amostra = "\n".join(handle.peek(i) for i in indices[:8])
-            return self._perceber(
-                f"{pergunta}\n\nContexto próximo:\n{amostra}", kwargs)
+            return self._perceber(f"{pergunta}\n\nContexto próximo:\n{amostra}", kwargs)
 
-        sintese = self._sintetizar_denso([r for _, _, r in relevantes], pergunta)
-        if sintese:
-            self._trace.append(("denso", pergunta, sintese))
-            return sintese
-        return self._perceber(pergunta, kwargs)
+        self._trace.append(("denso", pergunta, relevantes[0][2]))
+        return relevantes[0][2]
 
-    # ─── P4: refino com anti-oscilação e anti-eco ─────────────────
-    def _refinar(self, pergunta, resposta0, profundidade, kwargs):
-        atual = resposta0
-        historico = [atual]
-        sim_anterior = None
-        for i in range(self.max_refinos):
-            consulta_refino = f"{pergunta} {atual}"
-            nova = self._perceber(consulta_refino, kwargs)
-            if not nova or nova == atual:
-                break
-            if self._sim(nova, pergunta) > 0.70:
-                if self.verbose:
-                    print(f"    {'  ' * profundidade}[refino {i}] eco da pergunta → para")
-                break
-            sim = self._sim(atual, nova)
-            historico.append(nova)
-            if self.verbose:
-                print(f"    {'  ' * profundidade}[refino {i}] sim={sim:.2f} | {nova[:60]}")
-            if sim_anterior is not None and sim < sim_anterior:
-                if self.verbose:
-                    print(f"    {'  ' * profundidade}[refino {i}] "
-                          f"oscilou ({sim_anterior:.2f}→{sim:.2f}) → para")
-                break
-            sim_anterior = sim
-            if sim >= self.limiar_convergencia:
-                atual = nova if len(nova) > len(atual) else atual
-                break
-            atual = nova
-        return atual, historico
-
-    # ─── P2: crítica extrai entidade da PERGUNTA ──────────────────
-    def _critica(self, pergunta, resposta):
-        if not resposta or resposta.startswith("Não tenho"):
-            return None
-        cands = []
-        n_linhas = len(self.rlm._rag_lines)
-        for t in _tokenize(pergunta):
-            if len(t) < 5:
-                continue
-            if t in self._STOP_CONTEUDO:
-                continue
-            if n_linhas > 0:
-                df = sum(1 for l, _ in self.rlm._rag_lines if t in l.lower())
-                if df / n_linhas > 0.20:
-                    continue
-            cands.append(t)
-        if not cands:
-            return None
-        return f"o que é {cands[0]}?"
-
-    # ─── núcleo recursivo ─────────────────────────────────────────
     def raciocinar(self, pergunta, **kwargs):
         self._trace = []
         self._calls = 0
-        self._last_info = {"depth": self.max_depth,
-                           "refinos": self.max_refinos,
-                           "strategy": self.strategy}
+        self._last_info = {"depth": self.max_depth}
 
-        modo_denso_explicito = kwargs.pop("modo_denso", False)
-        usar_denso = (
-            modo_denso_explicito
-            or self.strategy == "denso"
-            or (self.strategy == "hibrido_denso"
-                and self._detectar_densa(pergunta))
-        )
-
-        if usar_denso:
+        if self._detectar_densa(pergunta):
             if self.verbose:
-                print(f"  [motor] modo Denso ativado")
+                print(f"  [motor] modo denso ativado")
             return self._raciocinar_denso(pergunta, kwargs)
 
-        # P1: bypass de pergunta simples (exceto se strategy=decomposicao pura)
-        if (self.strategy in ("hibrido", "refino", "critica")
-                and self._pergunta_simples(pergunta)):
-            if self.verbose:
-                print(f"  [motor] pergunta simples → RAG direto (sem recursão)")
-            return self._perceber(pergunta, kwargs)
+        frase = self._perceber(pergunta, kwargs)
+        if not frase:
+            return ""
+        frases = [frase]
+        self._trace.append(("base", pergunta, frase))
+        if self.verbose:
+            print(f"  [motor] base: {frase[:80]}")
 
-        if self.strategy == "hibrido_denso":
-            saved = self.strategy
-            self.strategy = "hibrido"
-            try:
-                return self._raciocinar(pergunta, 0, kwargs)
-            finally:
-                self.strategy = saved
-
-        return self._raciocinar(pergunta, 0, kwargs)
-
-    def _raciocinar(self, pergunta, profundidade, kwargs):
-        prefixo = "  " * profundidade
-
-        if profundidade > self.max_depth:
-            return self._perceber(pergunta, kwargs)
-
-        if self.strategy in ("hibrido", "decomposicao"):
-            partes = self._decompor(pergunta)
-            if len(partes) > 1:
+        for i in range(self.max_depth):
+            nova = self._perceber(frase, kwargs)
+            if not nova or nova == frase or nova in frases:
                 if self.verbose:
-                    print(f"{prefixo}[decompõe d={profundidade}] {len(partes)} partes")
-                respostas = []
-                for sub in partes:
-                    r = self._raciocinar(sub, profundidade + 1, kwargs)
-                    if r:
-                        respostas.append(r)
-                sintese = self._sintetizar(respostas, pergunta=pergunta)
-                if sintese:
-                    self._trace.append(("decomposta", pergunta, sintese))
-                    if self.strategy == "decomposicao":
-                        return sintese
-                    if self.max_refinos > 0:
-                        refinada, _ = self._refinar(
-                            pergunta, sintese, profundidade, kwargs)
-                        self._trace.append(("refinada", pergunta, refinada))
-                        return refinada
-                    return sintese
-
-        base = self._perceber(pergunta, kwargs)
-        if not base:
-            return base
-
-        # P3: gate de banda ALTA — resposta direta, sem crítica/refino
-        info = getattr(self.rlm, "_last_rag_info", {}) or {}
-        if info.get("banda") == "alta":
+                    print(f"  [motor] encadeia {i}: sem variação, para")
+                break
+            frases.append(nova)
+            self._trace.append((f"encadeia {i}", frase, nova))
             if self.verbose:
-                print(f"{prefixo}[gate] banda ALTA → resposta direta")
-            return base
+                print(f"  [motor] encadeia {i}: {nova[:80]}")
+            frase = nova
 
-        if (self.strategy in ("hibrido", "critica")
-                and profundidade < self.max_depth):
-            critica = self._critica(pergunta, base)
-            if critica:
-                if self.verbose:
-                    print(f"{prefixo}[crítica] {critica[:60]}")
-                info_extra = self._raciocinar(critica, profundidade + 1, kwargs)
-                if info_extra and info_extra != base:
-                    base = self._sintetizar([base, info_extra],
-                                            pergunta=pergunta) or base
-                    self._trace.append(("critica", pergunta, base))
-
-        if self.strategy in ("hibrido", "refino", "critica"):
-            refinada, _ = self._refinar(pergunta, base, profundidade, kwargs)
-            self._trace.append(("refinada", pergunta, refinada))
-            return refinada
-
-        return base
+        return frase
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MAIN — v6.9: modo padrão = "recursivo"
+# MOTOR DE DIFUSÃO ESTOCÁSTICA
+# ═══════════════════════════════════════════════════════════════════════
+class MotorDifusaoEstocastica:
+    def __init__(self, rlm, motor, buffer_size=50, taxa_aprendizado=0.05,
+                 min_ocorrencias_sintese=3, limiar_reforco_sintese=0.3):
+        self.rlm = rlm
+        self.motor = motor
+        self.buffer = []
+        self.buffer_size = buffer_size
+        self.taxa = taxa_aprendizado
+        self.min_ocorrencias = min_ocorrencias_sintese
+        self.limiar_reforco = limiar_reforco_sintese
+        self.padroes = {}
+        self.pesos_caminho = {}
+        self.diffs_aprendidos = {}
+        self.linhas_sintetizadas = set()
+        self.total_interacoes = 0
+        self.total_positivas = 0
+
+    def _sim(self, a, b):
+        ta, tb = set(_tokenize(a)), set(_tokenize(b))
+        if not ta or not tb:
+            return 0.0
+        return len(ta & tb) / len(ta | tb)
+
+    def _inferir_reward(self, input_user, output_robo, continuou,
+                        feedback, proxima_entrada):
+        if feedback is not None:
+            return float(feedback)
+        r = 0.0
+        if continuou:
+            r += 0.3
+        r += self._sim(input_user, output_robo) * 0.3
+        if proxima_entrada:
+            low = proxima_entrada.lower()
+            if any(p in low for p in
+                   ["não", "errado", "nada a ver", "que isso",
+                    "n entendi", "não entendi", "estranho", "???"]):
+                r -= 0.6
+            if any(p in low for p in
+                   ["obrigado", "valeu", "legal", "isso", "isso mesmo",
+                    "gostei", "boa", "show", "perfeito", "exato"]):
+                r += 0.6
+            sim_prox = self._sim(proxima_entrada, output_robo)
+            if sim_prox > 0.3:
+                r += sim_prox * 0.4
+        return r
+
+    def _extrair_padrao(self, texto):
+        toks = _tokenize(texto)
+        if len(toks) <= 2:
+            return " ".join(toks)
+        return " ".join(toks[:2]) + f"__{len(toks)}"
+
+    def _amostrar_batch(self, n=8):
+        if not self.buffer:
+            return []
+        exps = self.buffer
+        pesos = []
+        for i, e in enumerate(exps):
+            recencia = (i + 1) / len(exps)
+            pesos.append((abs(e["reward"]) + 0.1) * recencia)
+        total = sum(pesos)
+        if total <= 0:
+            return random.sample(exps, min(n, len(exps)))
+        pesos = [p / total for p in pesos]
+        try:
+            indices = np.random.choice(
+                len(exps), size=min(n, len(exps)),
+                replace=False, p=pesos)
+        except ValueError:
+            return random.sample(exps, min(n, len(exps)))
+        return [exps[i] for i in indices]
+
+    def observar(self, input_user, output_robo, continuou=True,
+                 feedback=None, proxima_entrada=None):
+        reward = self._inferir_reward(
+            input_user, output_robo, continuou, feedback, proxima_entrada)
+        self.buffer.append({
+            "input": input_user, "output": output_robo, "reward": reward,
+        })
+        if len(self.buffer) > self.buffer_size:
+            self.buffer = self.buffer[-self.buffer_size:]
+        self.total_interacoes += 1
+        if reward > 0:
+            self.total_positivas += 1
+        padrao = self._extrair_padrao(input_user)
+        if padrao not in self.padroes:
+            self.padroes[padrao] = {"contagem": 0, "reforco": 0.0,
+                                     "respostas": {}}
+        p = self.padroes[padrao]
+        p["contagem"] += 1
+        p["reforco"] = p["reforco"] * 0.85 + reward * 0.15
+        p["respostas"][output_robo] = p["respostas"].get(output_robo, 0) + 1
+        return reward
+
+    def _aplicar_delta(self, ctx, alvo, delta):
+        if ctx not in self.rlm.lastros or alvo not in self.rlm.lastros:
+            return False
+        la = self.rlm.lastros[ctx]
+        if la.transicoes_aum is None:
+            la.transicoes_aum = Counter()
+        atual = la.transicoes_aum.get(alvo, 0.0)
+        la.transicoes_aum[alvo] = max(0.01, atual + delta)
+        chave = (ctx, alvo)
+        self.pesos_caminho[chave] = self.pesos_caminho.get(chave, 0.0) + delta
+        self.diffs_aprendidos[chave] = \
+            self.diffs_aprendidos.get(chave, 0.0) + delta
+        return True
+
+    def difundir(self):
+        if not self.buffer:
+            return 0
+        exps = self._amostrar_batch(n=min(8, len(self.buffer)))
+        n = 0
+        for exp in exps:
+            reward = exp["reward"]
+            if abs(reward) < 1e-3:
+                continue
+            input_toks = list(self.rlm._acende(exp["input"], criar=False))
+            output_toks = list(self.rlm._acende(exp["output"], criar=False))
+            if not input_toks or not output_toks:
+                continue
+            ctx = input_toks[-1]
+            alvo = output_toks[0]
+            if ctx not in self.rlm.lastros or alvo not in self.rlm.lastros:
+                continue
+            delta = self.taxa * reward + np.random.normal(0, 0.01)
+            if self._aplicar_delta(ctx, alvo, delta):
+                n += 1
+            la = self.rlm.lastros[ctx]
+            if la.vizinhos:
+                k = min(3, len(la.vizinhos))
+                pesos_viz = np.array([v[3] for v in la.vizinhos[:k]])
+                if pesos_viz.sum() > 0:
+                    pesos_viz = pesos_viz / pesos_viz.sum()
+                    idx = int(np.random.choice(k, p=pesos_viz))
+                    viz_id, sf, jacc, score = la.vizinhos[idx]
+                    delta_viz = (self.taxa * reward * score * 0.3
+                                 + np.random.normal(0, 0.005))
+                    if self._aplicar_delta(viz_id, alvo, delta_viz):
+                        n += 1
+        return n
+
+    def _adicionar_ao_corpus(self, linha):
+        if linha in self.linhas_sintetizadas:
+            return False
+        if any(l == linha for l, _ in self.rlm._rag_lines):
+            return False
+        toks = _tokenize(linha)
+        if len(toks) < 2:
+            return False
+        N = len(self.rlm._rag_lines)
+        for w in set(toks):
+            if w not in self.rlm._rag_idf:
+                self.rlm._rag_idf[w] = math.log((1.0 + N) / 2.0) + 1.0
+        tf = Counter(toks)
+        weights = {w: (1.0 + math.log(c)) * self.rlm._rag_idf[w]
+                   for w, c in tf.items()}
+        norm = math.sqrt(sum(v * v for v in weights.values())) or 1.0
+        weights = {w: v / norm for w, v in weights.items()}
+        self.rlm._rag_lines.append((linha, weights))
+        self.rlm._acende(linha, frase_id=-1, criar=True)
+        self.linhas_sintetizadas.add(linha)
+        if self.motor:
+            self.motor._cached_handle = None
+        return True
+
+    def aprender(self):
+        n_paths = self.difundir()
+        novas = []
+        for padrao, p in list(self.padroes.items()):
+            if (p["contagem"] >= self.min_ocorrencias
+                    and p["reforco"] >= self.limiar_reforco
+                    and p["respostas"]):
+                melhor = max(p["respostas"].items(), key=lambda x: x[1])[0]
+                if melhor and self._adicionar_ao_corpus(melhor):
+                    novas.append(melhor)
+                    p["contagem"] = 0
+                    p["reforco"] = 0.0
+        if len(self.buffer) > 10:
+            self.buffer = self.buffer[-10:]
+        return n_paths, novas
+
+    def reaplicar_apos_treino(self):
+        n = 0
+        for (ctx, alvo), delta in self.diffs_aprendidos.items():
+            if self._aplicar_delta(ctx, alvo, delta * 0.5):
+                n += 1
+        return n
+
+    def relatorio(self):
+        print("\n" + "═" * 60)
+        print("  RELATÓRIO DE APRENDIZADO")
+        print("═" * 60)
+        taxa = self.total_positivas / max(self.total_interacoes, 1)
+        print(f"  Interações: {self.total_interacoes} "
+              f"({self.total_positivas} positivas = {taxa*100:.0f}%)")
+        print(f"  Padrões: {len(self.padroes)} | "
+              f"Pesos: {len(self.pesos_caminho)} | "
+              f"Linhas sintetizadas: {len(self.linhas_sintetizadas)}")
+        print(f"  Buffer: {len(self.buffer)}/{self.buffer_size}")
+        top = sorted(self.padroes.items(),
+                     key=lambda x: x[1]["reforco"] * x[1]["contagem"],
+                     reverse=True)[:5]
+        if top:
+            print("\n  Top 5 padrões aprendidos:")
+            for padrao, p in top:
+                melhor = max(p["respostas"].items(),
+                             key=lambda x: x[1])[0] if p["respostas"] else "—"
+                print(f"    '{padrao}' ({p['contagem']}x, "
+                      f"ref={p['reforco']:+.2f})")
+                print(f"       → {melhor[:55]}")
+        print("═" * 60 + "\n")
+
+    def salvar(self, caminho="rlm_difusao.pkl"):
+        with open(caminho, "wb") as f:
+            pickle.dump({
+                "padroes": self.padroes,
+                "pesos_caminho": self.pesos_caminho,
+                "diffs_aprendidos": self.diffs_aprendidos,
+                "linhas_sintetizadas": list(self.linhas_sintetizadas),
+                "total_interacoes": self.total_interacoes,
+                "total_positivas": self.total_positivas,
+            }, f)
+        print(f"💾 Difusão salva em '{caminho}'")
+
+    def carregar(self, caminho="rlm_difusao.pkl"):
+        if not os.path.exists(caminho):
+            return False
+        with open(caminho, "rb") as f:
+            d = pickle.load(f)
+        self.padroes = d.get("padroes", {})
+        self.pesos_caminho = d.get("pesos_caminho", {})
+        self.diffs_aprendidos = d.get("diffs_aprendidos", {})
+        self.linhas_sintetizadas = set(d.get("linhas_sintetizadas", []))
+        self.total_interacoes = d.get("total_interacoes", 0)
+        self.total_positivas = d.get("total_positivas", 0)
+        n = self.reaplicar_apos_treino()
+        print(f"⚡ Difusão carregada: {len(self.padroes)} padrões, "
+              f"{len(self.pesos_caminho)} pesos, {n} reaplicados")
+        return True
+
+
+# ═══════════════════════════════════════════════════════════════════════
+# MAIN
 # ═══════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     ARQUIVO_CORPUS = "corpus.txt"
     ARQUIVO_ESTADO = "rlm_state.pkl"
+    ARQUIVO_DIFUSAO = "rlm_difusao.pkl"
 
     print("=" * 70)
-    print("RLM-Lastrimy v6.9 — Recursivo padrão + Anti-surto")
-    print("                     (AttnRes + PromptHandle + Motor Recursivo)")
+    print("RLM-Lastrimy v7.2 — PosEnc + AdamW + Recursivo + Difusão")
     print("=" * 70)
 
     kwargs = dict(
@@ -1291,6 +1386,8 @@ if __name__ == "__main__":
         anti_loop_sintatico_forca=0.2, tau_perfil=1.0,
         auto_ajuste_limiar=True, usar_rede_neural=True,
         gns_max_vocab=800, gns_hidden=24, gns_epocas=400, gns_lr=0.05,
+        gns_pos_enc=True, gns_adamw=True,
+        gns_adamw_lr=0.001, gns_adamw_wd=0.01,
         rag_top_k=5, rag_threshold_alta=0.60, rag_threshold_media=0.35,
     )
 
@@ -1303,29 +1400,29 @@ if __name__ == "__main__":
         rlm = RLM(**kwargs)
         rlm.absorver_arquivo(ARQUIVO_CORPUS)
         rlm.salvar_estado(ARQUIVO_ESTADO)
+    else:
+        # Estado carregado: reaplica pos_enc/adamw config no RLM
+        rlm.gns_pos_enc = kwargs["gns_pos_enc"]
+        rlm.gns_adamw = kwargs["gns_adamw"]
 
-    motor = MotorLLMRecursivo(rlm, max_depth=2, max_refinos=2,
-                              strategy="hibrido", verbose=True,
-                              max_linhas_denso=40, use_attn_res=True)
+    motor = MotorLLMRecursivo(rlm, max_depth=2, verbose=True, max_linhas_denso=40)
+    difusao = MotorDifusaoEstocastica(rlm, motor, taxa_aprendizado=0.05)
+    difusao.carregar(ARQUIVO_DIFUSAO)
 
-    MODOS = ("rag", "rag_puro", "rag_curto", "rag_longo",
-             "responder", "continuar",
-             "recursivo", "recursivo_profundo",
-             "denso", "hibrido_denso")
+    MODOS = ("recursivo", "denso", "rag", "rag_puro", "rag_curto",
+             "rag_longo", "responder", "continuar")
 
     print("\nModos:")
-    print("  recursivo (PADRÃO) | recursivo_profundo | hibrido_denso")
-    print("  rag | rag_puro | rag_curto | rag_longo | responder | continuar | denso")
-    print("Comandos: sair | T=0.3 | a=0.7 | limpar | thA=0.6 | thM=0.35 | m=rag")
+    print("  recursivo (PADRÃO) | denso | rag | rag_puro | rag_curto | rag_longo")
+    print("Comandos: sair | T=0.3 | a=0.7 | limpar | m=rag | relatorio | aprender")
     print("-" * 70)
 
     temperatura = 0.5
     alpha = 0.5
-    modo = "recursivo"          # ← PADRÃO MUDADO
+    modo = "recursivo"
     janela_ctx = 12
     cache_memoria = set()
     seeds_usados = set()
-    linhas_usadas = []
     ultimo_par = None
 
     while True:
@@ -1336,33 +1433,36 @@ if __name__ == "__main__":
         if not entrada: continue
         low = entrada.lower()
 
-        if low in ("sair", "exit", "quit"): break
+        if low in ("sair", "exit", "quit"):
+            difusao.salvar(ARQUIVO_DIFUSAO)
+            rlm.salvar_estado(ARQUIVO_ESTADO)
+            break
         if low == "limpar":
             cache_memoria.clear(); seeds_usados.clear()
-            linhas_usadas = []; ultimo_par = None
+            ultimo_par = None
             print("[Memória limpa]"); continue
+        if low == "relatorio":
+            difusao.relatorio(); continue
+        if low == "aprender":
+            n_paths, novas = difusao.aprender()
+            print(f"[aprender] {n_paths} caminhos, {len(novas)} linhas novas")
+            for l in novas:
+                print(f"  → '{l[:60]}'")
+            continue
         if low.startswith("t="):
-            temperatura = float(entrada.split("=", 1)[1]); print(f"[T={temperatura}]"); continue
+            temperatura = float(entrada.split("=", 1)[1])
+            print(f"[T={temperatura}]"); continue
         if low.startswith("a="):
-            alpha = float(entrada.split("=", 1)[1]); print(f"[α={alpha}]"); continue
+            alpha = float(entrada.split("=", 1)[1])
+            print(f"[α={alpha}]"); continue
         if low.startswith("j="):
-            janela_ctx = int(entrada.split("=", 1)[1]); print(f"[janela={janela_ctx}]"); continue
-        if low.startswith("tha="):
-            rlm.rag_threshold_alta = float(entrada.split("=", 1)[1])
-            print(f"[thA={rlm.rag_threshold_alta}]"); continue
-        if low.startswith("thm="):
-            rlm.rag_threshold_media = float(entrada.split("=", 1)[1])
-            print(f"[thM={rlm.rag_threshold_media}]"); continue
+            janela_ctx = int(entrada.split("=", 1)[1])
+            print(f"[janela={janela_ctx}]"); continue
 
         mode_str = None
         if low in MODOS: mode_str = low
         elif low.startswith("m=") or low.startswith("m "): mode_str = low[2:].strip()
         elif low.startswith("modo=") or low.startswith("modo "): mode_str = low[5:].strip()
-        if mode_str and "|" in mode_str:
-            partes = [p.strip().replace("m=", "").replace("modo=", "")
-                      for p in mode_str.split("|")]
-            validas = [p for p in partes if p in MODOS]
-            if validas: mode_str = validas[-1]
         if mode_str is not None:
             if mode_str in MODOS:
                 modo = mode_str; print(f"[modo={modo}]")
@@ -1372,57 +1472,34 @@ if __name__ == "__main__":
 
         print("-" * 70)
 
-        if modo in ("recursivo", "recursivo_profundo"):
-            motor.max_depth   = 2 if modo == "recursivo" else 3
-            motor.max_refinos = 2 if modo == "recursivo" else 3
-            motor.strategy    = "hibrido"
+        if ultimo_par is not None:
+            pergunta_ant, resposta_ant = ultimo_par
+            reward = difusao.observar(
+                pergunta_ant, resposta_ant,
+                continuou=True, proxima_entrada=entrada)
+            if abs(reward) > 0.3:
+                sinal = "✓" if reward > 0 else "✗"
+                print(f"  [aprendizado] {sinal} anterior reward={reward:+.2f}")
+
+        if modo == "recursivo":
             resposta = motor.raciocinar(
                 entrada,
                 cache_memoria=cache_memoria,
                 temperatura=temperatura,
                 alpha=alpha,
                 janela_ctx=janela_ctx,
-                seeds_usados=seeds_usados,
-                linhas_recentes=linhas_usadas,
                 ultimo_par=ultimo_par,
-                sub_modo="rag",
             )
             if motor._trace:
-                print(f"  [motor] {motor._calls} subcalls | "
+                print(f"  [motor] {motor._calls} chamadas | "
                       f"{len(motor._trace)} passos")
-                for tipo, q, r in motor._trace[-3:]:
-                    print(f"    · {tipo}: '{q[:42]}' → '{r[:42]}'")
-
         elif modo == "denso":
-            motor.strategy = "denso"
-            motor.verbose  = True
-            resposta = motor.raciocinar(
+            resposta = motor._raciocinar_denso(
                 entrada,
-                cache_memoria=cache_memoria,
-                temperatura=temperatura,
-                alpha=alpha,
-                janela_ctx=janela_ctx,
-                ultimo_par=ultimo_par,
-                sub_modo="rag",
-            )
-            print(f"  [denso] {motor._calls} subcalls")
-
-        elif modo == "hibrido_denso":
-            motor.strategy = "hibrido_denso"
-            motor.verbose  = True
-            resposta = motor.raciocinar(
-                entrada,
-                cache_memoria=cache_memoria,
-                temperatura=temperatura,
-                alpha=alpha,
-                janela_ctx=janela_ctx,
-                seeds_usados=seeds_usados,
-                linhas_recentes=linhas_usadas,
-                ultimo_par=ultimo_par,
-                sub_modo="rag",
-            )
-            print(f"  [hibrido_denso] {motor._calls} subcalls")
-
+                {"cache_memoria": cache_memoria, "temperatura": temperatura,
+                 "alpha": alpha, "janela_ctx": janela_ctx,
+                 "ultimo_par": ultimo_par})
+            print(f"  [denso] {motor._calls} chamadas")
         else:
             resposta = rlm.perceber(
                 entrada,
@@ -1433,7 +1510,6 @@ if __name__ == "__main__":
                 modo=modo,
                 janela_ctx=janela_ctx,
                 seeds_usados=seeds_usados if modo == "responder" else None,
-                linhas_recentes=linhas_usadas if modo == "rag" else None,
                 ultimo_par=ultimo_par,
             )
 
@@ -1443,25 +1519,21 @@ if __name__ == "__main__":
             print("\nRLM  > [Silêncio]")
         else:
             print(f"\nRLM  > {resposta}")
-
             stopwords = {"o", "a", "de", "que", "e", "do", "da", "em", "um",
                          "uma", "para", "com", "não", "sim", "você", "eu",
                          "tá", "é", "se", "por", "os", "as", "no", "na"}
             cache_memoria = (set(re.findall(r'\b\w+\b',
                                            (entrada + " " + resposta).lower()))
                              - stopwords)
-
-            if modo == "responder" and resposta:
-                seeds_usados.add(rlm._hash(resposta.split()[0].lower()))
-                if len(seeds_usados) > 8: seeds_usados.pop()
-
-            if modo == "rag":
-                info = getattr(rlm, "_last_rag_info", {})
-                if info.get("top_idx") is not None:
-                    linhas_usadas.append(info["top_idx"])
-                    if len(linhas_usadas) > 6:
-                        linhas_usadas.pop(0)
-
             ultimo_par = (entrada, resposta)
+
+        if (difusao.total_interacoes > 0
+                and difusao.total_interacoes % 3 == 0):
+            n_paths, novas = difusao.aprender()
+            if n_paths > 0 or novas:
+                print(f"  [difusão] {n_paths} caminhos, "
+                      f"{len(novas)} linha(s) sintetizada(s)")
+                for l in novas:
+                    print(f"    ✨ aprendi: '{l[:60]}'")
 
         print("-" * 70)
